@@ -112,6 +112,7 @@
     <string name="error_success_marker">Exploit success markers were not found</string>
     <string name="error_ksu_stage">KernelSU staging failed: %1$s</string>
     <string name="error_ksu_verify">KernelSU late-load or control verification failed (rc=%1$d): %2$s</string>
+    <string name="error_helper_timeout">KernelSU helper did not exit within 120 seconds%1$s</string>
     <string name="error_boot_id">Unable to read the current boot_id</string>
     <string name="error_receipt">Unable to save the installation verification receipt</string>
 
