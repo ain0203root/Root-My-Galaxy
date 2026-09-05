@@ -11,7 +11,7 @@ from device offsets, native exploit payloads, and KernelSU build artifacts.
 [Latest release](https://github.com/BuSung-dev/Root-My-Galaxy/releases)
 
 The device feed and native payloads are maintained in
-[Root-My-Galaxy-Payloads](https://github.com/BuSung-dev/Root-My-Galaxy-Payloads).
+[Root-My-Galaxy-Payloads](https://github.com/ain0203root/Root-My-Galaxy-Payloads).
 
 ## Application
 
@@ -44,5 +44,10 @@ Output:
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
+
+### CI
+
+Every push starts the CI Build workflow, which builds the debug APK with `assembleDebug`.
+The CI APK is uploaded as the `app-debug` Actions artifact and is separate from Release builds.
 
 Use only on devices you own or are explicitly authorized to test.
