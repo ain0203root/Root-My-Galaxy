@@ -1,0 +1,1 @@
+See forensic-debug.yml. It applies tools/forensic/apply_forensic_trace.py, builds the diagnostic APK, and uploads it as a workflow artifact.
