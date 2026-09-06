@@ -8,22 +8,55 @@ on:
 permissions:
   contents: read
 
+env:
+  GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=true
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+concurrency:
+  group: forensic-release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-forensic-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Prepare Android toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "${SDKMANAGER}" ]]; then
+            SDKMANAGER="${ANDROID_HOME}/cmdline-tools/20.0/bin/sdkmanager"
+          fi
+          yes | "${SDKMANAGER}" --licenses >/dev/null || true
+          "${SDKMANAGER}" "platform-tools" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
 
-      - name: Install Android toolchain
-        run: sdkmanager "platform-tools" "platforms;android-37" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+          PLATFORM_DIR="${ANDROID_HOME}/platforms/android-37.0"
+          PLATFORM_ZIP="${RUNNER_TEMP}/platform-37.0_r02.zip"
+          rm -rf "${PLATFORM_DIR}"
+          mkdir -p "${PLATFORM_DIR}"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -o "${PLATFORM_ZIP}" \
+            "https://dl.google.com/android/repository/platform-37.0_r02.zip"
+          echo "ed8ebf7f8822a4de5686d427f237d2fa30ff7410  ${PLATFORM_ZIP}" | sha1sum -c -
+          unzip -q "${PLATFORM_ZIP}" -d "${RUNNER_TEMP}/android-platform-37"
+          test -d "${RUNNER_TEMP}/android-platform-37/android-37.0"
+          cp -a "${RUNNER_TEMP}/android-platform-37/android-37.0/." "${PLATFORM_DIR}/"
+          test -f "${PLATFORM_DIR}/android.jar"
+          printf 'Pkg.Desc=Android SDK Platform 37.0\nPkg.Path=platforms;android-37.0\nPkg.Revision=2\nAndroidVersion.ApiLevel=37\n' \
+            > "${PLATFORM_DIR}/source.properties"
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
