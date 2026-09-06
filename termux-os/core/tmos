@@ -1,0 +1,83 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+TMOS_HOME="${TMOS_HOME:-$HOME/.tmos}"
+STATE="$TMOS_HOME/state"
+LOGS="$TMOS_HOME/logs"
+RUN="$TMOS_HOME/run"
+SERVICES="$TMOS_HOME/services"
+BIN="$TMOS_HOME/bin"
+mkdir -p "$STATE" "$LOGS" "$RUN" "$SERVICES" "$BIN"
+
+now(){ date '+%Y-%m-%dT%H:%M:%S%z'; }
+log(){ printf '%s %s\n' "$(now)" "$*" | tee -a "$LOGS/tmos.log" >/dev/null; }
+json(){ python "$TMOS_HOME/tmosd.py" json "$@"; }
+
+cmd_init(){
+  touch "$LOGS/events.jsonl"
+  printf '%s\n' "1" > "$STATE/schema"
+  printf '%s\n' "$(now)" > "$STATE/initialized_at"
+  log "initialized"
+}
+
+cmd_status(){ json status; }
+cmd_doctor(){ json doctor; }
+cmd_event(){ json event "$*"; }
+cmd_services(){ json services; }
+cmd_start(){ json start "$2"; }
+cmd_stop(){ json stop "$2"; }
+cmd_restart(){ json restart "$2"; }
+cmd_logs(){
+  local n="${2:-80}"
+  tail -n "$n" "$LOGS/tmos.log" 2>/dev/null || true
+  tail -n "$n" "$LOGS/events.jsonl" 2>/dev/null || true
+}
+cmd_shell(){
+  export TMOS_ACTIVE=1
+  export PS1='[TMOS] \u@\h:\w\$ '
+  exec bash -l
+}
+cmd_selftest(){
+  set +e
+  "$0" doctor
+  local rc=$?
+  set -e
+  [[ $rc -eq 0 ]] || exit $rc
+  python -m py_compile "$TMOS_HOME/tmosd.py"
+  bash -n "$0" "$TMOS_HOME/../"*/bootstrap.sh 2>/dev/null || true
+  log "selftest ok"
+}
+
+usage(){ cat <<'EOF'
+tmos — Termux OS control plane
+
+Usage:
+  tmos init
+  tmos status
+  tmos doctor
+  tmos services
+  tmos start <service>
+  tmos stop <service>
+  tmos restart <service>
+  tmos logs [lines]
+  tmos event <message>
+  tmos shell
+  tmos selftest
+EOF
+}
+
+case "${1:-}" in
+  init) cmd_init ;;
+  status) cmd_status ;;
+  doctor) cmd_doctor ;;
+  services) cmd_services ;;
+  start) cmd_start "$@" ;;
+  stop) cmd_stop "$@" ;;
+  restart) cmd_restart "$@" ;;
+  logs) cmd_logs "$@" ;;
+  event) shift; cmd_event "$*" ;;
+  shell) cmd_shell ;;
+  selftest) cmd_selftest ;;
+  *) usage; exit 2 ;;
+esac
