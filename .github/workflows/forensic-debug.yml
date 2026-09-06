@@ -41,7 +41,7 @@ jobs:
           echo "Using sdkmanager: ${SDKMANAGER}"
           "${SDKMANAGER}" --update || true
           yes | "${SDKMANAGER}" --licenses >/dev/null || true
-          "${SDKMANAGER}" "platform-tools" "platforms;android-37" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+          "${SDKMANAGER}" --channel=1 "platform-tools" "platforms;android-37" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
       - name: Make Gradle executable
         run: chmod +x ./gradlew
       - name: Apply forensic instrumentation
@@ -64,8 +64,6 @@ jobs:
       - name: Upload build metadata
         uses: actions/upload-artifact@v4
         with:
-          name: root-my-galaxy-forensic-release-metadata
-          path: |
             app/build/outputs/mapping/release/**
             app/build/outputs/logs/**
           if-no-files-found: ignore
