@@ -61,17 +61,51 @@ jobs:
         run: python3 tools/forensic/apply_forensic_trace.py tools/forensic/ForensicTrace.kt
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
-      - name: Verify APK exists
-        run: test -s app/build/outputs/apk/release/app-release-unsigned.apk
-      - name: Generate APK checksum
-        run: sha256sum app/build/outputs/apk/release/app-release-unsigned.apk | tee app-release-unsigned.sha256
-      - name: Upload release APK
+      - name: Create dedicated forensic signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v \
+            -keystore "${RUNNER_TEMP}/rmg-forensic.jks" \
+            -storetype JKS \
+            -storepass 'rmg-forensic' \
+            -keypass 'rmg-forensic' \
+            -alias rmg-forensic \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 3650 \
+            -dname 'CN=Root My Galaxy Forensic, O=ain0203root, C=DE'
+      - name: Zipalign and sign APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          UNSIGNED="app/build/outputs/apk/release/app-release-unsigned.apk"
+          ALIGNED="${RUNNER_TEMP}/app-release-aligned.apk"
+          SIGNED="app/build/outputs/apk/release/root-my-galaxy-forensic-release.apk"
+          "${ANDROID_HOME}/build-tools/35.0.0/zipalign" -p -f 4 "${UNSIGNED}" "${ALIGNED}"
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" sign \
+            --ks "${RUNNER_TEMP}/rmg-forensic.jks" \
+            --ks-pass pass:rmg-forensic \
+            --key-pass pass:rmg-forensic \
+            --ks-key-alias rmg-forensic \
+            --out "${SIGNED}" \
+            "${ALIGNED}"
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "${SIGNED}"
+      - name: Generate installable APK checksum and certificate fingerprint
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIGNED="app/build/outputs/apk/release/root-my-galaxy-forensic-release.apk"
+          sha256sum "${SIGNED}" | tee root-my-galaxy-forensic-release.sha256
+          "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --print-certs "${SIGNED}" | tee root-my-galaxy-forensic-release-certs.txt
+      - name: Upload installable release APK
         uses: actions/upload-artifact@v4
         with:
-          name: root-my-galaxy-forensic-release
+          name: root-my-galaxy-forensic-installable
           path: |
-            app/build/outputs/apk/release/app-release-unsigned.apk
-            app-release-unsigned.sha256
+            app/build/outputs/apk/release/root-my-galaxy-forensic-release.apk
+            root-my-galaxy-forensic-release.sha256
+            root-my-galaxy-forensic-release-certs.txt
           if-no-files-found: error
           retention-days: 14
       - name: Upload build metadata
