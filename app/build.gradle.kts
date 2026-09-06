@@ -15,6 +15,9 @@ android {
         versionName = "0.2.65"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        buildConfigField("boolean", "FORENSIC_BUILD", (System.getenv("RMG_FORENSIC_BUILD") ?: "false"))
+        buildConfigField("String", "FORENSIC_PAYLOAD_SOURCE", "\"${System.getenv("RMG_FORENSIC_PAYLOAD_SOURCE") ?: "none"}\"")
+
         ndk {
             abiFilters += "arm64-v8a"
         }
