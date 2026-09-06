@@ -1,0 +1,15 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -Eeuo pipefail
+
+TMOS_HOME="${TMOS_HOME:-$HOME/.tmos}"
+DAEMON="$TMOS_HOME/tmosd.py"
+
+case "${1:-}" in
+  exec) shift; exec python "$DAEMON" exec "$@" ;;
+  snapshot) exec python "$DAEMON" snapshot ;;
+  health) exec python "$DAEMON" health ;;
+  *)
+    printf '%s\n' 'tmosctl exec|snapshot|health'
+    exit 2
+    ;;
+esac
