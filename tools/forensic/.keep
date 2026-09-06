@@ -1,0 +1,1 @@
+Diagnostic tooling lives in this directory; the build workflow applies it transiently to the app source.
