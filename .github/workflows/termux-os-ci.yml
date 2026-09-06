@@ -1,0 +1,24 @@
+name: Termux OS CI
+
+on:
+  push:
+    paths:
+      - 'termux-os/**'
+  pull_request:
+    paths:
+      - 'termux-os/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Shell syntax
+        run: bash termux-os/tests/test_shell.sh
+      - name: Python compile
+        run: python -m py_compile termux-os/core/tmosd.py termux-os/tests/test_python.py
+      - name: Python smoke tests
+        run: pytest -q termux-os/tests/test_python.py
