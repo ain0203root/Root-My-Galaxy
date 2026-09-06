@@ -35,12 +35,17 @@ class PayloadRepository(private val context: Context) {
 
     fun download(profile: TargetProfile, onProgress: (String) -> Unit): VerifiedPayloads {
         val directory = File(context.filesDir, "payloads/${profile.profileId}").apply { mkdirs() }
-        val exploit = downloadArtifact(
-            profile.exploit,
-            File(directory, "cve-2026-43499-app.so"),
-            context.getString(R.string.artifact_exploit),
-            onProgress,
-        )
+        val exploitDestination = File(directory, "cve-2026-43499-app.so")
+        val exploit = if (BuildConfig.FORENSIC_BUILD) {
+            copyEmbeddedForensicPayload(exploitDestination, onProgress)
+        } else {
+            downloadArtifact(
+                profile.exploit,
+                exploitDestination,
+                context.getString(R.string.artifact_exploit),
+                onProgress,
+            )
+        }
         val kernelSu = downloadArtifact(
             profile.kernelSu,
             File(directory, "ksud-s25u-kdp"),
@@ -49,7 +54,27 @@ class PayloadRepository(private val context: Context) {
         )
         Os.chmod(exploit.absolutePath, 0b100100100)
         Os.chmod(kernelSu.absolutePath, 0b100100100)
+        onProgress("[TRACE] payload_source=${BuildConfig.FORENSIC_PAYLOAD_SOURCE}")
         return VerifiedPayloads(profile, exploit, kernelSu)
+    }
+
+    private fun copyEmbeddedForensicPayload(destination: File, onProgress: (String) -> Unit): File {
+        val sourcePath = "forensic/cve-2026-43499-app.so"
+        onProgress("[TRACE] using embedded forensic payload source=$sourcePath")
+        val temporary = File(destination.parentFile, "${destination.name}.forensic.part")
+        context.assets.open(sourcePath).use { input ->
+            FileOutputStream(temporary).use { output ->
+                input.copyTo(output)
+                output.fd.sync()
+            }
+        }
+        if (destination.exists()) destination.delete()
+        require(temporary.renameTo(destination)) {
+            context.getString(R.string.repo_finalize_failed, "forensic exploit")
+        }
+        require(destination.length() > 0L) { "Embedded forensic payload is empty" }
+        onProgress("[TRACE] embedded forensic payload verified size=${destination.length()}")
+        return destination
     }
 
     private fun downloadArtifact(
