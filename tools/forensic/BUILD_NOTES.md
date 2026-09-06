@@ -1,0 +1,1 @@
+The forensic workflow is intentionally build-time instrumentation: it copies the recorder into the app package sources, patches the orchestration classes in the workflow workspace, runs `git diff --check`, then builds `:app:assembleDebug`. The checked-in production sources are not silently rewritten by the diagnostic workflow.
