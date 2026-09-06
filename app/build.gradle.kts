@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "dev.busung.s25uroot"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "dev.busung.s25uroot"
