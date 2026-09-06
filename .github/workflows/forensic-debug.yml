@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
@@ -39,8 +39,9 @@ jobs:
             SDKMANAGER="${ANDROID_HOME}/cmdline-tools/20.0/bin/sdkmanager"
           fi
           echo "Using sdkmanager: ${SDKMANAGER}"
+          "${SDKMANAGER}" --update || true
           yes | "${SDKMANAGER}" --licenses >/dev/null || true
-          "${SDKMANAGER}" "platform-tools" "platforms;android-36" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+          "${SDKMANAGER}" "platform-tools" "platforms;android-37" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
       - name: Make Gradle executable
         run: chmod +x ./gradlew
       - name: Apply forensic instrumentation
