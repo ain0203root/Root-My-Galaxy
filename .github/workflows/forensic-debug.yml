@@ -30,7 +30,7 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - name: Prepare Android SDK manager
+      - name: Prepare Android toolchain
         shell: bash
         run: |
           set -euo pipefail
@@ -38,11 +38,24 @@ jobs:
           if [[ ! -x "${SDKMANAGER}" ]]; then
             SDKMANAGER="${ANDROID_HOME}/cmdline-tools/20.0/bin/sdkmanager"
           fi
-          echo "Using sdkmanager: ${SDKMANAGER}"
           "${SDKMANAGER}" --update || true
           yes | "${SDKMANAGER}" --licenses >/dev/null || true
-          "${SDKMANAGER}" --channel=1 "platform-tools" "platforms;android-37.0" "build-tools;37.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
-          test -f "${ANDROID_HOME}/platforms/android-37.0/android.jar"
+          "${SDKMANAGER}" "platform-tools" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+
+          PLATFORM_DIR="${ANDROID_HOME}/platforms/android-37.0"
+          PLATFORM_ZIP="${RUNNER_TEMP}/platform-37.0_r02.zip"
+          rm -rf "${PLATFORM_DIR}"
+          mkdir -p "${PLATFORM_DIR}"
+          curl --fail --location --retry 3 --retry-delay 2 \
+            -o "${PLATFORM_ZIP}" \
+            "https://dl.google.com/android/repository/platform-37.0_r02.zip"
+          echo "ed8ebf7f8822a4de5686d427f237d2fa30ff7410  ${PLATFORM_ZIP}" | sha1sum -c -
+          unzip -q "${PLATFORM_ZIP}" -d "${RUNNER_TEMP}/android-platform-37"
+          test -d "${RUNNER_TEMP}/android-platform-37/android-37.0"
+          cp -a "${RUNNER_TEMP}/android-platform-37/android-37.0/." "${PLATFORM_DIR}/"
+          test -f "${PLATFORM_DIR}/android.jar"
+          printf 'Pkg.Desc=Android SDK Platform 37.0\nPkg.Path=platforms;android-37.0\nPkg.Revision=2\nAndroidVersion.ApiLevel=37\n' \
+            > "${PLATFORM_DIR}/source.properties"
       - name: Make Gradle executable
         run: chmod +x ./gradlew
       - name: Apply forensic instrumentation
