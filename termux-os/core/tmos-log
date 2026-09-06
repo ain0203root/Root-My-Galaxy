@@ -1,0 +1,15 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -Eeuo pipefail
+
+TMOS_HOME="${TMOS_HOME:-$HOME/.tmos}"
+LOG_DIR="$TMOS_HOME/logs"
+mkdir -p "$LOG_DIR"
+
+level="INFO"
+case "${1:-}" in
+  -l|--level) level="${2:-INFO}"; shift 2 ;;
+esac
+
+message="${*:-event}"
+printf '%s\t%s\t%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$level" "$message" | tee -a "$LOG_DIR/console.log"
+python "$TMOS_HOME/tmosd.py" event "[$level] $message" >/dev/null
