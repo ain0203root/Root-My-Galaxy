@@ -12,6 +12,7 @@ env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=true
   ANDROID_HOME: /usr/local/lib/android/sdk
   ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+  RMG_FORENSIC_BUILD: "true"
 
 concurrency:
   group: forensic-release-${{ github.ref }}
@@ -58,6 +59,29 @@ jobs:
           printf 'Pkg.Desc=Android SDK Platform 37.0\nPkg.Path=platforms;android-37.0\nPkg.Revision=2\nAndroidVersion.ApiLevel=37\n' \
             > "${PLATFORM_DIR}/source.properties"
 
+      - name: Build forensic payload from the user's Payloads repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${RUNNER_TEMP}/Root-My-Galaxy-Payloads"
+          git clone --depth 1 --branch forensic-trace \
+            https://github.com/ain0203root/Root-My-Galaxy-Payloads.git \
+            "${RUNNER_TEMP}/Root-My-Galaxy-Payloads"
+          cd "${RUNNER_TEMP}/Root-My-Galaxy-Payloads"
+          PAYLOAD_COMMIT="$(git rev-parse HEAD)"
+          echo "RMG_FORENSIC_PAYLOAD_SOURCE=${PAYLOAD_COMMIT}" >> "$GITHUB_ENV"
+          export ANDROID_NDK_HOME="${ANDROID_HOME}/ndk/28.0.13004108"
+          make TARGET="r12s-S721BXXSCDZF3" ANDROID_NDK_HOME="$ANDROID_NDK_HOME" forensic
+          test -s "build/r12s-S721BXXSCDZF3/cve-2026-43499-app.forensic.so"
+          strings "build/r12s-S721BXXSCDZF3/cve-2026-43499-app.forensic.so" | grep -Eq '\[FT-CMP\]|\[FT-PC\]'
+          mkdir -p "${GITHUB_WORKSPACE}/app/src/main/assets/forensic"
+          cp "build/r12s-S721BXXSCDZF3/cve-2026-43499-app.forensic.so" \
+            "${GITHUB_WORKSPACE}/app/src/main/assets/forensic/cve-2026-43499-app.so"
+          printf 'payload_repo=ain0203root/Root-My-Galaxy-Payloads\npayload_branch=forensic-trace\npayload_commit=%s\ntarget=r12s-S721BXXSCDZF3\nartifact=cve-2026-43499-app.forensic.so\n' \
+            "$PAYLOAD_COMMIT" > "${GITHUB_WORKSPACE}/app/src/main/assets/forensic/payload-source.txt"
+          sha256sum "build/r12s-S721BXXSCDZF3/cve-2026-43499-app.forensic.so" \
+            > "${GITHUB_WORKSPACE}/app/src/main/assets/forensic/payload-sha256.txt"
+
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
@@ -88,15 +112,20 @@ jobs:
       - name: Build signed release APK
         run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
 
-      - name: Verify signed APK
+      - name: Verify signed APK and embedded forensic payload
         shell: bash
         run: |
           set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
+          test -s "app/src/main/assets/forensic/cve-2026-43499-app.so"
+          unzip -l "$APK" | grep -F 'assets/forensic/cve-2026-43499-app.so'
+          unzip -p "$APK" 'assets/forensic/cve-2026-43499-app.so' > "${RUNNER_TEMP}/embedded-forensic.so"
+          cmp "${RUNNER_TEMP}/embedded-forensic.so" "app/src/main/assets/forensic/cve-2026-43499-app.so"
           "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           sha256sum "$APK" | tee root-my-galaxy-forensic-release.sha256
           "${ANDROID_HOME}/build-tools/35.0.0/apksigner" verify --print-certs "$APK" | tee root-my-galaxy-forensic-release-certs.txt
+          sha256sum "app/src/main/assets/forensic/cve-2026-43499-app.so" | tee root-my-galaxy-forensic-payload.sha256
 
       - name: Upload installable release APK
         uses: actions/upload-artifact@v4
@@ -106,5 +135,7 @@ jobs:
             app/build/outputs/apk/release/app-release.apk
             root-my-galaxy-forensic-release.sha256
             root-my-galaxy-forensic-release-certs.txt
+            root-my-galaxy-forensic-payload.sha256
+            app/src/main/assets/forensic/payload-source.txt
           if-no-files-found: error
           retention-days: 30
