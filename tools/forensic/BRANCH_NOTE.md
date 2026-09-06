@@ -1,0 +1,1 @@
+forensic-trace contains diagnostic-only instrumentation and a build-time patcher. Production source and release artifacts remain the baseline.
