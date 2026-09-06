@@ -1,0 +1,33 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -Eeuo pipefail
+
+: "${TMOS_AI_URL:=https://api.openai.com/v1/responses}"
+: "${TMOS_AI_MODEL:=}":
+
+usage(){
+  cat <<'EOF'
+usage: tmos-ai <prompt>
+
+Environment:
+  TMOS_AI_URL      Responses-compatible endpoint
+  TMOS_AI_MODEL    model identifier
+  TMOS_AI_KEY      API credential
+EOF
+}
+
+prompt="${*:-}"
+[[ -n "$prompt" ]] || { usage; exit 2; }
+[[ -n "${TMOS_AI_KEY:-}" ]] || { printf '%s\n' 'TMOS_AI_KEY is not set'; exit 1; }
+[[ -n "$TMOS_AI_MODEL" ]] || { printf '%s\n' 'TMOS_AI_MODEL is not set'; exit 1; }
+
+payload=$(python - "$TMOS_AI_MODEL" "$prompt" <<'PY'
+import json,sys
+model,prompt=sys.argv[1:]
+print(json.dumps({'model':model,'input':prompt}))
+PY
+)
+
+curl -fsS "$TMOS_AI_URL" \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TMOS_AI_KEY" \
+  -d "$payload"
