@@ -19,13 +19,18 @@ pkg_install(){
 main(){
   need_cmd pkg
   need_cmd bash
-  mkdir -p "$TMOS_HOME" "$TMOS_HOME/state" "$TMOS_HOME/logs" "$TMOS_HOME/run" "$TMOS_HOME/workspaces"
+  mkdir -p "$TMOS_HOME" "$TMOS_HOME/state" "$TMOS_HOME/logs" "$TMOS_HOME/run" "$TMOS_HOME/workspaces" "$TMOS_HOME/services"
 
-  pkg_install git python curl jq openssh tmux procps
+  pkg_install git python curl jq openssh tmux procps coreutils findutils grep sed gawk rsync zip unzip
 
   install -m 755 "$ROOT_DIR/core/tmos" "$TMOS_BIN/tmos"
   install -m 755 "$ROOT_DIR/core/tmosctl" "$TMOS_BIN/tmosctl"
+  install -m 755 "$ROOT_DIR/core/tmos-log" "$TMOS_BIN/tmos-log"
+  install -m 755 "$ROOT_DIR/core/tmos-ai" "$TMOS_BIN/tmos-ai"
+  install -m 755 "$ROOT_DIR/core/tmos-workspace" "$TMOS_BIN/tmos-workspace"
   install -m 755 "$ROOT_DIR/core/tmosd.py" "$TMOS_HOME/tmosd.py"
+  install -m 755 "$ROOT_DIR/install/termux-services.sh" "$TMOS_HOME/install-services.sh"
+  install -m 755 "$ROOT_DIR/install/shell-profile.sh" "$TMOS_HOME/install-shell-profile.sh"
   cp "$ROOT_DIR/profiles/default.env" "$TMOS_HOME/default.env"
   cp "$ROOT_DIR/profiles/services.conf" "$TMOS_HOME/services.conf"
 
@@ -38,10 +43,8 @@ export TMOS_CONFIG="${TMOS_CONFIG:-$HOME/.config/tmos/config}"
 export PATH="$HOME/.local/bin:${PATH}"
 EOF
 
-  if ! grep -q 'TMOS_HOME/.*/env' "$HOME/.bashrc" 2>/dev/null; then
-    printf '\n# Termux OS\n[ -f "$HOME/.tmos/env" ] && . "$HOME/.tmos/env"\n' >> "$HOME/.bashrc"
-  fi
-
+  "$TMOS_HOME/install-shell-profile.sh"
+  "$TMOS_HOME/install-services.sh"
   "$TMOS_BIN/tmos" init
   "$TMOS_BIN/tmos" doctor || true
   log "installed successfully; run: tmos status"
