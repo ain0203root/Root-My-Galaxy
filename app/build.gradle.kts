@@ -26,6 +26,27 @@ android {
         }
     }
 
+    signingConfigs {
+        val forensicKeystore = System.getenv("RMG_KEYSTORE_PATH")
+        if (!forensicKeystore.isNullOrBlank()) {
+            create("forensic") {
+                storeFile = file(forensicKeystore)
+                storePassword = System.getenv("RMG_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("RMG_KEY_ALIAS")
+                keyPassword = System.getenv("RMG_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            val forensicSigning = signingConfigs.findByName("forensic")
+            if (forensicSigning != null) {
+                signingConfig = forensicSigning
+            }
+        }
+    }
+
     buildFeatures {
         compose = true
         buildConfig = true
