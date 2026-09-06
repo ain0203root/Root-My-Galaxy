@@ -1,0 +1,1 @@
+Diagnostic branch created and populated with forensic tooling. The workflow applies app instrumentation at build time and produces a diagnostic APK.
