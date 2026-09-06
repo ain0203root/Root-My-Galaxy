@@ -10,6 +10,8 @@ permissions:
 
 env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=true
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
 concurrency:
   group: forensic-release-${{ github.ref }}
@@ -28,9 +30,17 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: gradle
-      - uses: android-actions/setup-android@v4
-      - name: Install Android build tools
-        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+      - name: Prepare Android SDK manager
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "${SDKMANAGER}" ]]; then
+            SDKMANAGER="${ANDROID_HOME}/cmdline-tools/20.0/bin/sdkmanager"
+          fi
+          echo "Using sdkmanager: ${SDKMANAGER}"
+          yes | "${SDKMANAGER}" --licenses >/dev/null || true
+          "${SDKMANAGER}" "platform-tools" "platforms;android-36" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
       - name: Make Gradle executable
         run: chmod +x ./gradlew
       - name: Apply forensic instrumentation
