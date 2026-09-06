@@ -1,0 +1,28 @@
+#!/data/data/com.termux/files/usr/bin/bash
+set -Eeuo pipefail
+
+TMOS_HOME="${TMOS_HOME:-$HOME/.tmos}"
+WORKSPACES="$TMOS_HOME/workspaces"
+mkdir -p "$WORKSPACES"
+
+name="${1:-default}"
+path="$WORKSPACES/$name"
+
+case "${2:-create}" in
+  create)
+    mkdir -p "$path/src" "$path/build" "$path/cache"
+    cat > "$path/.env" <<EOF
+export TMOS_WORKSPACE='$path'
+export PATH='$path/.bin:\$PATH'
+EOF
+    printf '%s\n' "$path" ;;
+  enter)
+    printf 'source %q\n' "$path/.env" ;;
+    printf 'cd %q\n' "$path/src" ;;
+    ;;
+  list)
+    find "$WORKSPACES" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort ;;
+  *)
+    printf '%s\n' 'usage: tmos-workspace [name] [create|enter|list]'
+    exit 2 ;;
+esac
