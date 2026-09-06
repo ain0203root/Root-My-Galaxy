@@ -38,7 +38,6 @@ jobs:
           if [[ ! -x "${SDKMANAGER}" ]]; then
             SDKMANAGER="${ANDROID_HOME}/cmdline-tools/20.0/bin/sdkmanager"
           fi
-          "${SDKMANAGER}" --update || true
           yes | "${SDKMANAGER}" --licenses >/dev/null || true
           "${SDKMANAGER}" "platform-tools" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
 
