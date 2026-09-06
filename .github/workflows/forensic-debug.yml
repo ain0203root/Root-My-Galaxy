@@ -41,7 +41,8 @@ jobs:
           echo "Using sdkmanager: ${SDKMANAGER}"
           "${SDKMANAGER}" --update || true
           yes | "${SDKMANAGER}" --licenses >/dev/null || true
-          "${SDKMANAGER}" --channel=1 "platform-tools" "platforms;android-37" "build-tools;35.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+          "${SDKMANAGER}" --channel=1 "platform-tools" "platforms;android-37.0" "build-tools;37.0.0" "cmake;3.22.1" "ndk;28.0.13004108"
+          test -f "${ANDROID_HOME}/platforms/android-37.0/android.jar"
       - name: Make Gradle executable
         run: chmod +x ./gradlew
       - name: Apply forensic instrumentation
