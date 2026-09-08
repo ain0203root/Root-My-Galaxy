@@ -7,6 +7,11 @@ on:
     paths:
       - 'README.md'
       - '.github/workflows/ci.yml'
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradle/**'
   workflow_dispatch:
 
 permissions:
