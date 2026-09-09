@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   publish-existing-s24fe-artifact:
-    if: github.event_name == 'push' && github.sha == 'f064f7115d61194074c904eb60bb98746f3d2f7f'
+    if: github.event_name == 'push' && github.sha == '1997b881a082cd89b1985f82332f55f60ababd9b'
     name: Publish existing S24 FE CI artifact
     runs-on: ubuntu-latest
     steps:
