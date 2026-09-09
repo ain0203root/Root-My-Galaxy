@@ -1,0 +1,73 @@
+name: Experimental S24 FE Release
+
+on:
+  push:
+    branches:
+      - experimental-s24fe-release
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish experimental S24 FE APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android build tools
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1"
+
+      - name: Set up NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r28
+
+      - name: Build APK
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK and generate checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          cp app/build/outputs/apk/debug/app-debug.apk \
+            release/Root-My-Galaxy-S24FE-S721BXXSDDZG1-Experimental.apk
+          sha256sum release/Root-My-Galaxy-S24FE-S721BXXSDDZG1-Experimental.apk \
+            | tee release/Root-My-Galaxy-S24FE-S721BXXSDDZG1-Experimental.apk.sha256
+
+      - name: Create experimental GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG_NAME="s24fe-june-s721b-dzg1-experimental"
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release delete "$TAG_NAME" --yes --cleanup-tag
+          fi
+
+          gh release create "$TAG_NAME" \
+            release/Root-My-Galaxy-S24FE-S721BXXSDDZG1-Experimental.apk \
+            release/Root-My-Galaxy-S24FE-S721BXXSDDZG1-Experimental.apk.sha256 \
+            --title "Experimental Samsung S24 FE — June Profile (S721BXXSDDZG1)" \
+            --prerelease \
+            --notes "## Extremely experimental build\n\nThis is an **extremely experimental profile build for the Samsung Galaxy S24 FE (S721BXXSDDZG1, June firmware)**.\n\nThe profile is not considered stable and **does not work reliably every time**. Rooting may fail on some attempts, so use this build for testing only.\n\n### Target device\n- Samsung Galaxy S24 FE\n- Firmware: **S721BXXSDDZG1**\n- Firmware month: **June**\n\n### Status\n- Experimental / testing only\n- Success is not guaranteed\n- Expect failures and inconsistent results\n\nThe APK is a debug build and is signed with the standard Android debug signing key."
