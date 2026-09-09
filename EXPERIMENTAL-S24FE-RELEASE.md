@@ -1,0 +1,1 @@
+This branch exists only to publish the extremely experimental Samsung Galaxy S24 FE June-profile build for S721BXXSDDZG1.
