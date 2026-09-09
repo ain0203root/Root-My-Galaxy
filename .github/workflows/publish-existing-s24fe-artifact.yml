@@ -1,0 +1,52 @@
+name: Publish existing S24 FE artifact
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-existing-s24fe-artifact.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download existing CI artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ain0203root/Root-My-Galaxy
+          run-id: 34198115865
+          name: app-debug
+          path: artifact
+
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find artifact -type f -name '*.apk' -print -quit)"
+          SHA="$(find artifact -type f -name '*.sha256' -print -quit)"
+          test -n "$APK"
+          TAG="s24fe-june-s721bxxsddzg1-experimental"
+          NOTES=$(cat <<'EOF'
+## Extremely Experimental Samsung Galaxy S24 FE Profile
+
+This is an **extremely experimental** build for the **Samsung Galaxy S24 FE** using the June firmware profile:
+
+**Firmware:** `S721BXXSDDZG1`
+
+This profile is **not reliable and does not work every time**. Successful exploitation/root acquisition is not guaranteed. Expect failures and use this build strictly for testing.
+
+This APK is taken directly from the existing GitHub Actions CI artifact from run `34198115865`.
+EOF
+)
+          gh release create "$TAG" "$APK" "$SHA" \
+            --repo ain0203root/Root-My-Galaxy \
+            --title "Experimental S24 FE — S721BXXSDDZG1 (June Profile)" \
+            --notes "$NOTES" \
+            --prerelease
