@@ -13,9 +13,15 @@ on:
       - 'gradle.properties'
       - 'gradle/**'
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish the freshly built APK as an experimental GitHub Release'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=true
@@ -75,3 +81,43 @@ jobs:
             app-debug.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish experimental release
+        if: contains(github.event.head_commit.message, '[release-s24fe]') || (github.event_name == 'workflow_dispatch' && inputs.publish_release == true)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="v0.2.65-s24fe-experimental"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          SHA="app-debug.sha256"
+          NOTES=$(cat <<'EOF'
+## Root My Galaxy · Experimental S24 FE Build
+
+This release contains a freshly built APK from the fork's `main` branch.
+
+### Current focus
+
+- Samsung Galaxy S24 FE research
+- S721B `6.1.157` profile work
+- TraceFS/KASLR diagnostics
+- fresh P0 session support
+- forensic diagnostic build infrastructure
+- optional offline payload mode
+- isolated experimental Canadian `SM-S721W` profile work
+
+### Important
+
+This is an **experimental engineering build**, not a universal root guarantee. Results can vary by exact model, firmware revision, execution context, payload state, and kernel memory layout.
+
+Use only on devices you own or are explicitly authorized to test.
+
+The APK is accompanied by a SHA-256 checksum for integrity verification.
+EOF
+)
+          gh release create "$TAG" "$APK" "$SHA" \
+            --repo ain0203root/Root-My-Galaxy \
+            --title "Root My Galaxy · v0.2.65 · Experimental S24 FE" \
+            --notes "$NOTES" \
+            --prerelease
