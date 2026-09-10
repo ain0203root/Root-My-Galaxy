@@ -32,17 +32,36 @@ jobs:
           APK="$(find artifact -type f -name '*.apk' -print -quit)"
           SHA="$(find artifact -type f -name '*.sha256' -print -quit)"
           test -n "$APK"
-          TAG="s24fe-june-s721bxxsddzg1-experimental"
+          TAG="s24fe-june-s721bxxsddzg1-experimental-v2"
           NOTES=$(cat <<'EOF'
-## Extremely Experimental Samsung Galaxy S24 FE Profile
+## Root My Galaxy — Experimental Samsung Galaxy S24 FE
 
-This is an **extremely experimental** build for the **Samsung Galaxy S24 FE** using the June firmware profile:
+A reproducible experimental build focused on the **Samsung Galaxy S24 FE** and its June firmware profile.
 
-**Firmware:** `S721BXXSDDZG1`
+### Target
 
-This profile is **not reliable and does not work every time**. Successful exploitation/root acquisition is not guaranteed. Expect failures and use this build strictly for testing.
+- **Device:** Samsung Galaxy S24 FE
+- **Model:** `SM-S721B`
+- **Firmware:** `S721BXXSDDZG1`
+- **Profile:** June / experimental
 
-This APK is taken directly from the existing GitHub Actions CI artifact from run `34198115865`.
+### Engineering highlights
+
+This fork is maintained as a research and diagnostics branch around the Root My Galaxy Android client and its device-specific payload infrastructure. Recent work includes:
+
+- dedicated S24 FE profile work around the `6.1.157` kernel family;
+- TraceFS/KASLR diagnostics and runtime evidence collection;
+- support for profiles that require a fresh P0 session;
+- forensic diagnostic APK builds and structured execution tracing;
+- optional offline payload packaging behind a Gradle build flag;
+- a separate payload repository with firmware-specific native artifacts and support metadata;
+- experimental Canadian `SM-S721W` profile work kept isolated from the known S721B profile.
+
+### Stability
+
+**Experimental. Not guaranteed to succeed.** Root acquisition is device-, firmware-, execution-path-, and payload-dependent. Use only on devices you own or are explicitly authorized to test.
+
+The attached APK is the existing CI artifact from workflow run `34198115865` and is not a claim of universal compatibility.
 EOF
 )
           gh release create "$TAG" "$APK" "$SHA" \
