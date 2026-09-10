@@ -118,7 +118,7 @@ app/build/outputs/apk/debug/app-debug.apk
 
 Experimental S24 FE APKs are published separately from ordinary CI artifacts. The repository also keeps reproducible Actions artifacts for debugging and validation.
 
-One existing experimental S24 FE APK artifact is `app-debug` from Actions run `34198115865`; it contains the APK plus a SHA-256 sidecar. The artifact was created from the June-profile S24 FE work and is intentionally described as experimental rather than universally compatible.
+The release workflow can publish a freshly built APK from `main` when explicitly requested, keeping ordinary CI builds separate from public experimental releases.
 
 ## Safety and scope
 
