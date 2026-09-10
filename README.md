@@ -9,11 +9,31 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ain0203root/Root-My-Galaxy/releases">Releases</a> ·
-  <a href="https://github.com/ain0203root/Root-My-Galaxy/actions">Actions</a> ·
-  <a href="https://github.com/ain0203root/Root-My-Galaxy-Payloads">Payloads</a> ·
-  <a href="https://github.com/BuSung-dev/Root-My-Galaxy/issues/622">S24 FE research</a>
+  <a href="https://github.com/ain0203root/Root-My-Galaxy/releases"><img src="https://img.shields.io/badge/⬇%20DOWNLOADS-Releases-2ea44f?style=for-the-badge&logo=github" alt="Releases" /></a>
+  <a href="https://github.com/ain0203root/Root-My-Galaxy/actions"><img src="https://img.shields.io/badge/CI-Actions-2088ff?style=for-the-badge&logo=githubactions" alt="Actions" /></a>
 </p>
+
+<p align="center">
+  <a href="https://github.com/ain0203root/Root-My-Galaxy-Payloads">Payloads</a> ·
+  <a href="https://github.com/BuSung-dev/Root-My-Galaxy/issues/622">S24 FE research</a> ·
+  <a href="https://github.com/ain0203root/Root-My-Galaxy/releases">All releases</a>
+</p>
+
+---
+
+## Releases
+
+<p align="center">
+  <a href="https://github.com/ain0203root/Root-My-Galaxy/releases">
+    <img src="https://img.shields.io/badge/VIEW%20ALL%20RELEASES-%E2%86%92-2ea44f?style=for-the-badge&logo=github" alt="View all releases" />
+  </a>
+</p>
+
+**Latest published build:** `Experimental Samsung S24 FE — June Profile (S721BXXSDDZG1)`
+
+The current published release is an **experimental debug APK** for the Samsung Galaxy S24 FE. It includes the APK and a SHA-256 companion file. The release is explicitly marked pre-release and is intended for testing rather than general production use.
+
+➡️ **[Open Releases and download the APK](https://github.com/ain0203root/Root-My-Galaxy/releases)**
 
 ---
 
