@@ -1,0 +1,87 @@
+name: Publish S24 FE APK Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/publish-s24fe-apk.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download existing CI APK
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          repository: ain0203root/Root-My-Galaxy
+          run-id: 34198115865
+          name: app-debug
+          path: artifact
+
+      - name: Inspect artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          find artifact -type f -maxdepth 5 -print
+          APK="$(find artifact -type f -name '*.apk' -print -quit)"
+          SHA="$(find artifact -type f -name '*.sha256' -print -quit)"
+          test -n "$APK"
+          test -n "$SHA"
+          printf 'APK=%s\n' "$APK"
+          printf 'SHA=%s\n' "$SHA"
+          cat "$SHA"
+
+      - name: Publish experimental release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$(find artifact -type f -name '*.apk' -print -quit)"
+          SHA="$(find artifact -type f -name '*.sha256' -print -quit)"
+          TAG="s24fe-june-s721b-dzg1-experimental-v2"
+          gh release create "$TAG" "$APK" "$SHA" \
+            --repo ain0203root/Root-My-Galaxy \
+            --title "Root My Galaxy · Experimental S24 FE · S721BXXSDDZG1" \
+            --notes-file <(cat <<'EOF'
+## Experimental Samsung Galaxy S24 FE
+
+> Research build — experimental and not guaranteed to root every device or every attempt.
+
+### Target
+
+- **Device:** Samsung Galaxy S24 FE
+- **Model:** `SM-S721B`
+- **Firmware:** `S721BXXSDDZG1`
+- **Kernel family:** `6.1.157`
+
+### What is in this fork
+
+This fork maintains the Android application side of Root My Galaxy alongside a separate device-specific payload repository. The current engineering work includes S24 FE profile development, TraceFS/KASLR diagnostics, fresh-P0-session handling, forensic execution tracing, reproducible CI artifacts, and an isolated experimental Canadian `SM-S721W` profile.
+
+### Engineering work
+
+- Backport of upstream fresh-P0-session support (`#613`) for profiles where a new P0 session must not be reused across attempts.
+- Diagnostic/forensic APK build path with structured application and native execution traces.
+- Optional offline payload mode from upstream `#570`, enabled only with `-PrmgOfflinePayloads=true`.
+- Firmware-specific payload and KernelSU artifacts maintained in `Root-My-Galaxy-Payloads`.
+- Experimental Canadian S24 FE work kept isolated from the verified S721B profile.
+
+### Evidence & stability
+
+The June S24 FE profile has been exercised on real hardware and documented through the upstream S24 FE research issue. Results vary with firmware, execution context, and payload state; this release should be treated as an engineering/test artifact rather than a universal one-click root guarantee.
+
+### APK provenance
+
+This APK is taken from GitHub Actions run `34198115865` and is published unchanged. A SHA-256 sidecar is included for integrity verification.
+
+Use only on devices you own or are explicitly authorized to test.
+EOF
+)
+            --prerelease
