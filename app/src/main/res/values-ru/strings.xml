@@ -112,6 +112,7 @@
     <string name="repo_commit_invalid">GitHub вернул некорректный SHA commit</string>
     <string name="repo_url_invalid">Этот репозиторий артефактов не разрешён</string>
     <string name="repo_response_too_large">Ответ превысил допустимый размер</string>
+    <string name="repo_api_limited">Достигнут лимит запросов GitHub; повторите попытку через несколько минут</string>
     <string name="open_github">Открыть GitHub</string>
     <string name="github_card_title">О проекте Root My Galaxy</string>
     <string name="github_card_description">Просмотреть исходный код и инструкции по использованию.</string>

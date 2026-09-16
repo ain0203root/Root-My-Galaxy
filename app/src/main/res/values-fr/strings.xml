@@ -109,6 +109,7 @@
     <string name="repo_commit_invalid">GitHub a renvoyé un SHA de commit invalide</string>
     <string name="repo_url_invalid">Le dépôt d\'artefacts n\'est pas autorisé</string>
     <string name="repo_response_too_large">La réponse a dépassé sa limite de taille</string>
+    <string name="repo_api_limited">La limite de requêtes GitHub est atteinte ; réessayez dans quelques minutes</string>
     <string name="open_github">Ouvrir GitHub</string>
     <string name="github_card_title">Explorer Root My Galaxy</string>
     <string name="github_card_description">Voir le code source et les instructions d\'utilisation.</string>

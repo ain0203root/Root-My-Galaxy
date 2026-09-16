@@ -116,6 +116,7 @@
     <string name="repo_commit_invalid">GitHub 傳回的 commit SHA 無效</string>
     <string name="repo_url_invalid">不允許的 artifact 儲存庫</string>
     <string name="repo_response_too_large">回應超過大小限制</string>
+    <string name="repo_api_limited">已達到 GitHub 請求速率上限；請幾分鐘後重試</string>
 
     <string name="open_github">開啟 GitHub</string>
     <string name="github_card_title">探索 Root My Galaxy</string>

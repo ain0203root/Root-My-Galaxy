@@ -103,6 +103,7 @@
     <string name="repo_commit_invalid">GitHub trả về commit SHA không hợp lệ</string>
     <string name="repo_url_invalid">Kho artifact không được phép</string>
     <string name="repo_response_too_large">Phản hồi vượt quá giới hạn kích thước</string>
+    <string name="repo_api_limited">Đã đạt giới hạn yêu cầu của GitHub; hãy thử lại sau vài phút</string>
     <string name="open_github">Mở GitHub</string>
     <string name="github_card_title">Khám phá Root My Galaxy</string>
     <string name="github_card_description">Xem mã nguồn và hướng dẫn sử dụng.</string>

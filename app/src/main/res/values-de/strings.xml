@@ -130,6 +130,7 @@
     <string name="repo_commit_invalid">GitHub hat einen ungültigen Commit-SHA zurückgegeben</string>
     <string name="repo_url_invalid">Das Artefakt-Repository ist nicht zulässig</string>
     <string name="repo_response_too_large">Die Antwort hat das Größenlimit überschritten</string>
+    <string name="repo_api_limited">GitHubs Ratenlimit wurde erreicht; versuche es in ein paar Minuten erneut</string>
     <string name="open_github">GitHub öffnen</string>
     <string name="github_card_title">Root My Galaxy erkunden</string>
     <string name="github_card_description">Quellcode und Nutzungshinweise ansehen.</string>

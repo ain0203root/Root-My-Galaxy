@@ -108,7 +108,16 @@ different ids and can be configured side by side, which is how a fixed feed and 
 compared in the selection sheet. Pinning is by commit rather than by tag even when the ref is a
 tag, because a tag can be moved onto a different commit, which would defeat the point.
 
-A ref is resolved to its commit by asking GitHub for `application/vnd.github.sha`, which
+A ref is resolved from `github.com/{owner}/{repo}/commits/{ref}.atom` where possible, which is the
+same list the repository page shows and is not subject to the sixty-requests-an-hour limit an
+unauthenticated REST client shares with every other app on the same address. That limit is what made
+adding or pinning a source fail with `HTTP 403` while the repository itself was perfectly readable,
+and it is spent by something the user cannot see. The first entry of a ref's feed *is* that ref's
+head, for a branch and for a tag alike, so resolution is the same read as the revision list. The REST
+API is kept as the fallback, both for the `application/vnd.github.sha` answer and, if that fails
+too, in the message: a limited API now says so rather than reporting a status number.
+
+A ref is also resolved to its commit by asking GitHub for `application/vnd.github.sha`, which
 answers with the 40-character commit and nothing else. Asking for the commit object instead was
 fragile in a way that had nothing to do with commits: that response carries the commit's file
 list, so a source whose newest commit touched enough files grew past the app's response limit and

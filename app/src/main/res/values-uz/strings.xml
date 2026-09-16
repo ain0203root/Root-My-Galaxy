@@ -127,6 +127,7 @@
     <string name="repo_commit_invalid">GitHub yaroqsiz commit SHA qaytardi</string>
     <string name="repo_url_invalid">Artefakt omboriga (repository) ruxsat berilmagan</string>
     <string name="repo_response_too_large">Javob hajmi belgilangan chegaradan oshib ketdi</string>
+    <string name="repo_api_limited">GitHub so\'rov chegarasiga yetildi; bir necha daqiqadan so\'ng qayta urinib ko\'ring</string>
     <string name="open_github">GitHub\'ni ochish</string>
     <string name="github_card_title">Root My Galaxy haqida ko\'proq ma\'lumot</string>
     <string name="github_card_description">Dastur manba kodi va foydalanish bo\'yicha ko\'rsatmalarni ko\'rib chiqing.</string>

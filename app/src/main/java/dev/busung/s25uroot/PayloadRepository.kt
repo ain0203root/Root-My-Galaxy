@@ -69,6 +69,38 @@ internal fun parseCommits(body: String, limit: Int = Int.MAX_VALUE): List<Source
 }
 
 /**
+ * The commits in a ref's atom feed, newest first.
+ *
+ * This is the same list the repository page shows, in the one form GitHub publishes without the
+ * REST API: each entry carries the commit in `Grit::Commit/<sha>`, its first line in the title and
+ * its date in `updated`. Entries that do not carry a full commit are dropped rather than listed,
+ * and a feed that cannot be read at all is an empty list, so the caller can fall back instead of
+ * failing on the format.
+ */
+internal fun parseCommitAtom(body: String, limit: Int = Int.MAX_VALUE): List<SourceRevision> {
+    if (!body.contains("<entry>")) return emptyList()
+    return buildList {
+        for (entry in ENTRY.findAll(body)) {
+            if (size >= limit) break
+            val block = entry.groupValues[1]
+            val commit = COMMIT_IN_ENTRY.find(block)?.groupValues?.get(1) ?: continue
+            if (!PayloadSource.isCommitValid(commit)) continue
+            val title = TITLE_IN_ENTRY.find(block)?.groupValues?.get(1).orEmpty()
+                .let { it.replace(WHITESPACE, " ").trim() }
+                .take(MESSAGE_MAX_LENGTH)
+            val date = UPDATED_IN_ENTRY.find(block)?.groupValues?.get(1).orEmpty().take(DATE_LENGTH)
+            add(SourceRevision(commit = commit, label = title, date = date))
+        }
+    }
+}
+
+private val ENTRY = Regex("<entry>(.*?)</entry>", RegexOption.DOT_MATCHES_ALL)
+private val COMMIT_IN_ENTRY = Regex("Grit::Commit/([0-9a-f]{40})")
+private val TITLE_IN_ENTRY = Regex("<title>(.*?)</title>", RegexOption.DOT_MATCHES_ALL)
+private val UPDATED_IN_ENTRY = Regex("<updated>(.*?)</updated>", RegexOption.DOT_MATCHES_ALL)
+private val WHITESPACE = Regex("\\s+")
+
+/**
  * The tags GitHub returns, as the picker lists them. A tag carries the commit it points at, which
  * is what gets pinned - a tag can be moved onto another commit, so it is never stored as a pin.
  */
@@ -297,19 +329,12 @@ class PayloadRepository(private val context: Context) {
      */
     fun resolveNamedRevision(repository: String, ref: String): String {
         val trimmed = ref.trim()
-        if (PayloadSource.isCommitValid(trimmed)) return trimmed.trim()
+        if (PayloadSource.isCommitValid(trimmed)) return trimmed
         require(PayloadSource.isRepositoryValid(repository)) {
             context.getString(R.string.payload_repository_invalid)
         }
         require(PayloadSource.isBranchValid(trimmed)) { context.getString(R.string.payload_branch_invalid) }
-        val response = downloadBytes(
-            repositoryCommitApiUrl(repository, trimmed),
-            MAX_COMMIT_RESPONSE_BYTES,
-            GITHUB_SHA_MEDIA_TYPE,
-        )
-        val commit = parseCommitResponse(response.toString(Charsets.UTF_8))
-        require(commit != null) { context.getString(R.string.repo_commit_invalid) }
-        return commit
+        return resolveRefToCommit(repository, trimmed)
     }
 
     /**
@@ -322,9 +347,43 @@ class PayloadRepository(private val context: Context) {
      */
     fun revisions(source: PayloadSource, limit: Int = DEFAULT_REVISION_COUNT): List<SourceRevision> {
         val tags = runCatching { tags(source, limit) }.getOrDefault(emptyList())
-        val commits = commits(source, limit)
+        val commits = runCatching { atomRevisions(source.repository, source.branch, limit) }
+            .getOrElse { commits(source, limit) }
         return tags + commits
     }
+
+    /**
+     * A ref resolved without the REST API where possible.
+     *
+     * `github.com/{owner}/{repo}/commits/{ref}.atom` answers with the ref's commits - the first of
+     * which is the ref's head - and is not subject to the 60-requests-an-hour limit an unauthenticated
+     * API client shares with every other app on the same address. That limit is not hypothetical:
+     * reaching it is what made adding a source and pinning one fail with `HTTP 403`, and it is spent
+     * by nothing the user can see. The API stays as the fallback, for a network where github.com is
+     * unreachable but api.github.com is not.
+     */
+    private fun resolveRefToCommit(repository: String, ref: String): String {
+        val fromAtom = runCatching { atomRevisions(repository, ref, 1) }.getOrNull()
+            ?.firstOrNull()
+            ?.commit
+        if (fromAtom != null && PayloadSource.isCommitValid(fromAtom)) return fromAtom
+
+        val response = downloadBytes(
+            repositoryCommitApiUrl(repository, ref),
+            MAX_COMMIT_RESPONSE_BYTES,
+            GITHUB_SHA_MEDIA_TYPE,
+        )
+        val commit = parseCommitResponse(response.toString(Charsets.UTF_8))
+        require(commit != null) { context.getString(R.string.repo_commit_invalid) }
+        return commit
+    }
+
+    private fun atomRevisions(repository: String, ref: String, limit: Int): List<SourceRevision> =
+        parseCommitAtom(
+            downloadBytes(atomCommitsUrl(repository, ref), MAX_LIST_RESPONSE_BYTES)
+                .toString(Charsets.UTF_8),
+            limit,
+        )
 
     private fun tags(source: PayloadSource, limit: Int): List<SourceRevision> = parseTags(
         downloadBytes(tagsApiUrl(source, limit), MAX_LIST_RESPONSE_BYTES).toString(Charsets.UTF_8),
@@ -340,31 +399,17 @@ class PayloadRepository(private val context: Context) {
     )
 
     private fun resolveCommit(source: PayloadSource): String {
-        // A pinned source is taken as written: no API call, so its catalog cannot move and it keeps
-        // loading when the API is rate limited or offline in every way except the raw download.
+        // A pinned source is taken as written: no network at all, so its catalog cannot move and it
+        // keeps loading in every way except the raw download.
         if (source.isPinned) return source.pinnedCommit
-        // `application/vnd.github.sha` answers with the 40-character commit and nothing else: 40
-        // bytes, against the tens of kilobytes a commit's own JSON carries once its file list is
-        // included. Asking for the commit object is what made a source unreadable once its newest
-        // commit touched enough files to exceed the response limit - the only part needed was the
-        // SHA, and the size of the response had nothing to do with it.
-        val response = downloadBytes(
-            commitApiUrl(source),
-            MAX_COMMIT_RESPONSE_BYTES,
-            GITHUB_SHA_MEDIA_TYPE,
-        )
-        val commit = parseCommitResponse(response.toString(Charsets.UTF_8))
-        require(commit != null) { context.getString(R.string.repo_commit_invalid) }
-        return commit
+        return resolveRefToCommit(source.repository, source.branch)
     }
 
     /**
      * `/commits/{ref}` and not `/git/refs/heads/{branch}`: a source's ref may be a branch, a tag, or
-     * a commit, and this resolves all three to the commit it points at.
+     * a commit, and this resolves all three to the commit it points at. The same is true of the atom
+     * feed, which is preferred.
      */
-    private fun commitApiUrl(source: PayloadSource) =
-        repositoryCommitApiUrl(source.repository, source.branch)
-
     private fun repositoryCommitApiUrl(repository: String, ref: String) =
         "https://api.github.com/repos/$repository/commits/$ref"
 
@@ -374,6 +419,9 @@ class PayloadRepository(private val context: Context) {
 
     private fun tagsApiUrl(source: PayloadSource, limit: Int) =
         "https://api.github.com/repos/${source.repository}/tags?per_page=$limit"
+
+    private fun atomCommitsUrl(repository: String, ref: String) =
+        "https://github.com/$repository/commits/$ref.atom"
 
     private fun rawRepository(source: PayloadSource) =
         "https://raw.githubusercontent.com/${source.repository}"
@@ -428,7 +476,15 @@ class PayloadRepository(private val context: Context) {
             setRequestProperty("User-Agent", "S25URoot/${BuildConfig.VERSION_NAME}")
             accept?.let { setRequestProperty("Accept", it) }
             connect()
-            require(responseCode == HttpURLConnection.HTTP_OK) { "HTTP $responseCode" }
+            require(responseCode == HttpURLConnection.HTTP_OK) {
+                // A limited API answers 403 (and 429 when it is explicit about it). Reporting the
+                // status number alone sends the reader looking for a fault in their repository.
+                if (responseCode == HttpURLConnection.HTTP_FORBIDDEN || responseCode == 429) {
+                    context.getString(R.string.repo_api_limited)
+                } else {
+                    "HTTP $responseCode"
+                }
+            }
         }
 
     companion object {

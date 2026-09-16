@@ -165,6 +165,7 @@
     <string name="repo_commit_invalid">GitHub returned an invalid commit SHA</string>
     <string name="repo_url_invalid">The artifact repository is not allowed</string>
     <string name="repo_response_too_large">The response exceeded its size limit</string>
+    <string name="repo_api_limited">GitHub\u2019s rate limit was reached; try again in a few minutes</string>
     <string name="open_github">Open GitHub</string>
     <string name="github_card_title">Explore Root My Galaxy</string>
     <string name="github_card_description">View the source code and usage instructions.</string>
