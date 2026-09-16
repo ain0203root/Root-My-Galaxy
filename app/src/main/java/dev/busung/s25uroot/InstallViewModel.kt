@@ -249,7 +249,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
                 activeStage = RunStage.Exploit
                 setPhase(InstallPhase.Exploiting, app.getString(R.string.status_exploit_running))
-                executeExploit(payloads.exploit, profile.requiresFreshP0Session)
+                // Stated before the payload runs, so a failed run says which policy produced it.
+                appendLog(profile.routePolicy.describe())
+                executeExploit(
+                    payloads.exploit,
+                    profile.requiresFreshP0Session,
+                    profile.routePolicy,
+                )
 
                 val modulesSkipped = if (AppPreferences.disableKsuModules(app)) {
                     moveModulesAside()
@@ -342,7 +348,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    private suspend fun executeExploit(payload: File, requiresFreshP0Session: Boolean) {
+    private suspend fun executeExploit(
+        payload: File,
+        requiresFreshP0Session: Boolean,
+        routePolicy: ExploitRoutePolicy,
+    ) {
         val shizuku = shizukuEnabled()
         val logFile = if (shizuku) File(SHIZUKU_LOG_PATH) else File(app.filesDir, "exploit.log")
         if (shizuku) {
@@ -366,6 +376,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     helper.absolutePath,
                     requiresFreshP0Session,
                     cachedP0Offset,
+                    routePolicy,
                 ),
             )
         } else {
@@ -377,7 +388,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 logFile.absolutePath,
             ).redirectErrorStream(true)
             processBuilder.environment().putAll(
-                exploitEnvironment(requiresFreshP0Session, cachedP0Offset),
+                exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
             )
             processBuilder.start()
         }
@@ -582,8 +593,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         helperPath: String,
         requiresFreshP0Session: Boolean,
         cachedP0Offset: String?,
+        routePolicy: ExploitRoutePolicy,
     ): Array<String> = buildList {
-        exploitEnvironment(requiresFreshP0Session, cachedP0Offset).forEach { (name, value) ->
+        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy).forEach { (name, value) ->
             add("$name=$value")
         }
         add("CVE43499_ROOT_HELPER=$helperPath")
@@ -698,9 +710,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private fun File.readTextIfPresent(): String = if (exists()) readText() else ""
 
     companion object {
-        private const val EXPLOIT_ATTEMPTS = "24"
-        private const val P0_ATTEMPT_TIMEOUT_SEC = "45"
-        private const val EXPLOIT_ATTEMPT_TIMEOUT_SEC = "120"
         private const val EXPLOIT_STALL_MILLIS = 90_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
         // A profile that needs one fresh P0 session hands the pacing to the payload, and the
@@ -750,7 +759,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val P0_CACHE = "p0_cache"
         private const val P0_CACHE_BOOT_TOKEN = "kernel_boot_id"
         private const val P0_CACHE_OFFSET = "offset"
-        private const val P0_OFFSET_ENV = "SLIDE_P0_OFFSET"
         private const val P0_OFFSET_MAX = 0x1f0000L
         private const val P0_OFFSET_MASK = 0xffffL
         private const val SHIZUKU_LOG_PATH = "/data/local/tmp/ksu-exploit.log"
@@ -781,8 +789,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             requiresFreshP0Session: Boolean,
             cachedP0Offset: String?,
             shizuku: Boolean,
+            routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
         ): ExploitPlan = ExploitPlan(
-            environment = exploitEnvironment(requiresFreshP0Session, cachedP0Offset),
+            environment = exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
             shizukuArguments = if (shizuku) {
                 mapOf(
                     "CVE43499_ROOT_HELPER" to SHIZUKU_HELPER_PATH,
@@ -799,13 +808,23 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         internal fun exploitEnvironment(
             requiresFreshP0Session: Boolean,
             cachedP0Offset: String?,
+            routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
         ): Map<String, String> = buildMap {
-            put("EXPLOIT_ATTEMPTS", if (requiresFreshP0Session) "1" else EXPLOIT_ATTEMPTS)
+            // A fresh-session profile hands its pacing to the payload, so the policy's attempt and
+            // timeout budget does not apply to it. The route still does: which way the payload finds
+            // the slide is a different question from how many tries it gets.
+            put(
+                "EXPLOIT_ATTEMPTS",
+                if (requiresFreshP0Session) "1" else routePolicy.attempts.toString(),
+            )
             if (!requiresFreshP0Session) {
-                put("P0_ATTEMPT_TIMEOUT_SEC", P0_ATTEMPT_TIMEOUT_SEC)
-                put("EXPLOIT_ATTEMPT_TIMEOUT_SEC", EXPLOIT_ATTEMPT_TIMEOUT_SEC)
-                cachedP0Offset?.let { put(P0_OFFSET_ENV, it) }
+                put("P0_ATTEMPT_TIMEOUT_SEC", routePolicy.p0AttemptTimeoutSec.toString())
+                put("EXPLOIT_ATTEMPT_TIMEOUT_SEC", routePolicy.attemptTimeoutSec.toString())
+                if (routePolicy.p0OffsetCache) {
+                    cachedP0Offset?.let { put(ExploitRoutePolicy.P0_OFFSET_ENV, it) }
+                }
             }
+            routePolicy.slideRoute.env?.let { put(ExploitRoutePolicy.SLIDE_SOURCE_ENV, it) }
         }
 
         private fun stripAnsi(value: String): String = ANSI_ESCAPE.replace(value, "").replace("\r", "")

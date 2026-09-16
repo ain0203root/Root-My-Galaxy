@@ -130,6 +130,18 @@ single session can legitimately take far longer than the retry loop ever needed;
 own limits still end the attempt first. The flag defaults to false, and eight profiles in the
 official feed already set it.
 
+A profile may also carry a `"routePolicy"` object, which is where the numbers the app hands a run
+come from: `slideRoute` (`default`, `auto`, `tracefs`, or `legacy`/`p0`, passed to the payload as
+`SLIDE_SOURCE`), `attempts`, `attemptTimeoutSec`, `p0AttemptTimeoutSec`, and `p0OffsetCache`. The
+policy is the single source of the environment, so the run-plan screen, the direct transport and
+the Shizuku transport all read the same values rather than three copies of them, and the run log
+states the policy it used before the payload starts. Fields are read one by one with the legacy
+value as the fallback: a feed published by a newer workflow must not cost an older build the
+target it can use, and one out-of-range number should not either. A profile that is both marked
+fresh-session and carries a policy keeps both, because who paces the run and how the payload
+finds the slide are different questions: such a profile still runs one attempt with no cached
+offset, and still gets its `SLIDE_SOURCE`.
+
 The ceiling is keyed on the profile declaring the flag, not on the kernel version. Kernel 5.15
 is a tempting proxy for "this target scans pages", but in the official feed only two of the
 four 5.15 profiles ask for a fresh session, and marked profiles also run on 5.10, 6.1 and

@@ -44,6 +44,8 @@ data class TargetProfile(
     val models: Set<String>,
     val kernelVersions: Set<String>,
     val requiresFreshP0Session: Boolean = false,
+    /** How this target wants its exploit run. Carried with the profile so every path uses it. */
+    val routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
     val exploit: RemoteArtifact,
     val kernelSu: RemoteArtifact,
     /** Source that provided this target, empty when it was not loaded through one. */
@@ -139,6 +141,7 @@ data class SupportManifest(
                             models = payload.getJSONArray("models").strings(),
                             kernelVersions = payload.getJSONArray("kernelVersions").strings(),
                             requiresFreshP0Session = payload.optBoolean("requiresFreshP0Session", false),
+                            routePolicy = ExploitRoutePolicy.parse(payload.optJSONObject("routePolicy")),
                             exploit = exploit.artifact(),
                             kernelSu = kernelSu.artifact(),
                         ),

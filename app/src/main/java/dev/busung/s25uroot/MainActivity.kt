@@ -464,7 +464,13 @@ private fun RootApp(
             freshSession = freshSession,
             shizuku = shizukuMode,
             cachedOffset = cachedOffset,
-            plan = InstallViewModel.exploitPlan(freshSession, cachedOffset, shizukuMode),
+            // The profile's own policy, so the preview shows the environment the run will get.
+            plan = InstallViewModel.exploitPlan(
+                freshSession,
+                cachedOffset,
+                shizukuMode,
+                resolved?.routePolicy ?: ExploitRoutePolicy.LEGACY,
+            ),
         )
     }
     val startDownload: (UpdateInfo) -> Unit = { info ->
