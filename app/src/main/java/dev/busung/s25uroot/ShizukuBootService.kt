@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -60,6 +61,12 @@ class ShizukuBootService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     private suspend fun startShizuku(): ShizukuStartOutcome {
+        // Reported rather than acted on: when Shizuku starts itself at boot there is nothing to do
+        // here, and knowing that is the difference between "my boot start is broken" and "it was
+        // never needed".
+        if (runCatching { ShizukuIntentStarter.ownBootReceiverEnabled(this) }.getOrDefault(false)) {
+            Log.i(TAG, "Shizuku starts itself on boot on this device; this app only waits for it")
+        }
         var last = ShizukuStartOutcome(
             started = false,
             detail = getString(R.string.error_shizuku_start_no_root),
@@ -137,6 +144,7 @@ class ShizukuBootService : Service() {
     }
 
     companion object {
+        private const val TAG = "RootMyGalaxyShizuku"
         private const val CHANNEL_ID = "shizuku_boot"
         private const val SETTLE_DELAY_MILLIS = 20_000L
         private const val RETRY_DELAY_MILLIS = 15_000L

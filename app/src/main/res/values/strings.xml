@@ -68,6 +68,13 @@
     <string name="autoroot_disable">Turn off</string>
     <string name="autoroot_channel_name">Root on boot</string>
     <string name="autoroot_channel_description">Runs the install after a reboot and reports what happened</string>
+    <string name="settings_shizuku_token">Shizuku start token</string>
+    <string name="settings_shizuku_token_summary">Only for a device with no root, and only if your Shizuku build accepts start requests. Kept on this device and never written to the log</string>
+    <string name="settings_shizuku_token_value_set">Set</string>
+    <string name="settings_shizuku_token_value_unset">Not set</string>
+    <string name="shizuku_token_dialog_title">Shizuku start token</string>
+    <string name="shizuku_token_dialog_label">Token</string>
+    <string name="shizuku_token_dialog_help">Paste the token your Shizuku build was given. The app only ever sends it to the Shizuku package, and never records it.</string>
     <string name="settings_autoroot_settle">Root on boot settle time</string>
     <string name="settings_autoroot_settle_summary">How long the automatic install waits after a boot before it starts. Shorter than a manual run because the boot is already underway by the time it can act</string>
     <string name="settings_boot_settle">Boot settle time</string>

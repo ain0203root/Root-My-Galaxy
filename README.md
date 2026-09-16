@@ -341,15 +341,26 @@ device that is unnecessary: KernelSU's own root shell can run Shizuku's starter,
   path of the APK it belongs to; older or manually installed builds may have dropped a `start.sh` on
   shared storage. The native route is preferred, the legacy script is a fallback, and a device with
   neither is reported once rather than as two failures.
-- The start is serialized and re-probes the binder immediately before every launch, because a start
-  racing the Shizuku app's own or a previous boot's attempt otherwise looks like one that never took
-  effect. A binder that appears during a probe is reported as already running, not as a failure.
+- The start is serialized across the app's processes — a file lock, not a mutex, because the boot
+  service, the settings screen and the automatic install are three different ones — and re-probes the
+  binder immediately before every launch, because a start racing the Shizuku app's own or a previous
+  boot's attempt otherwise looks like one that never took effect. A binder that appears during a probe
+  is reported as already running, not as a failure.
+- **A device with no root has one route left**, and it is opt-in: if your Shizuku build accepts
+  authenticated start requests, store the matching token under **Settings → Shizuku → Shizuku start
+  token** and the app will ask the Shizuku package itself to start. The broadcast is package-scoped,
+  the token is only ever sent to that package, and it is never written to the log or to run history.
+  Without a token the app says no root and no token is why nothing can be started, instead of sending
+  a request it cannot authenticate and reporting Shizuku's refusal as a failure.
 - On boot the start runs after a settle delay, through KernelSU's root shell, up to three times. It
   runs both when a boot already has root and after a boot-time install succeeded — the boot that has
   to re-establish root is exactly the boot that can then bring Shizuku back.
 
-It says so plainly when it cannot work: with no root there is no way for an app to start a
-privileged process, so the failure names that rather than pretending the button did something.
+It says so plainly when it cannot work: with no root — and no token stored — there is no way for an
+app to start a privileged process, so the failure names that rather than pretending the button did
+something. Root is always preferred when it exists, because the native starter's result can be
+checked while a request to another app can only be answered by waiting for a binder. If your Shizuku
+build starts itself on boot, the app notices and reports that rather than racing it.
 Switching the setting on starts Shizuku there and then, so the setting is proven on the device
 instead of at the next reboot.
 

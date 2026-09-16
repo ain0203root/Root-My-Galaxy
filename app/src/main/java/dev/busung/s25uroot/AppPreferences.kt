@@ -41,6 +41,7 @@ object AppPreferences {
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
     private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
     private const val AUTO_ROOT_SETTLE_SECONDS = "auto_root_settle_seconds"
+    private const val SHIZUKU_AUTOMATION_TOKEN = "shizuku_automation_token"
     private const val PAYLOAD_MODE = "payload_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
@@ -212,6 +213,22 @@ object AppPreferences {
     fun setAutoRootSettleSeconds(context: Context, seconds: Int) {
         prefs(context).edit()
             .putInt(AUTO_ROOT_SETTLE_SECONDS, BootSettle.normalize(seconds))
+            .apply()
+    }
+
+    /**
+     * The token a Shizuku build may require before it honours an authenticated start request.
+     *
+     * Stored only so the app can include it in that one broadcast, and never written to the log or to
+     * the run history: it is the credential that lets this app ask for a privileged process to be
+     * started, so it is treated like one.
+     */
+    fun shizukuAutomationToken(context: Context): String =
+        prefs(context).getString(SHIZUKU_AUTOMATION_TOKEN, "").orEmpty()
+
+    fun setShizukuAutomationToken(context: Context, token: String) {
+        prefs(context).edit()
+            .putString(SHIZUKU_AUTOMATION_TOKEN, token.trim())
             .apply()
     }
 

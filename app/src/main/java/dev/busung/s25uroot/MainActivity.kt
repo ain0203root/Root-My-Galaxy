@@ -199,6 +199,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuBootMode by mutableStateOf(false)
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
     private var autoRootSettleSeconds by mutableStateOf(BootSettle.AUTO_ROOT_DEFAULT_SECONDS)
+    private var shizukuToken by mutableStateOf("")
     private var payloadMode by mutableStateOf(PayloadMode.Online)
     private var notificationPermissionAsked = false
     private var batteryUnrestricted by mutableStateOf(false)
@@ -286,6 +287,7 @@ class MainActivity : ComponentActivity() {
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
         autoRootSettleSeconds = AppPreferences.autoRootSettleSeconds(this)
+        shizukuToken = AppPreferences.shizukuAutomationToken(this)
         payloadMode = AppPreferences.payloadMode(this)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
@@ -302,6 +304,7 @@ class MainActivity : ComponentActivity() {
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
+                    shizukuToken = shizukuToken,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
@@ -344,6 +347,10 @@ class MainActivity : ComponentActivity() {
                     onAutoRootSettleChanged = { seconds ->
                         AppPreferences.setAutoRootSettleSeconds(this, seconds)
                         autoRootSettleSeconds = seconds
+                    },
+                    onShizukuTokenChanged = { token ->
+                        AppPreferences.setShizukuAutomationToken(this, token)
+                        shizukuToken = token
                     },
                     onPayloadModeChanged = { mode ->
                         AppPreferences.setPayloadMode(this, mode)
@@ -449,6 +456,7 @@ private fun RootApp(
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
+    shizukuToken: String,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
@@ -461,6 +469,7 @@ private fun RootApp(
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
+    onShizukuTokenChanged: (String) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
     onForgetCachedPayload: () -> Unit,
     requestNotificationPermission: () -> Unit,
@@ -723,6 +732,7 @@ private fun RootApp(
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
+                    shizukuToken = shizukuToken,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     updateStatus = updateStatus,
@@ -738,6 +748,7 @@ private fun RootApp(
                     onShizukuBootModeChanged = onShizukuBootModeChanged,
                     onBootSettleChanged = onBootSettleChanged,
                     onAutoRootSettleChanged = onAutoRootSettleChanged,
+                    onShizukuTokenChanged = onShizukuTokenChanged,
                     onPayloadModeChanged = onPayloadModeChanged,
                     onForgetCachedPayload = onForgetCachedPayload,
                     onRequestNotificationPermission = requestNotificationPermission,
@@ -1699,6 +1710,7 @@ private fun SettingsPage(
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
+    shizukuToken: String,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     updateStatus: UpdateStatus,
@@ -1714,6 +1726,7 @@ private fun SettingsPage(
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
+    onShizukuTokenChanged: (String) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
     onForgetCachedPayload: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
@@ -1739,6 +1752,8 @@ private fun SettingsPage(
     var showBootSettleDialog by remember { mutableStateOf(false) }
     var autoRootSettleMenuTop by remember { mutableStateOf(32.dp) }
     var showAutoRootSettleDialog by remember { mutableStateOf(false) }
+    var showShizukuTokenDialog by remember { mutableStateOf(false) }
+    var tokenDraft by remember { mutableStateOf("") }
     var payloadModeMenuTop by remember { mutableStateOf(32.dp) }
     var showPayloadModeDialog by remember { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -1912,6 +1927,51 @@ private fun SettingsPage(
                 onAutoRootSettleChanged(settled[index])
             },
             onDismiss = { showAutoRootSettleDialog = false },
+        )
+    }
+
+    if (showShizukuTokenDialog) {
+        AlertDialog(
+            onDismissRequest = { showShizukuTokenDialog = false },
+            title = { Text(stringResource(R.string.shizuku_token_dialog_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = stringResource(R.string.shizuku_token_dialog_help),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = tokenDraft,
+                        onValueChange = { tokenDraft = it },
+                        label = { Text(stringResource(R.string.shizuku_token_dialog_label)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showShizukuTokenDialog = false
+                        onShizukuTokenChanged(tokenDraft)
+                    },
+                ) { Text(stringResource(R.string.action_save)) }
+            },
+            dismissButton = {
+                Column {
+                    if (shizukuToken.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                showShizukuTokenDialog = false
+                                onShizukuTokenChanged("")
+                            },
+                        ) { Text(stringResource(R.string.history_delete)) }
+                    }
+                    TextButton(onClick = { showShizukuTokenDialog = false }) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                }
+            },
         )
     }
 
@@ -2144,6 +2204,21 @@ private fun SettingsPage(
                     value = if (shizukuStarting) stringResource(R.string.status_shizuku_starting) else "",
                     position = SettingsCardPosition.Middle,
                     onClick = startShizuku,
+                )
+                SettingsCard(                        icon = Icons.Rounded.LockOpen,
+                    title = stringResource(R.string.settings_shizuku_token),
+                    description = stringResource(R.string.settings_shizuku_token_summary),
+                    value = if (shizukuToken.isBlank()) {
+                        stringResource(R.string.settings_shizuku_token_value_unset)
+                    } else {
+                        stringResource(R.string.settings_shizuku_token_value_set)
+                    },
+                    position = SettingsCardPosition.Middle,
+                    onClick = {
+                        clickHaptic(view)
+                        tokenDraft = shizukuToken
+                        showShizukuTokenDialog = true
+                    },
                 )
                 SettingsSwitchCard(
                     icon = Icons.Rounded.Bolt,

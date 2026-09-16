@@ -1,8 +1,6 @@
 package dev.busung.s25uroot
 
 import android.content.Context
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import java.io.File
 
 /** How a start attempt ended, and by which route. */
@@ -48,23 +46,35 @@ internal object ShizukuStarter {
         "/sdcard/Android/data/moe.shizuku.privileged.api/start.sh",
     )
 
-    private val startLock = Mutex()
-
     /**
      * [shell] runs a command as root and is expected to be KernelSU's shell. The binder is re-probed
      * immediately before every launch because a start from this app racing another starter (the
      * Shizuku app itself, or a previous boot's attempt) is otherwise indistinguishable from one that
      * never took effect.
+     *
+     * The whole attempt runs under [ShizukuStartCoordinator] rather than a process-local lock, because
+     * the callers are in different processes: the boot service in its own, the settings screen in the
+     * app's, and the automatic install in the gate's.
      */
     suspend fun start(
         context: Context,
         shell: (String) -> ShizukuController.ShellResult,
         binderTimeoutMillis: Long = DEFAULT_BINDER_TIMEOUT_MILLIS,
         onLog: (String) -> Unit = {},
-    ): ShizukuStartOutcome = startLock.withLock {
+    ): ShizukuStartOutcome = ShizukuStartCoordinator.withStartLock(context) {
         if (ShizukuController.pingUntilRunning(BINDER_RACE_PROBE_MILLIS)) {
             onLog("[+] Shizuku is already running; no starter needed")
-            return@withLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
+            return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
+        }
+
+        // Root is what makes Shizuku's own starter usable; without it the only route left is asking
+        // the Shizuku app, which needs a token and cannot be verified beyond waiting for a binder.
+        val route = shizukuStartRoute(
+            rootShellAvailable = hasRoot(shell),
+            tokenConfigured = AppPreferences.shizukuAutomationToken(context).isNotBlank(),
+        )
+        if (route != ShizukuStartRoute.NativeStarter) {
+            return@withStartLock startWithoutRoot(context, route, binderTimeoutMillis, onLog)
         }
 
         val native = nativeStarter(context)
@@ -74,13 +84,13 @@ internal object ShizukuStarter {
             onLog("[*] This Shizuku build has no native starter; checking the legacy script")
         } else {
             if (ShizukuController.pingUntilRunning(BINDER_RACE_PROBE_MILLIS)) {
-                return@withLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
+                return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
             }
             onLog("[*] Starting Shizuku with its own native starter")
             val result = shell(shizukuStarterCommand(native.starterPath, native.apkPath))
             if (result.exitCode == 0 && ShizukuController.pingUntilRunning(binderTimeoutMillis)) {
                 onLog("[+] Shizuku started and its binder answered")
-                return@withLock ShizukuStartOutcome(started = true, method = METHOD_NATIVE)
+                return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_NATIVE)
             }
             onLog(
                 "[!] The native starter " +
@@ -95,7 +105,7 @@ internal object ShizukuStarter {
         }
 
         if (ShizukuController.pingUntilRunning(BINDER_RACE_PROBE_MILLIS)) {
-            return@withLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
+            return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
         }
 
         val legacy = legacyStartScript(shell)
@@ -104,17 +114,59 @@ internal object ShizukuStarter {
             val result = shell("sh ${shellQuote(legacy)} 2>&1")
             if (result.exitCode == 0 && ShizukuController.pingUntilRunning(binderTimeoutMillis)) {
                 onLog("[+] Shizuku started and its binder answered")
-                return@withLock ShizukuStartOutcome(started = true, method = METHOD_LEGACY)
+                return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_LEGACY)
             }
             val detail = result.output.trim().takeLast(240).ifBlank { "exit ${result.exitCode}" }
             val reason = "the legacy start.sh did not produce a binder: $detail"
             onLog("[!] $reason")
-            return@withLock ShizukuStartOutcome(started = false, method = METHOD_LEGACY, detail = reason)
+            return@withStartLock ShizukuStartOutcome(started = false, method = METHOD_LEGACY, detail = reason)
         }
 
         val detail = "no Shizuku starter on this device produced a binder"
         onLog("[!] $detail")
-        return@withLock ShizukuStartOutcome(started = false, detail = detail)
+        return@withStartLock ShizukuStartOutcome(started = false, detail = detail)
+    }
+
+    /**
+     * The two routes that need no root: asking Shizuku to start itself when a token is stored, and
+     * saying plainly that nothing can be done when it is not.
+     *
+     * The distinction matters to the person reading it. "No starter produced a binder" after a failed
+     * token describes a wrong token; the same words on a device with no root and no token describe a
+     * device where this was never possible, and only one of those is worth retrying.
+     */
+    private suspend fun startWithoutRoot(
+        context: Context,
+        route: ShizukuStartRoute,
+        binderTimeoutMillis: Long,
+        onLog: (String) -> Unit,
+    ): ShizukuStartOutcome {
+        if (route == ShizukuStartRoute.Unavailable) {
+            val detail =
+                "this device has no root and no Shizuku start token, so Shizuku cannot be started " +
+                    "from here"
+            onLog("[!] $detail")
+            return ShizukuStartOutcome(started = false, detail = detail)
+        }
+        val outcome = ShizukuIntentStarter.start(context, binderTimeoutMillis, onLog)
+        return ShizukuStartOutcome(
+            started = outcome.started,
+            method = if (outcome.attempted) METHOD_AUTHENTICATED_INTENT else null,
+            detail = outcome.detail,
+        )
+    }
+
+    /**
+     * Whether the transport in [shell] is running commands as root.
+     *
+     * Asked of the device rather than assumed from the caller: a caller that falls back to a
+     * non-root transport hands in a shell that answers every command with a refusal, and a start
+     * attempt routed to Shizuku's native starter through it would fail for a reason that looks like
+     * Shizuku's fault.
+     */
+    private fun hasRoot(shell: (String) -> ShizukuController.ShellResult): Boolean {
+        val result = runCatching { shell("id") }.getOrNull() ?: return false
+        return result.exitCode != NO_ROOT_SHELL_EXIT && result.output.contains("uid=0")
     }
 
     /** Where Shizuku's own starter and its APK live, when Shizuku is installed. */
@@ -145,6 +197,7 @@ internal object ShizukuStarter {
     private const val METHOD_ALREADY_RUNNING = "already running"
     internal const val METHOD_NATIVE = "native starter"
     internal const val METHOD_LEGACY = "legacy start.sh"
+    internal const val METHOD_AUTHENTICATED_INTENT = "Shizuku start request"
     internal const val DEFAULT_BINDER_TIMEOUT_MILLIS = 20_000L
 }
 
