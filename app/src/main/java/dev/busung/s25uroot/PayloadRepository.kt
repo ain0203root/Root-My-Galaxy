@@ -89,7 +89,7 @@ class PayloadRepository(private val context: Context) {
 
     fun download(profile: TargetProfile, onProgress: (String) -> Unit): VerifiedPayloads {
         val directory = File(context.filesDir, "payloads/${cacheKey(profile)}").apply { mkdirs() }
-        val exploit = downloadArtifact(
+        val exploit = importedExploit(directory, onProgress) ?: downloadArtifact(
             profile.exploit,
             File(directory, "cve-2026-43499-app.so"),
             context.getString(R.string.artifact_exploit),
@@ -106,16 +106,35 @@ class PayloadRepository(private val context: Context) {
         return VerifiedPayloads(profile, exploit, kernelSu)
     }
 
+    /**
+     * Stages the imported payload in place of the downloaded exploit. KernelSU still comes from the
+     * source matched to this device, because nothing about importing an exploit changes which
+     * ksud this kernel needs.
+     */
+    private fun importedExploit(directory: File, onProgress: (String) -> Unit): File? {
+        if (LocalPayload.file(context) == null) return null
+        onProgress(
+            context.getString(
+                R.string.repo_using_local_payload,
+                LocalPayload.displayName(context).orEmpty(),
+            ),
+        )
+        return LocalPayload.stage(context, File(directory, "cve-2026-43499-app.so"))
+    }
+
     private fun downloadArtifact(
         artifact: RemoteArtifact,
         destination: File,
         label: String,
         onProgress: (String) -> Unit,
     ): File {
+        // A source can mark an artifact as unverifiable, which is the only way to accept it when
+        // its declared size is wrong; the default stays strict for every other download.
+        val checked = artifact.verifySize
         onProgress(context.getString(R.string.repo_downloading, label))
         val temporary = File(destination.parentFile, "${destination.name}.part")
         val connection = open(artifact.url)
-        require(connection.contentLengthLong == -1L || connection.contentLengthLong == artifact.size) {
+        require(!checked || connection.contentLengthLong == -1L || connection.contentLengthLong == artifact.size) {
             context.getString(R.string.repo_size_mismatch, label)
         }
         var total = 0L
@@ -126,7 +145,7 @@ class PayloadRepository(private val context: Context) {
                     val count = input.read(buffer)
                     if (count < 0) break
                     total += count
-                    require(total <= artifact.size) {
+                    require(!checked || total <= artifact.size) {
                         context.getString(R.string.repo_size_exceeded, label)
                     }
                     output.write(buffer, 0, count)
@@ -135,7 +154,9 @@ class PayloadRepository(private val context: Context) {
             }
         }
         connection.disconnect()
-        require(total == artifact.size) { context.getString(R.string.repo_incomplete, label) }
+        require(!checked || total == artifact.size) {
+            context.getString(R.string.repo_incomplete, label)
+        }
         if (destination.exists()) destination.delete()
         require(temporary.renameTo(destination)) {
             context.getString(R.string.repo_finalize_failed, label)

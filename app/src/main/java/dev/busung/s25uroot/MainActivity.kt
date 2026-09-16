@@ -93,6 +93,7 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SystemUpdate
+import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.Save
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.VerifiedUser
@@ -1568,6 +1569,8 @@ private fun SettingsPage(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
     var showPayloadSourcesDialog by remember { mutableStateOf(false) }
+    var showLocalPayloadDialog by remember { mutableStateOf(false) }
+    var localPayloadName by remember { mutableStateOf(LocalPayload.displayName(context)) }
     var languageMenuTop by remember { mutableStateOf(32.dp) }
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     val density = LocalDensity.current
@@ -1610,6 +1613,14 @@ private fun SettingsPage(
                 showPayloadSourcesDialog = false
                 onPayloadSourcesChanged(sources)
             },
+        )
+    }
+
+    if (showLocalPayloadDialog) {
+        LocalPayloadDialog(
+            initialName = localPayloadName,
+            onDismiss = { showLocalPayloadDialog = false },
+            onNameChanged = { name -> localPayloadName = name },
         )
     }
 
@@ -1782,10 +1793,27 @@ private fun SettingsPage(
                     icon = Icons.Rounded.Link,
                     title = stringResource(R.string.payload_sources),
                     description = stringResource(R.string.payload_sources_description),
-                    position = SettingsCardPosition.Bottom,
+                    position = SettingsCardPosition.Middle,
                     onClick = {
                         clickHaptic(view)
                         showPayloadSourcesDialog = true
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.UploadFile,
+                    title = stringResource(R.string.local_payload),
+                    description = stringResource(
+                        if (localPayloadName == null) {
+                            R.string.local_payload_description
+                        } else {
+                            R.string.local_payload_description_set
+                        },
+                    ),
+                    value = localPayloadName ?: stringResource(R.string.local_payload_none),
+                    position = SettingsCardPosition.Bottom,
+                    onClick = {
+                        clickHaptic(view)
+                        showLocalPayloadDialog = true
                     },
                 )
             }
@@ -2095,6 +2123,107 @@ private fun TargetSelectionSheet(
             }
         }
     }
+}
+
+/**
+ * Import, replace, or drop the payload used in place of the downloaded exploit. The file is copied
+ * into app storage here rather than referenced by URI, so an unattended run at boot can use it.
+ */
+@Composable
+private fun LocalPayloadDialog(
+    initialName: String?,
+    onDismiss: () -> Unit,
+    onNameChanged: (String?) -> Unit,
+) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    var name by remember(initialName) { mutableStateOf(initialName) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching { LocalPayload.import(context, uri) }
+            .onSuccess { imported ->
+                name = imported
+                error = null
+                onNameChanged(imported)
+            }
+            .onFailure { failure ->
+                // The previously imported payload is still in place; only the message changes.
+                error = failure.message ?: failure.javaClass.simpleName
+            }
+    }
+    val current = name
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.UploadFile, contentDescription = null) },
+        title = {
+            DialogDimAmount(0.34f)
+            Text(stringResource(R.string.local_payload_title))
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    if (current == null) {
+                        stringResource(R.string.local_payload_summary_none)
+                    } else {
+                        stringResource(R.string.local_payload_summary_set, current)
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (error != null) {
+                    Text(
+                        error.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            FilledTonalButton(onClick = {
+                clickHaptic(view)
+                // Some providers report .so files as octet-stream and others as nothing usable, so
+                // the picker is left unfiltered and the import validates what comes back.
+                picker.launch(
+                    arrayOf("application/octet-stream", "application/x-sharedlib", "*/*"),
+                )
+            }) {
+                Text(
+                    stringResource(
+                        if (current == null) R.string.local_payload_choose
+                        else R.string.local_payload_replace,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (current != null) {
+                    TextButton(onClick = {
+                        clickHaptic(view)
+                        LocalPayload.clear(context)
+                        name = null
+                        error = null
+                        onNameChanged(null)
+                    }) {
+                        Text(stringResource(R.string.local_payload_remove))
+                    }
+                }
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    onDismiss()
+                }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            }
+        },
+    )
 }
 
 @Composable

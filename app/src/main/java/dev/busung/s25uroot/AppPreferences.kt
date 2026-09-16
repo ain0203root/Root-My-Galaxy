@@ -39,6 +39,7 @@ object AppPreferences {
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
+    private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
     private const val PAYLOAD_SOURCES = "payload_sources"
     // Superseded by the source list; read once so an existing selection survives the upgrade.
     private const val LEGACY_PAYLOAD_REPOSITORY = "payload_repository"
@@ -166,6 +167,16 @@ object AppPreferences {
         prefs(context).edit()
             .putBoolean(BATTERY_PROMPT_SHOWN, shown)
             .apply()
+    }
+
+    /** Name of the imported payload, kept for display only; the file itself is in app storage. */
+    fun localPayloadName(context: Context): String? =
+        prefs(context).getString(LOCAL_PAYLOAD_NAME, null)
+
+    fun setLocalPayloadName(context: Context, name: String?) {
+        val editor = prefs(context).edit()
+        if (name == null) editor.remove(LOCAL_PAYLOAD_NAME) else editor.putString(LOCAL_PAYLOAD_NAME, name)
+        editor.apply()
     }
 
     @Synchronized

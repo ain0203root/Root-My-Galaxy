@@ -88,6 +88,28 @@ payload-native attempt per run, ignore the cached slide offset, and are left to 
 internal retry pacing — the run's overall deadline still applies. The flag defaults to
 false, and eight profiles in the official feed already set it.
 
+## Local payload
+
+Advanced mode also adds a **Local payload** entry, for testing an exploit `.so` built on this
+device against a target the feed does not cover yet. The file is copied into app storage when
+you pick it, not referenced by document URI: a run can be started by the boot service, where an
+activity's grant on a picked document does not exist, and a persisted URI grant can be revoked
+or its provider uninstalled long after the payload was chosen. Importing validates the file —
+`.so` name, a 16 MiB cap, and an ELF header read from the copy — and a rejected file leaves the
+previously imported payload in place, so a bad pick cannot leave the next run without an
+exploit.
+
+While a payload is imported, every run uses it in place of the downloaded exploit; KernelSU
+still comes from the source matched to this device, because importing an exploit says nothing
+about which `ksud` this kernel needs. The run log names the imported file, and **Remove
+payload** returns to downloading the exploit from the enabled sources. Nothing else changes: the
+same profile resolution, the same verification of the KernelSU artifact.
+
+An artifact may also carry `"verifySize": false` in the manifest. That is for a source whose
+declared size for an artifact is not trustworthy, and it is deliberately per artifact rather
+than an app-wide switch: it is the only form of that escape hatch that cannot silently turn off
+size verification for every other payload from every source at once. It defaults to true.
+
 ## Signing
 
 `assembleRelease` needs the repository release key and fails instead of producing an

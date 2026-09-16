@@ -6,6 +6,12 @@ import org.json.JSONObject
 data class RemoteArtifact(
     val url: String,
     val size: Long,
+    /**
+     * Whether the declared [size] is enforced. The feed sets this to false for an artifact whose
+     * declared size is not trustworthy, which is the only alternative to disabling the check for
+     * every artifact of every source at once.
+     */
+    val verifySize: Boolean = true,
 )
 
 data class TargetProfile(
@@ -82,6 +88,7 @@ data class SupportManifest(
                             exploit = RemoteArtifact(
                                 url = exploit.getString("url"),
                                 size = exploit.getLong("size"),
+                                verifySize = exploit.optBoolean("verifySize", true),
                             ),
                             kernelSu = RemoteArtifact(
                                 url = kernelSu.getString("url"),
