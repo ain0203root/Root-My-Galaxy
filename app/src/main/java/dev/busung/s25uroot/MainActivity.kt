@@ -1,12 +1,15 @@
 package dev.busung.s25uroot
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Toast
@@ -68,6 +71,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.BatterySaver
 import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -179,8 +183,60 @@ class MainActivity : ComponentActivity() {
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
     private var notificationPermissionAsked = false
+    private var batteryUnrestricted by mutableStateOf(false)
+    private var batteryPromptAsked = false
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private fun isBatteryUnrestricted(): Boolean =
+        getSystemService(PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(packageName)
+            ?: true
+
+    /**
+     * Battery optimisation is the restriction that can quietly sink a run nobody is watching: in
+     * Doze an unattended install loses its network and its process priority, which is exactly when
+     * the boot service needs them. Asked once per install; the settings card that mirrors the same
+     * state stays available if the prompt is declined or dismissed.
+     */
+    private fun maybeRequestBatteryExemption() {
+        if (batteryPromptAsked) return
+        batteryPromptAsked = true
+        if (batteryUnrestricted || AppPreferences.batteryPromptShown(this)) return
+        AppPreferences.setBatteryPromptShown(this, true)
+        requestBatteryExemption()
+    }
+
+    /**
+     * Lint's BatteryLife check keeps apps out of Play's battery-whitelist flow; this build ships
+     * from GitHub releases, and the exemption is what lets an unattended run reach the network
+     * with the screen off.
+     */
+    @SuppressLint("BatteryLife")
+    private fun requestBatteryExemption() {
+        if (isBatteryUnrestricted()) {
+            // Nothing left to ask for — the system dialog would no-op — so show where it can be
+            // undone instead of leaving the card unresponsive.
+            runCatching {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+            return
+        }
+        val requested = runCatching {
+            startActivity(
+                Intent(
+                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.parse("package:$packageName"),
+                ),
+            )
+        }.isSuccess
+        if (!requested) {
+            // Vendor builds without the direct dialog still have the settings list.
+            runCatching {
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            }
+        }
+    }
 
     /**
      * Asks for POST_NOTIFICATIONS once, when the boot option is switched on, so the foreground
@@ -209,6 +265,7 @@ class MainActivity : ComponentActivity() {
         shizukuMode = AppPreferences.shizukuMode(this)
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
+        batteryUnrestricted = isBatteryUnrestricted()
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
                 RootApp(
@@ -220,7 +277,9 @@ class MainActivity : ComponentActivity() {
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
+                    batteryUnrestricted = batteryUnrestricted,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
+                    onRequestBatteryExemption = ::requestBatteryExemption,
                     onAccentColorChanged = { color ->
                         AppPreferences.setAccentColor(this, color)
                         accentColor = color
@@ -260,10 +319,13 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+        maybeRequestBatteryExemption()
     }
 
     override fun onResume() {
         super.onResume()
+        // Battery optimisation is a system setting, so it can change while the app is backgrounded.
+        batteryUnrestricted = isBatteryUnrestricted()
         if (resumedOnce) installViewModel.refresh() else resumedOnce = true
     }
 }
@@ -334,6 +396,7 @@ private fun RootApp(
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
+    batteryUnrestricted: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
@@ -342,6 +405,7 @@ private fun RootApp(
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
     requestNotificationPermission: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
     openInstaller: (String?) -> Unit,
 ) {
     val installState by installViewModel.state.collectAsStateWithLifecycle()
@@ -564,6 +628,7 @@ private fun RootApp(
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
+                    batteryUnrestricted = batteryUnrestricted,
                     updateStatus = updateStatus,
                     onCheckForUpdate = checkForUpdate,
                     onStartDownload = startDownload,
@@ -575,6 +640,7 @@ private fun RootApp(
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                     onBootRootModeChanged = onBootRootModeChanged,
                     onRequestNotificationPermission = requestNotificationPermission,
+                    onRequestBatteryExemption = onRequestBatteryExemption,
                 )
             }
         }
@@ -1480,6 +1546,7 @@ private fun SettingsPage(
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
+    batteryUnrestricted: Boolean,
     updateStatus: UpdateStatus,
     onCheckForUpdate: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
@@ -1491,6 +1558,7 @@ private fun SettingsPage(
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
     onRequestNotificationPermission: () -> Unit,
+    onRequestBatteryExemption: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -1655,12 +1723,32 @@ private fun SettingsPage(
                     title = stringResource(R.string.settings_boot_root),
                     description = stringResource(R.string.settings_boot_root_summary),
                     checked = bootRootMode,
-                    position = SettingsCardPosition.Bottom,
+                    position = SettingsCardPosition.Middle,
                     onCheckedChange = { enabled ->
                         clickHaptic(view)
                         if (enabled) onRequestNotificationPermission()
                         onBootRootModeChanged(enabled)
                     },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.BatterySaver,
+                    title = stringResource(R.string.settings_battery),
+                    description = stringResource(
+                        if (batteryUnrestricted) {
+                            R.string.settings_battery_summary_allowed
+                        } else {
+                            R.string.settings_battery_summary_restricted
+                        },
+                    ),
+                    value = stringResource(
+                        if (batteryUnrestricted) {
+                            R.string.settings_battery_allowed
+                        } else {
+                            R.string.settings_battery_allow
+                        },
+                    ),
+                    position = SettingsCardPosition.Bottom,
+                    onClick = onRequestBatteryExemption,
                 )
             }
         }

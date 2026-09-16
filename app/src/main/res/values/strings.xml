@@ -178,6 +178,11 @@
     <string name="shizuku_mode_description">Use Shizuku to run the payload. This can improve reliability.</string>
     <string name="settings_boot_root">Root on boot</string>
     <string name="settings_boot_root_summary">Automatically re-run the install after every reboot when root is not active</string>
+    <string name="settings_battery">Battery usage</string>
+    <string name="settings_battery_summary_restricted">Optimised by Android, so a run with the screen off can be delayed or lose the network</string>
+    <string name="settings_battery_summary_allowed">Unrestricted, so a long run and root on boot keep the network with the screen off</string>
+    <string name="settings_battery_allow">Allow</string>
+    <string name="settings_battery_allowed">Allowed</string>
     <string name="shizuku_not_running_title">Shizuku is not running</string>
     <string name="shizuku_not_running_body">Start the Shizuku service with adb or root and grant this app permission, then enable this option.</string>
     <string name="action_download_shizuku">Download Shizuku</string>

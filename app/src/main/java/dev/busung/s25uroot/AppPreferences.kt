@@ -38,6 +38,7 @@ object AppPreferences {
     private const val DISABLE_KSU_MODULES = "disable_ksu_modules"
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
+    private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val PAYLOAD_SOURCES = "payload_sources"
     // Superseded by the source list; read once so an existing selection survives the upgrade.
     private const val LEGACY_PAYLOAD_REPOSITORY = "payload_repository"
@@ -151,6 +152,19 @@ object AppPreferences {
     fun setBootRootMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(BOOT_ROOT_MODE, enabled)
+            .apply()
+    }
+
+    /**
+     * Whether the one-shot battery-optimisation prompt has been shown. Persisted so declining it
+     * is a decision rather than something the app re-asks on every launch.
+     */
+    fun batteryPromptShown(context: Context): Boolean =
+        prefs(context).getBoolean(BATTERY_PROMPT_SHOWN, false)
+
+    fun setBatteryPromptShown(context: Context, shown: Boolean) {
+        prefs(context).edit()
+            .putBoolean(BATTERY_PROMPT_SHOWN, shown)
             .apply()
     }
 
