@@ -157,6 +157,7 @@
     <string name="repo_size_mismatch">%1$s size does not match the support manifest</string>
     <string name="repo_size_exceeded">%1$s exceeded the declared size</string>
     <string name="repo_incomplete">%1$s download is incomplete</string>
+    <string name="repo_hash_mismatch">%1$s does not match the SHA-256 the feed declares for it</string>
     <string name="repo_finalize_failed">Unable to finalize the %1$s file</string>
     <string name="repo_verified">%1$s verified</string>
     <string name="repo_commit_invalid">GitHub returned an invalid commit SHA</string>

@@ -158,6 +158,15 @@ declared size for an artifact is not trustworthy, and it is deliberately per art
 than an app-wide switch: it is the only form of that escape hatch that cannot silently turn off
 size verification for every other payload from every source at once. It defaults to true.
 
+The better answer for a source in that position is `"sha256"` on the artifact, the lowercase hex
+digest of what it serves. It is verified while the bytes are read, before the file is moved into
+place, and it is what a size cannot be: a statement about the content rather than about its
+length. An artifact that declares one has its size no longer checked against the manifest at
+all, because matching digest already proves the length — so a feed that cannot pin a size can
+state a hash instead of switching verification off. An enforced size must also be positive,
+which makes a zero a feed error that fails at parse time rather than a download that can never
+succeed.
+
 ## Run plan
 
 Advanced mode adds **Run plan**, which shows what the next run will be handed before it starts:

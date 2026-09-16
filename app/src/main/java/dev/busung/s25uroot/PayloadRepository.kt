@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
+import java.security.MessageDigest
 import java.net.URL
 import org.json.JSONObject
 
@@ -14,6 +15,12 @@ data class VerifiedPayloads(
     val exploit: File,
     val kernelSu: File,
 )
+
+/** SHA-256 of [bytes] as lowercase hex, the form a manifest declares an artifact hash in. */
+internal fun sha256Hex(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
+
+internal fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 
 /**
  * Targets merged from every enabled source, plus one message per source that could not be
@@ -149,14 +156,17 @@ class PayloadRepository(private val context: Context) {
         onProgress: (String) -> Unit,
     ): File {
         // A source can mark an artifact as unverifiable, which is the only way to accept it when
-        // its declared size is wrong; the default stays strict for every other download.
-        val checked = artifact.verifySize
+        // its declared size is wrong; the default stays strict for every other download. A declared
+        // hash proves more than a size does, so it takes over and the size is then only a limit on
+        // how much may be read rather than a value that has to match.
+        val checked = artifact.checksSize
         onProgress(context.getString(R.string.repo_downloading, label))
         val temporary = File(destination.parentFile, "${destination.name}.part")
         val connection = open(artifact.url)
         require(!checked || connection.contentLengthLong == -1L || connection.contentLengthLong == artifact.size) {
             context.getString(R.string.repo_size_mismatch, label)
         }
+        val digest = MessageDigest.getInstance("SHA-256")
         var total = 0L
         connection.inputStream.use { input ->
             FileOutputStream(temporary).use { output ->
@@ -168,6 +178,7 @@ class PayloadRepository(private val context: Context) {
                     require(!checked || total <= artifact.size) {
                         context.getString(R.string.repo_size_exceeded, label)
                     }
+                    digest.update(buffer, 0, count)
                     output.write(buffer, 0, count)
                 }
                 output.fd.sync()
@@ -176,6 +187,11 @@ class PayloadRepository(private val context: Context) {
         connection.disconnect()
         require(!checked || total == artifact.size) {
             context.getString(R.string.repo_incomplete, label)
+        }
+        artifact.sha256?.let { declared ->
+            require(digest.digest().toHex() == declared) {
+                context.getString(R.string.repo_hash_mismatch, label)
+            }
         }
         if (destination.exists()) destination.delete()
         require(temporary.renameTo(destination)) {

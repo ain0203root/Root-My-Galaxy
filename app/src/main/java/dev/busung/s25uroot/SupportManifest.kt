@@ -9,10 +9,34 @@ data class RemoteArtifact(
     /**
      * Whether the declared [size] is enforced. The feed sets this to false for an artifact whose
      * declared size is not trustworthy, which is the only alternative to disabling the check for
-     * every artifact of every source at once.
+     * every artifact of every source at once. A declared [sha256] proves the same thing and more,
+     * so it takes over the check and this flag stops mattering for that artifact.
      */
     val verifySize: Boolean = true,
-)
+    /**
+     * Lowercase hex SHA-256 of the artifact, when the feed declares one.
+     *
+     * This is what a size cannot be: verifiable. A size says nothing about the content, so a feed
+     * that cannot state a trustworthy one has to turn checking off altogether; a hash lets it state
+     * something the app can check either way.
+     */
+    val sha256: String? = null,
+) {
+    init {
+        require(!verifySize || size > 0) {
+            "An enforced size has to be positive: $url declares $size"
+        }
+        require(sha256 == null || isSha256(sha256)) { "Invalid artifact SHA-256 for $url" }
+    }
+
+    /** Whether the declared size still has to be checked, which a hash makes redundant. */
+    val checksSize: Boolean
+        get() = verifySize && sha256 == null
+}
+
+/** Whether [value] is a lowercase hex SHA-256, the only form the app compares against. */
+internal fun isSha256(value: String): Boolean =
+    value.length == 64 && value.all { it in '0'..'9' || it in 'a'..'f' }
 
 data class TargetProfile(
     val profileId: String,
@@ -115,15 +139,8 @@ data class SupportManifest(
                             models = payload.getJSONArray("models").strings(),
                             kernelVersions = payload.getJSONArray("kernelVersions").strings(),
                             requiresFreshP0Session = payload.optBoolean("requiresFreshP0Session", false),
-                            exploit = RemoteArtifact(
-                                url = exploit.getString("url"),
-                                size = exploit.getLong("size"),
-                                verifySize = exploit.optBoolean("verifySize", true),
-                            ),
-                            kernelSu = RemoteArtifact(
-                                url = kernelSu.getString("url"),
-                                size = kernelSu.getLong("size"),
-                            ),
+                            exploit = exploit.artifact(),
+                            kernelSu = kernelSu.artifact(),
                         ),
                     )
                 }
@@ -134,6 +151,14 @@ data class SupportManifest(
         private fun JSONArray.strings(): Set<String> = buildSet {
             for (index in 0 until length()) add(getString(index))
         }
+
+        /** Reads one artifact. Both artifacts of a payload take the same optional fields. */
+        private fun JSONObject.artifact(): RemoteArtifact = RemoteArtifact(
+            url = getString("url"),
+            size = getLong("size"),
+            verifySize = optBoolean("verifySize", true),
+            sha256 = optString("sha256").trim().takeIf(String::isNotEmpty),
+        )
     }
 }
 
