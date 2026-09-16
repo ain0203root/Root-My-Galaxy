@@ -5,6 +5,7 @@ import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.UUID
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import moe.shizuku.server.IRemoteProcess
@@ -87,18 +88,74 @@ object ShizukuController {
         }
     }
 
+    /**
+     * Stages [source] at [remotePath].
+     *
+     * The bytes go to a temporary file beside the destination and are moved into place only once the
+     * remote size matches what was actually sent. Writing the destination directly is where a
+     * truncated payload came from: `cat >` truncates before it copies, so an upload interrupted by a
+     * dying Shizuku, a refused write, or a killed process left a partial file where a good one had
+     * been, and the payload cache then executed it.
+     */
     fun writeFile(remotePath: String, mode: String, source: InputStream) {
-        val process = exec(arrayOf("sh", "-c", "cat > '$remotePath' && chmod $mode '$remotePath'"))
-        val exitCode = try {
-            process.outputStream.use { output ->
-                source.use { input -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
+        require(isFileMode(mode)) { "Invalid file mode: $mode" }
+        val tempPath = "$remotePath.shizuku-${UUID.randomUUID()}.tmp"
+        val quotedPath = shellQuote(remotePath)
+        val quotedTemp = shellQuote(tempPath)
+        val upload = exec(arrayOf(SHIZUKU_SHELL, "-c", uploadCommand(quotedTemp)))
+        try {
+            val bytesCopied = try {
+                source.use { input ->
+                    upload.outputStream.use { output -> input.copyTo(output, DEFAULT_BUFFER_SIZE) }
+                }
+            } catch (error: Throwable) {
+                throw IllegalStateException(
+                    "Failed to stage $remotePath during upload: ${uploadFailure(upload, error)}",
+                    error,
+                )
             }
-            process.waitFor()
+            val uploadExit = upload.waitFor()
+            check(uploadExit == 0) {
+                "Failed to stage $remotePath during upload (exit $uploadExit)" +
+                    stderrOf(upload).asSuffix()
+            }
+            val published = runShell(publishCommand(quotedPath, quotedTemp, mode, bytesCopied))
+            check(published.exitCode == 0) {
+                "Failed to publish $remotePath (exit ${published.exitCode})" + published.stderr.asSuffix()
+            }
+        } finally {
+            if (upload.isAlive) upload.destroy()
+            // A no-op once the temp file was moved, and the only cleanup if publishing was refused.
+            cleanupTemp(quotedTemp)
+        }
+    }
+
+    private data class ShellOutcome(val exitCode: Int, val stderr: String)
+
+    private fun runShell(command: String): ShellOutcome {
+        val process = exec(arrayOf(SHIZUKU_SHELL, "-c", command))
+        return try {
+            val exitCode = process.waitFor()
+            ShellOutcome(exitCode, stderrOf(process))
         } finally {
             if (process.isAlive) process.destroy()
         }
-        check(exitCode == 0) { "Failed to stage $remotePath (exit $exitCode)" }
     }
+
+    private fun cleanupTemp(quotedTemp: String) {
+        runCatching { runShell("rm -f $quotedTemp") }
+    }
+
+    /** Why an upload failed: what the remote shell said, or the local failure when it said nothing. */
+    private fun uploadFailure(process: Process, error: Throwable): String {
+        if (process.isAlive) process.destroy()
+        runCatching { process.waitFor() }
+        return stderrOf(process).ifBlank { error.message ?: error.javaClass.simpleName }
+    }
+
+    private fun stderrOf(process: Process): String = runCatching {
+        process.errorStream.bufferedReader().use { it.readText() }.trim()
+    }.getOrDefault("")
 
     private class RemoteProcess(private val remote: IRemoteProcess) : Process() {
         private val input by lazy { ParcelFileDescriptor.AutoCloseInputStream(remote.getInputStream()) }
@@ -123,3 +180,44 @@ object ShizukuController {
         override fun isAlive(): Boolean = remote.alive()
     }
 }
+
+private const val SHIZUKU_SHELL = "/system/bin/sh"
+
+private val FILE_MODE = Regex("[0-7]{3,4}")
+
+/** Whether [mode] is an octal permission a remote `chmod` can be given without quoting it. */
+internal fun isFileMode(mode: String): Boolean = FILE_MODE.matches(mode)
+
+/**
+ * Single-quotes [value] for the remote shell, closing and reopening the quote around any quote in
+ * it. A payload path is built from a profile id, which the feed controls.
+ */
+internal fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
+
+/**
+ * The upload half: copies stdin to the temporary path and never names the destination, so nothing
+ * short of the publish step can touch the file the app is about to execute.
+ */
+internal fun uploadCommand(quotedTemp: String): String = "rm -f $quotedTemp && cat > $quotedTemp"
+
+/**
+ * The publish half: refuses a short file, then modes it and moves it over the destination. The size
+ * is compared against what the local side actually sent, not against the manifest, so a truncated
+ * transfer is caught even when the declared size is wrong.
+ */
+internal fun publishCommand(
+    quotedPath: String,
+    quotedTemp: String,
+    mode: String,
+    expectedBytes: Long,
+): String = listOf(
+    "set -e",
+    "trap 'rm -f $quotedTemp' EXIT HUP INT TERM",
+    "actual=$(/system/bin/wc -c < $quotedTemp)",
+    "if [ \"${'$'}actual\" -ne $expectedBytes ]; then " +
+        "echo \"staged size mismatch: expected $expectedBytes, got ${'$'}actual\" >&2; exit 1; fi",
+    "chmod $mode $quotedTemp",
+    "mv -f $quotedTemp $quotedPath",
+).joinToString("\n")
+
+private fun String.asSuffix(): String = if (isBlank()) "" else ": $this"
