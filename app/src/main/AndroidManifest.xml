@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -7,6 +8,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Needed to reach the device's own adbd on loopback and to discover its port.-->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!--
+      Declared but not granted by default: only a rooted device (or `adb install -g`) can grant it,
+      and it is what allows wireless debugging to be turned on for a run. Without it the transport
+      still works when the user has wireless debugging on already.
+    -->
+    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
 
     <queries>
         <package android:name="me.weishu.kernelsu" />
@@ -58,6 +70,23 @@
         <receiver
             android:name=".AutoRootActionReceiver"
             android:exported="false" />
+        <service
+            android:name=".AdbPairingService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="pairs with the device's own wireless debugging" />
+        </service>
+        <receiver
+            android:name=".WirelessAdbCleanupReceiver"
+            android:exported="false" />
+        <activity
+            android:name=".AdbPairingSetupActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true" />
         <activity
             android:name=".InstallActivity"
             android:exported="false" />

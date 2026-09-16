@@ -1768,6 +1768,9 @@ private fun SettingsPage(
     var showAutoRootSettleDialog by remember { mutableStateOf(false) }
     var showShizukuTokenDialog by remember { mutableStateOf(false) }
     var tokenDraft by remember { mutableStateOf("") }
+    var showWirelessAdbDialog by remember { mutableStateOf(false) }
+    var wirelessSnapshot by remember { mutableStateOf<WirelessAdbSnapshot?>(null) }
+    var wirelessBusy by remember { mutableStateOf(false) }
     var payloadModeMenuTop by remember { mutableStateOf(32.dp) }
     var showPayloadModeDialog by remember { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -2260,6 +2263,62 @@ private fun SettingsPage(
                         if (enabled) startShizuku()
                     },
                 )
+            }
+        }
+
+        item { SectionLabel(stringResource(R.string.settings_section_wireless_adb)) }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // Read when the screen is built rather than on every recomposition: it is a file read
+                // plus a settings lookup, and what it describes changes only when something is done
+                // to it.
+                LaunchedEffect(Unit) {
+                    wirelessSnapshot = WirelessAdbDiagnostics.passiveSnapshot(context)
+                }
+                val snapshot = wirelessSnapshot
+                SettingsCard(
+                    icon = Icons.Rounded.Link,
+                    title = stringResource(R.string.settings_wireless_adb),
+                    description = stringResource(R.string.settings_wireless_adb_summary),
+                    value = if (snapshot == null) {
+                        ""
+                    } else {
+                        wirelessAdbStateLabel(snapshot.authState)
+                    },
+                    position = SettingsCardPosition.GroupedSingle,
+                    onClick = {
+                        clickHaptic(view)
+                        wirelessSnapshot = WirelessAdbDiagnostics.passiveSnapshot(context)
+                        showWirelessAdbDialog = true
+                    },
+                )
+                if (showWirelessAdbDialog) {
+                    WirelessAdbDialog(
+                        snapshot = wirelessSnapshot,
+                        busy = wirelessBusy,
+                        onPair = { forceRepair ->
+                            // The code field lives in a notification, so pairing is started by an
+                            // activity that asks for the permission first and clears a stale pairing
+                            // when asked for a fresh one.
+                            context.startActivity(
+                                AdbPairingSetupActivity.pairingIntent(context, forceRepair),
+                            )
+                            showWirelessAdbDialog = false
+                        },
+                        onTest = {
+                            wirelessBusy = true
+                            scope.launch {
+                                wirelessSnapshot = WirelessAdbDiagnostics.testConnection(context)
+                                wirelessBusy = false
+                            }
+                        },
+                        onForget = {
+                            AdbCredentialStore.forgetLocalCredential(context)
+                            wirelessSnapshot = WirelessAdbDiagnostics.passiveSnapshot(context)
+                        },
+                        onDismiss = { showWirelessAdbDialog = false },
+                    )
+                }
             }
         }
 

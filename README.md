@@ -81,6 +81,7 @@ Appearance and a run option is not filed under Advanced:
 | Payloads | payload sources, local payload |
 | Run | advanced mode, disable KSU modules, protect image partitions, boot settle, run plan |
 | Shizuku | use Shizuku, start Shizuku now, Shizuku start token, Shizuku on boot |
+| Wireless ADB | pair, test, or remove this app's wireless-debugging identity |
 | Root | root on boot, and its settle floor |
 | Recovery | restart Zygote, KernelSU soft reboot, reboot and unroot — hold to run |
 | System | the battery-optimisation exemption a run with the screen off depends on |
@@ -403,6 +404,39 @@ checked while a request to another app can only be answered by waiting for a bin
 build starts itself on boot, the app notices and reports that rather than racing it.
 Switching the setting on starts Shizuku there and then, so the setting is proven on the device
 instead of at the next reboot.
+
+## Wireless ADB
+
+Every other transport this app has can be absent at the worst moment. A Shizuku binder needs root or a
+computer; the bootstrap helper's socket only exists in the window it was staged in. The device's own
+wireless debugging is different: it is a shell the user can enable from Developer options, with no
+cable and no root.
+
+**Settings → Wireless ADB** pairs with it. Pairing is three steps on adbd's side — a TLS 1.3 session
+whose exported key material joins the pairing code to form the password, a SPAKE2 exchange that proves
+both sides hold that password without sending it, and an encrypted PeerInfo carrying this app's public
+key — and the code itself is entered **in the notification** the app posts, because the code is shown
+in Developer options and switching apps to type six digits would be the whole cost of the feature.
+
+The transport is treated as a window, not as device state: wireless debugging is turned on for the run
+that needs it and off again when the pairing or the session ends, with an alarm armed *before* it is
+turned on so a process killed in between still turns it back off. Wireless debugging is only ever left
+alone if the user had it on already.
+
+Two things are kept apart on purpose, and the screen says which one you are looking at:
+
+- **A stored pairing is a record, not a state.** The device can forget this app at any time, and
+  nothing on this side changes when it does — so the card reads *paired, unverified* until **Test the
+  connection** has actually connected and come back with a shell identity. Only that reads *working*.
+- **Failures are separated by what they need.** A refused certificate means the device no longer knows
+  this app, which is what **Pair again** is for: it clears the app's key and recorded pairing first,
+  because retrying with a key the device has already discarded looks like a no-op. A missing port means
+  wireless debugging is off or adbd has not published one yet. A connection failure is neither.
+
+Turning wireless debugging on from the app needs `WRITE_SECURE_SETTINGS`, which is granted to a rooted
+device (`pm grant`) or at install time (`adb install -g`). Without it the transport still works
+whenever the user has wireless debugging on already, and the card says so rather than pretending
+otherwise.
 
 ## Root on boot
 
