@@ -85,8 +85,17 @@ A target may set `"requiresFreshP0Session": true` in the manifest. Payloads buil
 device whose P0 page address is only valid for the attempt that leaked it must not be
 handed the app's cached offset or its attempt/timeout overrides, so marked targets run one
 payload-native attempt per run, ignore the cached slide offset, and are left to their own
-internal retry pacing — the run's overall deadline still applies. The flag defaults to
-false, and eight profiles in the official feed already set it.
+internal retry pacing. The app's own ceiling for those runs is an hour rather than the fifteen
+minutes a cached multi-attempt run gets, because a page scan that has to be won inside a
+single session can legitimately take far longer than the retry loop ever needed; the payload's
+own limits still end the attempt first. The flag defaults to false, and eight profiles in the
+official feed already set it.
+
+The ceiling is keyed on the profile declaring the flag, not on the kernel version. Kernel 5.15
+is a tempting proxy for "this target scans pages", but in the official feed only two of the
+four 5.15 profiles ask for a fresh session, and marked profiles also run on 5.10, 6.1 and
+6.1.157 — so a version-keyed policy would impose an hour-long single-attempt budget on targets
+that never asked for it.
 
 ## Local payload
 

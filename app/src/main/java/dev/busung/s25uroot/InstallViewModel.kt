@@ -360,7 +360,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         app.getString(R.string.error_exploit_stalled)
                     }
                 }
-                require(now - startedAt < EXPLOIT_TOTAL_MILLIS) {
+                require(now - startedAt < exploitTotalMillis(requiresFreshP0Session)) {
                     app.getString(R.string.error_exploit_timeout)
                 }
                 delay(if (shizuku) SHIZUKU_LOG_POLL_INTERVAL else LOG_POLL_INTERVAL)
@@ -634,6 +634,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val EXPLOIT_ATTEMPT_TIMEOUT_SEC = "120"
         private const val EXPLOIT_STALL_MILLIS = 90_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
+        // A profile that needs one fresh P0 session hands the pacing to the payload, and the
+        // payloads that ask for it scan pages for far longer than the cached multi-attempt budget
+        // ever needed: the fresh-session proposal allowed a single 840-second attempt, and the
+        // controlled-page-scan one 1200 s of scan plus 2200 s of attempt. A 15-minute ceiling would
+        // cut exactly those runs off, so for marked profiles the ceiling is the longest envelope
+        // either of those needed. It is a limit, not a schedule - a run still ends when the payload
+        // finishes.
+        private const val EXPLOIT_TOTAL_MILLIS_FRESH = 3_600_000L
         private const val HELPER_TIMEOUT_MILLIS = 120_000L
 
         private const val MODULES_DIRECTORY = "/data/adb/modules"
@@ -688,6 +696,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private val P0_OFFSET_PATTERN = Regex(
             "slide-kaslr-ok[^\\n]*slide=([0-9a-fA-F]{16})",
         )
+
+        /** How long a run may take before the app gives up on it. */
+        internal fun exploitTotalMillis(requiresFreshP0Session: Boolean): Long =
+            if (requiresFreshP0Session) EXPLOIT_TOTAL_MILLIS_FRESH else EXPLOIT_TOTAL_MILLIS
 
         internal fun exploitEnvironment(
             requiresFreshP0Session: Boolean,
