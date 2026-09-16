@@ -1,7 +1,20 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Release signing material. CI passes it through environment variables; a local build
+// can keep it in keystore/keystore.properties instead (that file is gitignored).
+val keystoreProperties = Properties().apply {
+    val file = rootProject.file("keystore/keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
+fun signingProperty(envName: String, propertyName: String): String? =
+    System.getenv(envName)?.takeIf { it.isNotBlank() }
+        ?: keystoreProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
 
 android {
     namespace = "dev.busung.s25uroot"
@@ -36,6 +49,36 @@ android {
             path = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
         }
+    }
+
+    signingConfigs {
+        create("release") {
+            val storeFilePath = signingProperty("KEYSTORE_FILE", "storeFile")
+            if (storeFilePath != null) {
+                storeFile = rootProject.file(storeFilePath)
+                storeType = signingProperty("KEYSTORE_TYPE", "storeType") ?: "PKCS12"
+                storePassword = signingProperty("KEYSTORE_PASSWORD", "storePassword")
+                keyAlias = signingProperty("KEY_ALIAS", "keyAlias")
+                keyPassword = signingProperty("KEY_PASSWORD", "keyPassword")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig = signingConfigs.getByName("release")
+        }
+    }
+
+    // An unsigned release APK builds happily and then fails at install time, which is
+    // how a mis-signed artifact once shipped. Refuse to build one instead.
+    if (signingConfigs.getByName("release").storeFile == null &&
+        gradle.startParameter.taskNames.any { it.contains("Release", ignoreCase = true) }
+    ) {
+        throw GradleException(
+            "Release signing is not configured: set KEYSTORE_FILE, KEYSTORE_PASSWORD, " +
+                "KEY_ALIAS and KEY_PASSWORD, or create keystore/keystore.properties (see README)."
+        )
     }
 
     compileOptions {
