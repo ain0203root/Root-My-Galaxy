@@ -37,6 +37,7 @@ object AppPreferences {
     private const val ADVANCED_MODE = "advanced_mode"
     private const val DISABLE_KSU_MODULES = "disable_ksu_modules"
     private const val SHIZUKU_MODE = "shizuku_mode"
+    private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val PAYLOAD_SOURCES = "payload_sources"
     // Superseded by the source list; read once so an existing selection survives the upgrade.
     private const val LEGACY_PAYLOAD_REPOSITORY = "payload_repository"
@@ -141,6 +142,15 @@ object AppPreferences {
     fun setShizukuMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(SHIZUKU_MODE, enabled)
+            .apply()
+    }
+
+    fun bootRootMode(context: Context): Boolean =
+        prefs(context).getBoolean(BOOT_ROOT_MODE, false)
+
+    fun setBootRootMode(context: Context, enabled: Boolean) {
+        prefs(context).edit()
+            .putBoolean(BOOT_ROOT_MODE, enabled)
             .apply()
     }
 
