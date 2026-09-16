@@ -9,97 +9,111 @@ import org.junit.Test
 /**
  * The shape a run of settings cards has to be in.
  *
- * A group is one rounded container: `Top` draws the rounded top and flat bottom, `Middle` is flat
- * both ways, `Bottom` closes it. The compiler is happy with any order, so a card filed as `Top`
- * between two others is invisible until someone looks at the screen - which is exactly how the
- * payloads group came to draw its sources card as the start of a second list.
+ * A group is one rounded container: `Top` draws the rounded top and flat bottom, `Middle` is flat both
+ * ways, `Bottom` closes it. The compiler is happy with any order, so a card filed as `Top` between two
+ * others is invisible until someone looks at the screen - which is exactly how the payloads group came
+ * to draw its sources card as the start of a second list.
  *
- * The positions are read out of the source because that is where the decision is written; the test
- * exists to fail when the order stops being one a group can be drawn from.
+ * The positions are read out of the sources because that is where the decision is written. A group is
+ * drawn inside one composable, so each file is checked on its own.
  */
 class SettingsCardGroupTest {
 
     @Test
     fun `every group opens once and closes once`() {
-        val positions = positionsInSource()
-        assertTrue("no card positions found; the scan is looking at the wrong file", positions.isNotEmpty())
+        val bySource = positionsInSource()
+        assertTrue("no card positions found; the scan is looking at the wrong files", bySource.isNotEmpty())
 
-        var groupOpen = false
-        positions.forEachIndexed { index, position ->
-            when (position) {
-                "Top" -> {
-                    assertFalse(
-                        "a card opened a group at #$index while another was still open",
+        bySource.forEach { (source, positions) ->
+            var groupOpen = false
+            positions.forEachIndexed { index, position ->
+                when (position) {
+                    "Top" -> {
+                        assertFalse(
+                            "$source: a card opened a group at #$index while another was still open",
+                            groupOpen,
+                        )
+                        groupOpen = true
+                    }
+                    "Middle" -> assertTrue(
+                        "$source: a middle card at #$index has no group to belong to",
                         groupOpen,
                     )
-                    groupOpen = true
+                    "Bottom" -> {
+                        assertTrue("$source: a bottom card at #$index has no group to close", groupOpen)
+                        groupOpen = false
+                    }
+                    "GroupedSingle" -> assertFalse(
+                        "$source: a card at #$index is a group of its own, inside another group",
+                        groupOpen,
+                    )
+                    else -> throw AssertionError(
+                        "$source: card at #$index uses an unhandled position: $position",
+                    )
                 }
-                "Middle" -> assertTrue(
-                    "a middle card at #$index has no group to belong to",
-                    groupOpen,
-                )
-                "Bottom" -> {
-                    assertTrue("a bottom card at #$index has no group to close", groupOpen)
-                    groupOpen = false
-                }
-                "GroupedSingle" -> assertFalse(
-                    "a card at #$index is a group of its own, inside another group",
-                    groupOpen,
-                )
-                else -> throw AssertionError("card at #$index uses an unhandled position: $position")
             }
+            assertFalse("$source: the last group was never closed", groupOpen)
         }
-        assertFalse("the last group was never closed", groupOpen)
     }
 
     @Test
-    fun `each group is at most one top and one bottom`() {
-        val positions = positionsInSource().filter { it != "GroupedSingle" }
-        val groups = mutableListOf<List<String>>()
-        var current = mutableListOf<String>()
-        positions.forEach { position ->
-            current.add(position)
-            if (position == "Bottom") {
-                groups.add(current)
-                current = mutableListOf()
+    fun `every group is a top, any number of middles, and a bottom`() {
+        val groups = positionsInSource().values
+            .flatten()
+            .filter { position -> position != "GroupedSingle" }
+            .fold(mutableListOf<MutableList<String>>()) { groups, position ->
+                if (groups.isEmpty() || groups.last().last() == "Bottom") {
+                    groups.add(mutableListOf(position))
+                } else {
+                    groups.last().add(position)
+                }
+                groups
             }
-        }
 
         assertTrue("no complete group was found", groups.isNotEmpty())
         groups.forEach { group ->
-            assertEquals("a group starts with something other than a top", "Top", group.first())
-            assertEquals("a group ends with something other than a bottom", "Bottom", group.last())
-            assertTrue(
+            assertEquals("a group starts with something other than a top: $group", "Top", group.first())
+            assertEquals("a group ends with something other than a bottom: $group", "Bottom", group.last())
+            assertEquals(
                 "a group holds more than one top: $group",
-                group.count { it == "Top" } == 1,
+                1,
+                group.count { it == "Top" },
             )
         }
     }
 
     /**
-     * The positions in the order the file declares them.
+     * The positions in the order each file declares them.
      *
      * Only the cards themselves count, and only those that name a position: a card that leaves it out
      * is a single on its own and belongs to no group. Matching the assignment rather than the enum
      * keeps the shape helper's own comparisons out of the sequence.
      */
-    private fun positionsInSource(): List<String> {
-        val source = settingsSource().readText()
-        return Regex("""position = SettingsCardPosition\.(\w+)""")
-            .findAll(source)
-            .map { match -> match.groupValues[1] }
-            .filter { position -> position != "Single" }
-            .toList()
+    private fun positionsInSource(): Map<String, List<String>> = sourceRoot()
+        .walkTopDown()
+        .filter { file -> file.isFile && file.extension == "kt" }
+        .mapNotNull { file ->
+            val positions = CARD_POSITION.findAll(file.readText())
+                .map { match -> match.groupValues[1] }
+                .filter { position -> position != "Single" }
+                .toList()
+            if (positions.isEmpty()) null else file.name to positions
+        }
+        .toMap()
+
+    private fun sourceRoot(): File {
+        val candidates = listOf(
+            File("src/main/java"),
+            File("app/src/main/java"),
+        )
+        return candidates.firstOrNull(File::isDirectory)
+            ?: throw AssertionError(
+                "the sources were not found from ${File(".").absolutePath}",
+            )
     }
 
-    private fun settingsSource(): File {
-        val candidates = listOf(
-            File("src/main/java/dev/busung/s25uroot/MainActivity.kt"),
-            File("app/src/main/java/dev/busung/s25uroot/MainActivity.kt"),
-        )
-        return candidates.firstOrNull(File::isFile)
-            ?: throw AssertionError(
-                "MainActivity.kt was not found from ${File(".").absolutePath}",
-            )
+    private companion object {
+        /** The assignment, so a comparison in the shape helper is not read as a card. */
+        val CARD_POSITION = Regex("""position = SettingsCardPosition\.(\w+)""")
     }
 }

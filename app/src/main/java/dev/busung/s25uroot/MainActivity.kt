@@ -3924,7 +3924,14 @@ private fun SectionLabel(text: String) {
     )
 }
 
-private enum class SettingsCardPosition {
+/**
+ * Where a card sits in the list it is drawn in.
+ *
+ * The corners are the whole difference between one group and several: a card that names the wrong
+ * one starts a new container on screen or leaves a group of one. Internal, because the Recovery
+ * actions are a group too and belong to the same list as everything else on the screen.
+ */
+internal enum class SettingsCardPosition {
     Single,
     GroupedSingle,
     Top,
@@ -3942,8 +3949,15 @@ private enum class SettingsCardPosition {
  */
 private val SETTINGS_VALUE_MAX_WIDTH = 140.dp
 
+/**
+ * One row of the settings list: an icon, a title, a description, and an optional trailing value.
+ *
+ * [busy] is for a row that starts something the app has to wait on. It keeps the row in place and
+ * stops it being tapped again while the work runs, instead of the row changing shape or a second
+ * tap starting the same thing twice.
+ */
 @Composable
-private fun SettingsCard(
+internal fun SettingsCard(
     modifier: Modifier = Modifier,
     icon: ImageVector,
     title: String,
@@ -3951,11 +3965,13 @@ private fun SettingsCard(
     value: String = "",
     valueBelow: String? = null,
     position: SettingsCardPosition = SettingsCardPosition.Single,
+    busy: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val view = LocalView.current
     Card(
+        enabled = !busy,
         onClick = {
             clickHaptic(view)
             onClick()
@@ -4007,6 +4023,15 @@ private fun SettingsCard(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (busy) {
+                Spacer(Modifier.height(10.dp))
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(3.dp),
+                    color = MaterialTheme.colorScheme.primary,
                 )
             }
         }
