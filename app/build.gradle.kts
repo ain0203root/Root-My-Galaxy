@@ -166,6 +166,13 @@ dependencies {
     implementation("dev.rikka.shizuku:api:13.1.5")
     implementation("dev.rikka.shizuku:provider:13.1.5")
 
+    // Pairing with the device's own wireless debugging speaks the ADB protocol's TLS, which needs a
+    // client certificate and the `adb` ALPN; Conscrypt as shipped cannot be asked for that shape, so
+    // the TLS client, the certificate builder and the SPAKE2 pairing exchange come from Bouncy Castle.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.80")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.80")
+    implementation("org.bouncycastle:bctls-jdk18on:1.80")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     // Local JVM tests otherwise get Android's stub org.json, whose methods throw "not mocked", so

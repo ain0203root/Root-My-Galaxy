@@ -43,6 +43,7 @@ object AppPreferences {
     private const val AUTO_ROOT_SETTLE_SECONDS = "auto_root_settle_seconds"
     private const val SHIZUKU_AUTOMATION_TOKEN = "shizuku_automation_token"
     private const val PARTITION_READ_ONLY_MODE = "partition_read_only_mode"
+    private const val ADB_PAIRED = "adb_paired"
     private const val PAYLOAD_MODE = "payload_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
@@ -246,6 +247,19 @@ object AppPreferences {
         prefs(context).edit()
             .putBoolean(PARTITION_READ_ONLY_MODE, enabled)
             .apply()
+    }
+
+    /**
+     * Whether a wireless-debugging pairing has ever succeeded.
+     *
+     * A record of an event, not a statement about now: adbd can forget this app's key without
+     * anything here changing, so anything that depends on the transport asks the device instead of
+     * reading this.
+     */
+    fun adbPaired(context: Context): Boolean = prefs(context).getBoolean(ADB_PAIRED, false)
+
+    fun setAdbPaired(context: Context, paired: Boolean) {
+        prefs(context).edit().putBoolean(ADB_PAIRED, paired).apply()
     }
 
     /** Whether Shizuku is started at boot through KernelSU, once the device already has root. */
