@@ -171,6 +171,7 @@ class MainActivity : ComponentActivity() {
     private var accentColor by mutableStateOf(AccentColor.Dynamic)
     private var themeMode by mutableStateOf(AppThemeMode.System)
     private var advancedMode by mutableStateOf(false)
+	private var disableKsuModules by mutableStateOf(false)
     private var shizukuMode by mutableStateOf(false)
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
 
@@ -181,6 +182,7 @@ class MainActivity : ComponentActivity() {
         accentColor = AppPreferences.accentColor(this)
         themeMode = AppPreferences.themeMode(this)
         advancedMode = AppPreferences.advancedMode(this)
+		disableKsuModules = AppPreferences.disableKsuModules(this)
         shizukuMode = AppPreferences.shizukuMode(this)
         payloadSources = AppPreferences.payloadSources(this)
         setContent {
@@ -190,6 +192,7 @@ class MainActivity : ComponentActivity() {
                     accentColor = accentColor,
                     themeMode = themeMode,
                     advancedMode = advancedMode,
+					disableKsuModules = disableKsuModules,
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     onAccentColorChanged = { color ->
@@ -204,6 +207,10 @@ class MainActivity : ComponentActivity() {
                         AppPreferences.setAdvancedMode(this, enabled)
                         advancedMode = enabled
                     },
+					onDisableKsuModulesChanged = { enabled ->
+						AppPreferences.setDisableKsuModules(this, enabled)
+						disableKsuModules = enabled
+					},
                     onShizukuModeChanged = { enabled ->
                         AppPreferences.setShizukuMode(this, enabled)
                         shizukuMode = enabled
@@ -293,11 +300,13 @@ private fun RootApp(
     accentColor: AccentColor,
     themeMode: AppThemeMode,
     advancedMode: Boolean,
+	disableKsuModules: Boolean,
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
+	onDisableKsuModulesChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     openInstaller: (String?) -> Unit,
@@ -518,6 +527,7 @@ private fun RootApp(
                     accentColor = accentColor,
                     themeMode = themeMode,
                     advancedMode = advancedMode,
+					disableKsuModules = disableKsuModules,
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     updateStatus = updateStatus,
@@ -526,6 +536,7 @@ private fun RootApp(
                     onAccentColorChanged = onAccentColorChanged,
                     onThemeModeChanged = onThemeModeChanged,
                     onAdvancedModeChanged = onAdvancedModeChanged,
+					onDisableKsuModulesChanged = onDisableKsuModulesChanged,
                     onShizukuModeChanged = onShizukuModeChanged,
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                 )
@@ -1429,6 +1440,7 @@ private fun SettingsPage(
     accentColor: AccentColor,
     themeMode: AppThemeMode,
     advancedMode: Boolean,
+	disableKsuModules: Boolean,
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     updateStatus: UpdateStatus,
@@ -1437,6 +1449,7 @@ private fun SettingsPage(
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
+	onDisableKsuModulesChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
 ) {
@@ -1601,6 +1614,7 @@ private fun SettingsPage(
             }
         }
         item { SectionLabel(stringResource(R.string.advanced)) }
+
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsSwitchCard(
@@ -1612,6 +1626,17 @@ private fun SettingsPage(
                     onCheckedChange = {
                         clickHaptic(view)
                         onAdvancedModeChanged(it)
+                    },
+                )
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.Security,
+                    title = stringResource(R.string.disable_ksu_modules),
+                    description = stringResource(R.string.disable_ksu_modules_description),
+                    checked = disableKsuModules,
+                    position = SettingsCardPosition.Middle,
+                    onCheckedChange = {
+                        clickHaptic(view)
+                        onDisableKsuModulesChanged(it)
                     },
                 )
                 SettingsCard(

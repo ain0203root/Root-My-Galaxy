@@ -143,6 +143,8 @@
     <string name="advanced">Advanced</string>
     <string name="advanced_mode">Advanced mode</string>
     <string name="advanced_mode_description">Manually choose a device-compatible payload during installation</string>
+    <string name="disable_ksu_modules">Disable KSU modules</string>
+    <string name="disable_ksu_modules_description">Temporarily disable KernelSU modules before loading KernelSU</string>
     <string name="payload_sources">Payload sources</string>
     <string name="payload_sources_description">GitHub repositories that provide the payload catalog and files</string>
     <string name="payload_sources_title">Payload sources</string>
