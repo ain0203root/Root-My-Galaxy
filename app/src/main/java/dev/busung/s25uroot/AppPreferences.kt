@@ -38,6 +38,7 @@ object AppPreferences {
     private const val DISABLE_KSU_MODULES = "disable_ksu_modules"
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
+    private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
     private const val PAYLOAD_SOURCES = "payload_sources"
@@ -162,6 +163,16 @@ object AppPreferences {
     fun setBootRootMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(BOOT_ROOT_MODE, enabled)
+            .apply()
+    }
+
+    /** Whether Shizuku is started at boot through KernelSU, once the device already has root. */
+    fun shizukuBootMode(context: Context): Boolean =
+        prefs(context).getBoolean(SHIZUKU_BOOT_MODE, false)
+
+    fun setShizukuBootMode(context: Context, enabled: Boolean) {
+        prefs(context).edit()
+            .putBoolean(SHIZUKU_BOOT_MODE, enabled)
             .apply()
     }
 

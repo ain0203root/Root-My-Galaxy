@@ -227,6 +227,29 @@ control channel answered` rather than as a success. Privileged maintenance that 
 the helper's temporary handoff socket: a Samsung kernel may refuse new connects to that socket while
 KernelSU itself is perfectly healthy.
 
+## Shizuku without a computer
+
+Shizuku is what this app runs the payload as shell through, and it is normally started by hand over
+adb — so after a reboot the transport is gone until someone finds a cable. Once KernelSU is on the
+device that is unnecessary: KernelSU's own root shell can run Shizuku's starter, which is what
+**Start Shizuku now** and **Shizuku on boot** in Settings do.
+
+- Current Shizuku builds expose their starter as a native library inside their own APK, run with the
+  path of the APK it belongs to; older or manually installed builds may have dropped a `start.sh` on
+  shared storage. The native route is preferred, the legacy script is a fallback, and a device with
+  neither is reported once rather than as two failures.
+- The start is serialized and re-probes the binder immediately before every launch, because a start
+  racing the Shizuku app's own or a previous boot's attempt otherwise looks like one that never took
+  effect. A binder that appears during a probe is reported as already running, not as a failure.
+- On boot the start runs after a settle delay, through KernelSU's root shell, up to three times. It
+  runs both when a boot already has root and after a boot-time install succeeded — the boot that has
+  to re-establish root is exactly the boot that can then bring Shizuku back.
+
+It says so plainly when it cannot work: with no root there is no way for an app to start a
+privileged process, so the failure names that rather than pretending the button did something.
+Switching the setting on starts Shizuku there and then, so the setting is proven on the device
+instead of at the next reboot.
+
 ## Build identity
 
 Two builds of the same version are otherwise indistinguishable once installed, so every build

@@ -115,6 +115,14 @@
     <string name="shizuku_mode_description">Payload\'ı çalıştırmak için Shizuku kullanın. Bu, güvenilirliği artırabilir.</string>
     <string name="shizuku_not_running_title">Shizuku çalışmıyor</string>
     <string name="shizuku_not_running_body">Shizuku hizmetini adb veya root ile başlatın ve bu uygulamaya izin verin, ardından bu seçeneği etkinleştirin.</string>
+    <string name="settings_shizuku_start">Shizuku\'yu şimdi başlat</string>
+    <string name="settings_shizuku_start_summary">Shizuku hizmetini KernelSU üzerinden başlatır, böylece bu uygulama bilgisayar olmadan çalışır</string>
+    <string name="settings_shizuku_boot">Açılışta Shizuku</string>
+    <string name="settings_shizuku_boot_summary">Cihazda zaten root varsa yeniden başlatmadan sonra Shizuku\'yu otomatik başlat</string>
+    <string name="status_shizuku_starting">Başlatılıyor\u2026</string>
+    <string name="status_shizuku_started">Shizuku çalışıyor</string>
+    <string name="error_shizuku_start_no_root">Shizuku burada yalnızca root olan bir cihazda başlatılabilir; önce kurulumu çalıştırın.</string>
+    <string name="notification_channel_shizuku">Shizuku başlangıcı</string>
     <string name="action_download_shizuku">Shizuku\'yu indir</string>
     <string name="error_shizuku_unavailable">Shizuku çalışmıyor. Önce Shizuku\'yu adb veya root ile başlatın.</string>
     <string name="error_shizuku_permission">Shizuku izni verilmedi</string>

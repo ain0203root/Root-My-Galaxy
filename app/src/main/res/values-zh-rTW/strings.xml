@@ -131,6 +131,14 @@
     <string name="shizuku_mode_description">使用 Shizuku 執行 payload，可能提高可靠性。</string>
     <string name="shizuku_not_running_title">Shizuku 未在執行</string>
     <string name="shizuku_not_running_body">請先透過 adb 或 root 啟動 Shizuku 服務並授予此應用程式權限，然後啟用此選項。</string>
+    <string name="settings_shizuku_start">立即啟動 Shizuku</string>
+    <string name="settings_shizuku_start_summary">透過 KernelSU 啟動 Shizuku 服務，讓此應用程式無需電腦即可繼續運作</string>
+    <string name="settings_shizuku_boot">開機時啟動 Shizuku</string>
+    <string name="settings_shizuku_boot_summary">裝置已有 root 時，重新啟動後自動啟動 Shizuku</string>
+    <string name="status_shizuku_starting">正在啟動\u2026</string>
+    <string name="status_shizuku_started">Shizuku 正在執行</string>
+    <string name="error_shizuku_start_no_root">只有已 root 的裝置才能在此啟動 Shizuku；請先執行安裝。</string>
+    <string name="notification_channel_shizuku">Shizuku 啟動</string>
     <string name="action_download_shizuku">下載 Shizuku</string>
     <string name="error_shizuku_unavailable">Shizuku 未在執行，請先透過 adb 或 root 啟動 Shizuku。</string>
     <string name="error_shizuku_permission">未授予 Shizuku 權限</string>

@@ -139,6 +139,14 @@
     <string name="shizuku_mode_description">Paketni ishga tushirish uchun Shizuku\'dan foydalaning. Bu o\'rnatishning ishonchliligini oshirishi mumkin.</string>
     <string name="shizuku_not_running_title">Shizuku ishlamayapti</string>
     <string name="shizuku_not_running_body">Avval Shizuku xizmatini adb yoki root orqali ishga tushiring va ushbu ilovaga ruxsat bering, so\'ngra bu sozlamani yoqing.</string>
+    <string name="settings_shizuku_start">Shizuku\'ni hozir ishga tushirish</string>
+    <string name="settings_shizuku_start_summary">Shizuku xizmatini KernelSU orqali ishga tushiradi, shunda ilova kompyutersiz ishlaydi</string>
+    <string name="settings_shizuku_boot">Ishga tushganda Shizuku</string>
+    <string name="settings_shizuku_boot_summary">Qayta ishga tushgandan so\'ng, qurilmada root bo\'lsa Shizuku avtomatik ishga tushadi</string>
+    <string name="status_shizuku_starting">Ishga tushirilmoqda\u2026</string>
+    <string name="status_shizuku_started">Shizuku ishlayapti</string>
+    <string name="error_shizuku_start_no_root">Shizuku bu yerda faqat root bor qurilmada ishga tushiriladi; avval o\'rnatishni bajaring.</string>
+    <string name="notification_channel_shizuku">Shizuku ishga tushishi</string>
     <string name="action_download_shizuku">Shizuku\'ni yuklab olish</string>
     <string name="error_shizuku_unavailable">Shizuku ishlamayapti. Avval Shizuku\'ni adb yoki root yordamida ishga tushiring.</string>
     <string name="error_shizuku_permission">Shizuku uchun ruxsat berilmadi</string>

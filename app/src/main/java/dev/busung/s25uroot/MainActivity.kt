@@ -73,6 +73,7 @@ import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.BatterySaver
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -93,6 +94,7 @@ import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -189,6 +191,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuMode by mutableStateOf(false)
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
+    private var shizukuBootMode by mutableStateOf(false)
     private var notificationPermissionAsked = false
     private var batteryUnrestricted by mutableStateOf(false)
     private var batteryPromptAsked = false
@@ -272,6 +275,7 @@ class MainActivity : ComponentActivity() {
         shizukuMode = AppPreferences.shizukuMode(this)
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
+        shizukuBootMode = AppPreferences.shizukuBootMode(this)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
@@ -284,6 +288,7 @@ class MainActivity : ComponentActivity() {
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
+                    shizukuBootMode = shizukuBootMode,
                     batteryUnrestricted = batteryUnrestricted,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
                     onRequestBatteryExemption = ::requestBatteryExemption,
@@ -314,6 +319,10 @@ class MainActivity : ComponentActivity() {
                     onBootRootModeChanged = { enabled ->
                         AppPreferences.setBootRootMode(this, enabled)
                         bootRootMode = enabled
+                    },
+                    onShizukuBootModeChanged = { enabled ->
+                        AppPreferences.setShizukuBootMode(this, enabled)
+                        shizukuBootMode = enabled
                     },
                     openInstaller = { selectionId ->
                         val installer = Intent(this, InstallActivity::class.java)
@@ -403,6 +412,7 @@ private fun RootApp(
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
+    shizukuBootMode: Boolean,
     batteryUnrestricted: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
@@ -411,6 +421,7 @@ private fun RootApp(
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
+    onShizukuBootModeChanged: (Boolean) -> Unit,
     requestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     openInstaller: (String?) -> Unit,
@@ -666,6 +677,7 @@ private fun RootApp(
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
+                    shizukuBootMode = shizukuBootMode,
                     batteryUnrestricted = batteryUnrestricted,
                     updateStatus = updateStatus,
                     onCheckForUpdate = checkForUpdate,
@@ -677,6 +689,7 @@ private fun RootApp(
                     onShizukuModeChanged = onShizukuModeChanged,
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                     onBootRootModeChanged = onBootRootModeChanged,
+                    onShizukuBootModeChanged = onShizukuBootModeChanged,
                     onRequestNotificationPermission = requestNotificationPermission,
                     onRequestBatteryExemption = onRequestBatteryExemption,
                     runPlan = runPlan,
@@ -1633,6 +1646,7 @@ private fun SettingsPage(
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
+    shizukuBootMode: Boolean,
     batteryUnrestricted: Boolean,
     updateStatus: UpdateStatus,
     onCheckForUpdate: () -> Unit,
@@ -1644,6 +1658,7 @@ private fun SettingsPage(
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
+    onShizukuBootModeChanged: (Boolean) -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     runPlan: () -> RunPlanDisplay,
@@ -1655,6 +1670,8 @@ private fun SettingsPage(
     var showColorDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
+    var shizukuStarting by remember { mutableStateOf(false) }
+    var shizukuStartResult by remember { mutableStateOf<String?>(null) }
     var showPayloadSourcesSheet by remember { mutableStateOf(false) }
     var showLocalPayloadDialog by remember { mutableStateOf(false) }
     var showRunPlanDialog by remember { mutableStateOf(false) }
@@ -1663,6 +1680,47 @@ private fun SettingsPage(
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     val density = LocalDensity.current
     val currentLanguageTag = AppPreferences.languageTag(context)
+
+    val startShizuku: () -> Unit = {
+        if (!shizukuStarting) {
+            shizukuStarting = true
+            scope.launch {
+                val outcome = ShizukuStarter.start(
+                    context = context,
+                    shell = { command ->
+                        KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
+                            NO_ROOT_SHELL_EXIT,
+                            context.getString(R.string.error_shizuku_start_no_root),
+                        )
+                    },
+                )
+                shizukuStarting = false
+                shizukuStartResult =
+                    if (outcome.started) context.getString(R.string.status_shizuku_started)
+                    else outcome.detail.ifBlank { context.getString(R.string.error_shizuku_start_no_root) }
+            }
+        }
+    }
+
+    shizukuStartResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { shizukuStartResult = null },
+            icon = { Icon(Icons.Rounded.PowerSettingsNew, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.34f)
+                Text(stringResource(R.string.settings_shizuku_start))
+            },
+            text = { Text(result) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    shizukuStartResult = null
+                }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 
     if (showShizukuMissingDialog) {
         AlertDialog(
@@ -1820,6 +1878,29 @@ private fun SettingsPage(
                                 }
                             }
                         }
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.PowerSettingsNew,
+                    title = stringResource(R.string.settings_shizuku_start),
+                    description = stringResource(R.string.settings_shizuku_start_summary),
+                    value = if (shizukuStarting) stringResource(R.string.status_shizuku_starting) else "",
+                    position = SettingsCardPosition.Middle,
+                    onClick = startShizuku,
+                )
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.Bolt,
+                    title = stringResource(R.string.settings_shizuku_boot),
+                    description = stringResource(R.string.settings_shizuku_boot_summary),
+                    checked = shizukuBootMode,
+                    position = SettingsCardPosition.Middle,
+                    onCheckedChange = { enabled ->
+                        clickHaptic(view)
+                        if (enabled) onRequestNotificationPermission()
+                        onShizukuBootModeChanged(enabled)
+                        // The setting is only worth having if it works on this device, so switching
+                        // it on proves it there and then instead of at the next reboot.
+                        if (enabled) startShizuku()
                     },
                 )
                 SettingsSwitchCard(

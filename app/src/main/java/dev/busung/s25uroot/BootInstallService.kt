@@ -64,6 +64,13 @@ class BootInstallService : Service() {
             scope.launch { reportProgress() }
             viewModel.runToCompletion(forceStandalone = true)
             notify(notificationTitleFor(viewModel.state.value))
+            // A boot that had to re-establish root is also the boot that can now bring Shizuku back,
+            // so the startup the user asked for follows a run that actually succeeded.
+            if (viewModel.state.value.phase == InstallPhase.Installed &&
+                AppPreferences.shizukuBootMode(this@BootInstallService)
+            ) {
+                ShizukuBootService.start(this@BootInstallService)
+            }
             stopSelf()
         }
         return START_NOT_STICKY
