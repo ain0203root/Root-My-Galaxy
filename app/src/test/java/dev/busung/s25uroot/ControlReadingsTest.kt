@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,6 +19,17 @@ class ControlReadingsTest {
     fun `a silent helper is reported as silence, not as a failed report`() {
         val summary = readings(helperOutput = "").summary()
         assertTrue(summary, summary.contains("helper printed nothing"))
+    }
+
+    @Test
+    fun `a module list is read by the module's name, however the line is laid out`() {
+        // A load made by the payload's own loader: no size, no address, and the taint flag a stock
+        // module would not carry. None of that makes it not loaded.
+        assertTrue(parseModuleList("kernelsu 172032 0 - Live 0x0000000000000000 (O)\n"))
+        assertTrue(parseModuleList("kernelsu\t172032\t0\t-\tLive\t0x0000000000000000\t(O)"))
+        assertFalse(parseModuleList("kernelsu_next 172032 0 - Live 0x0 (O)\n"))
+        assertFalse(parseModuleList("something_kernelsu 12 0 - Live 0x0\n"))
+        assertFalse(parseModuleList(""))
     }
 
     @Test
@@ -45,9 +57,25 @@ class ControlReadingsTest {
     @Test
     fun `a reading that succeeded does not carry a failure with it`() {
         assertEquals(
-            "native probe yes; su through Shizuku yes; helper printed nothing",
+            "native probe yes; su through Shizuku yes; helper printed nothing; " +
+                "module list not readable",
             readings(nativeProbe = true, shizukuElevated = true, helperOutput = "").summary(),
         )
+    }
+
+    @Test
+    fun `a load the app cannot otherwise see is still a healthy load`() {
+        // The device this came from: KernelSU loaded by the payload's root helper, nothing granted to
+        // the app or the shell yet, and a helper whose stdout the load itself moved out from under it.
+        val readings = readings(moduleLoaded = true)
+        assertEquals(setOf(ControlProof.ModuleLoaded), readings.proofs)
+        assertTrue(readings.summary(), readings.summary().endsWith("module list reports kernelsu"))
+    }
+
+    @Test
+    fun `an unreadable module list is not an empty one`() {
+        assertTrue(readings(moduleLoaded = null).summary().endsWith("module list not readable"))
+        assertTrue(readings(moduleLoaded = false).summary().endsWith("module list has no kernelsu"))
     }
 
     private fun readings(
@@ -55,10 +83,12 @@ class ControlReadingsTest {
         appSuFailure: SuProbe.Failure = SuProbe.Failure.NONE,
         shizukuElevated: Boolean = false,
         helperOutput: String = "",
+        moduleLoaded: Boolean? = null,
     ) = ControlReadings(
         nativeProbe = nativeProbe,
         appSuFailure = appSuFailure,
         shizukuElevated = shizukuElevated,
         helperOutput = helperOutput,
+        moduleLoaded = moduleLoaded,
     )
 }

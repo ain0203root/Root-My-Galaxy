@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import android.content.Context
+import java.io.File
 
 /**
  * Proof that the KernelSU control channel is live for this boot.
@@ -21,6 +22,9 @@ internal enum class ControlProof(val label: String) {
 
     /** The helper printed a live control report, which is a reading rather than an exit status. */
     HelperReport("helper control report"),
+
+    /** The kernel's module list carries a `kernelsu` entry, which is proof of the load itself. */
+    ModuleLoaded("kernel module list"),
 }
 
 /** KernelSU's own reading of the control channel, as the helper prints it. */
@@ -65,11 +69,25 @@ internal fun controlProofs(
     nativeProbe: Boolean,
     shizukuElevated: Boolean,
     helperOutput: String,
+    moduleLoaded: Boolean = false,
 ): Set<ControlProof> = buildSet {
     if (nativeProbe) add(ControlProof.NativeProbe)
     if (shizukuElevated) add(ControlProof.ShizukuElevation)
     if (parseControlReport(helperOutput) != null) add(ControlProof.HelperReport)
+    if (moduleLoaded) add(ControlProof.ModuleLoaded)
 }
+
+/**
+ * Whether a kernel module list carries a `kernelsu` entry.
+ *
+ * The test is the module's *name* and nothing else: the line's other fields differ between a module
+ * built into the image and one loaded by the payload's own loader, and a size or address that does
+ * not look like a stock module's is not a reason to call a loaded KernelSU absent.
+ */
+internal fun parseModuleList(output: String): Boolean =
+    output.lineSequence().any { line ->
+        line.trim().split(' ', '\t').firstOrNull() == "kernelsu"
+    }
 
 /**
  * What each reading said, kept as words rather than as a yes/no.
@@ -85,8 +103,11 @@ internal data class ControlReadings(
     val appSuFailure: SuProbe.Failure,
     val shizukuElevated: Boolean,
     val helperOutput: String,
+    /** Null when the module list could not be read at all, which is not the same as an empty one. */
+    val moduleLoaded: Boolean? = null,
 ) {
-    val proofs: Set<ControlProof> = controlProofs(nativeProbe, shizukuElevated, helperOutput)
+    val proofs: Set<ControlProof> =
+        controlProofs(nativeProbe, shizukuElevated, helperOutput, moduleLoaded == true)
 
     /** One line for the run log, in the order the readings are made. */
     fun summary(): String = buildString {
@@ -101,6 +122,13 @@ internal data class ControlReadings(
                 helperOutput.isBlank() -> "printed nothing"
                 else -> "printed " + helperOutput.lineSequence().count { it.isNotBlank() } +
                     " line(s) without a control report"
+            },
+        )
+        append("; module list ").append(
+            when (moduleLoaded) {
+                true -> "reports kernelsu"
+                false -> "has no kernelsu"
+                null -> "not readable"
             },
         )
     }
@@ -125,8 +153,43 @@ internal object KernelSuRuntime {
             appSuFailure = SuProbe.lastFailure,
             shizukuElevated = shizukuElevation(),
             helperOutput = helperOutput,
+            moduleLoaded = moduleLoaded(),
         )
     }
+
+    /**
+     * Whether the kernel's own module list carries KernelSU - the one reading that needs nothing
+     * granted first.
+     *
+     * The other three all ask a door that a first install has not opened yet. On this hardware the
+     * module is loaded by the payload's root helper as a plain LKM that never appears under
+     * `/sys/module`, so the native probe cannot see it; and `su` answers only the manager KernelSU
+     * has been told about, so on a device where nobody has been granted root yet it says nothing at
+     * all. The module list is readable from the shell domain, and it is what the payload's own
+     * documentation says to check first - a load that happened is a fact about the kernel, not about
+     * any app's permissions.
+     *
+     * Null when the list cannot be read: "did not load" and "could not look" are different answers,
+     * and only the first is a reason to refuse.
+     */
+    fun moduleLoaded(): Boolean? {
+        directModuleList()?.let { return parseModuleList(it) }
+        if (!ShizukuController.isRunning() || !ShizukuController.isGranted()) return null
+        val result = runCatching {
+            ShizukuController.shell("/system/bin/grep -w kernelsu /proc/modules")
+        }.getOrNull() ?: return null
+        return when (result.exitCode) {
+            0 -> true
+            // grep's own "nothing matched", which is an answer rather than a failure.
+            1 -> false
+            else -> null
+        }
+    }
+
+    /** The app's own read of the list, which policy usually denies and which costs nothing when not. */
+    private fun directModuleList(): String? = runCatching {
+        File("/proc/modules").takeIf(File::canRead)?.readText()
+    }.getOrNull()
 
     /**
      * Runs [command] as root, using KernelSU itself rather than the bootstrap handoff.
