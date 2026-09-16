@@ -18,11 +18,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Starts Shizuku's server at boot, using the root KernelSU already provides.
+ * Starts Shizuku's server at boot, by whichever of the two routes this device has.
  *
  * Shizuku is normally started by hand over adb, which means the transport this app stage payloads
- * through is gone after every reboot until someone finds a cable. With root on the device that is
- * avoidable, so a boot where KernelSU is already active can bring Shizuku back on its own.
+ * through is gone after every reboot until someone finds a cable. Root is one way to avoid that, so a
+ * boot where KernelSU is already active brings Shizuku back on its own - and a stored start token is
+ * the other, which is the route for a boot with no root at all. The service does not choose between
+ * them: [ShizukuStarter] decides from the root shell it is handed and the token in settings, so a
+ * boot, the settings screen and an automatic install all take the same route.
  *
  * The service is foreground because a boot-time start has to outlive the broadcast, but its channel
  * is silent and low importance: succeeding is the normal case and is not worth a notification, so it
@@ -60,6 +63,14 @@ class ShizukuBootService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * One attempt per route, and a retry only where retrying is a different attempt.
+     *
+     * The routes are not equivalent under repetition. A root starter races a boot that is still
+     * settling, so it is worth trying again a moment later; the authenticated start is a request to
+     * the Shizuku app that has already been delivered, and sending it three times asks the same
+     * question three times. The route is therefore decided first and the retries are for the root one.
+     */
     private suspend fun startShizuku(): ShizukuStartOutcome {
         // Reported rather than acted on: when Shizuku starts itself at boot there is nothing to do
         // here, and knowing that is the difference between "my boot start is broken" and "it was
@@ -67,20 +78,21 @@ class ShizukuBootService : Service() {
         if (runCatching { ShizukuIntentStarter.ownBootReceiverEnabled(this) }.getOrDefault(false)) {
             Log.i(TAG, "Shizuku starts itself on boot on this device; this app only waits for it")
         }
-        var last = ShizukuStartOutcome(
-            started = false,
-            detail = getString(R.string.error_shizuku_start_no_root),
+        val rootAvailable = rootShell("id").exitCode != NO_ROOT_SHELL_EXIT
+
+        var last = ShizukuStarter.start(
+            context = this,
+            shell = ::rootShell,
         )
-        repeat(START_ATTEMPTS) { attempt ->
-            if (rootShell("id") == null) {
-                return last
-            }
+        if (last.started || !rootAvailable) return last
+
+        repeat(START_ATTEMPTS - 1) {
+            delay(RETRY_DELAY_MILLIS)
             last = ShizukuStarter.start(
                 context = this,
                 shell = ::rootShell,
             )
             if (last.started) return last
-            if (attempt < START_ATTEMPTS - 1) delay(RETRY_DELAY_MILLIS)
         }
         return last
     }
@@ -93,7 +105,7 @@ class ShizukuBootService : Service() {
      */
     private fun rootShell(command: String): ShizukuController.ShellResult =
         KernelSuRuntime.rootShell(command)
-            ?: ShizukuController.ShellResult(NO_ROOT_SHELL_EXIT, getString(R.string.error_shizuku_start_no_root))
+            ?: ShizukuController.ShellResult(NO_ROOT_SHELL_EXIT, getString(R.string.error_no_root_shell))
 
     private fun notifyOutcome(outcome: ShizukuStartOutcome) {
         if (outcome.started) {

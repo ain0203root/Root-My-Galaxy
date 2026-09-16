@@ -414,9 +414,14 @@ device that is unnecessary: KernelSU's own root shell can run Shizuku's starter,
   the token is only ever sent to that package, and it is never written to the log or to run history.
   Without a token the app says no root and no token is why nothing can be started, instead of sending
   a request it cannot authenticate and reporting Shizuku's refusal as a failure.
-- On boot the start runs after a settle delay, through KernelSU's root shell, up to three times. It
-  runs both when a boot already has root and after a boot-time install succeeded — the boot that has
-  to re-establish root is exactly the boot that can then bring Shizuku back.
+- On boot the start runs after a settle delay, by whichever route the device has: root when it is
+  there, and the stored start token when it is not. The boot trigger sits before the boot's root
+  checks rather than inside them, because the token is precisely the route a boot with no root can
+  take — and a boot with neither is left alone rather than told once per reboot that nothing can be
+  done. Retries are for the root route only: a root starter races a system that is still settling,
+  where a start request has already been delivered, so sending it again asks the same question twice.
+  A boot-time install that succeeds starts Shizuku too, because the boot that has to re-establish
+  root is exactly the boot that can then bring Shizuku back.
 
 It says so plainly when it cannot work: with no root — and no token stored — there is no way for an
 app to start a privileged process, so the failure names that rather than pretending the button did

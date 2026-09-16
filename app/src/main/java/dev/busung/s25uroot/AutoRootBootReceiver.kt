@@ -24,10 +24,22 @@ class AutoRootBootReceiver : BroadcastReceiver() {
         // The quick reading only: this runs inside the framework's boot broadcast, and the fallback
         // starts a process and waits on it. A wrong no here costs a wake-up, not an install - the
         // gate asks again, authoritatively, before it spends this boot's attempt.
-        if (RootStatusProbe.isActiveQuick()) {
-            if (AppPreferences.shizukuBootMode(context)) ShizukuBootService.start(context)
-            return
+        val rootActive = RootStatusProbe.isActiveQuick()
+
+        // Collected before the root checks rather than inside them, because Shizuku no longer needs
+        // root to be started: a stored start token is its own route, and a boot with a token and no
+        // root is exactly the boot where asking Shizuku to start itself matters most. A boot with
+        // neither is left alone instead of being told once per reboot that nothing can be done.
+        if (AppPreferences.shizukuBootMode(context) &&
+            shizukuBootStartWorthAttempting(
+                rootAlreadyActive = rootActive,
+                tokenConfigured = AppPreferences.shizukuAutomationToken(context).isNotBlank(),
+            )
+        ) {
+            ShizukuBootService.start(context)
         }
+
+        if (rootActive) return
         if (!AppPreferences.bootRootMode(context)) return
 
         // The boot id is the only thing that tells a real reboot from a userspace restart that

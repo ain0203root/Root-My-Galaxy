@@ -1,6 +1,8 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShizukuStartRouteTest {
@@ -24,6 +26,26 @@ class ShizukuStartRouteTest {
         assertEquals(
             ShizukuStartRoute.AuthenticatedIntent,
             shizukuStartRoute(rootShellAvailable = false, tokenConfigured = true),
+        )
+    }
+
+    @Test
+    fun `a boot with a token and no root still asks Shizuku to start`() {
+        // The case this exists for: the boot start used to live inside the root check, so a device
+        // with a token and no root never asked, and the one route that works without root was the
+        // one route a boot could not take.
+        assertTrue(
+            shizukuBootStartWorthAttempting(rootAlreadyActive = false, tokenConfigured = true),
+        )
+        assertTrue(
+            shizukuBootStartWorthAttempting(rootAlreadyActive = true, tokenConfigured = false),
+        )
+    }
+
+    @Test
+    fun `a boot with neither is left alone rather than told it cannot be done`() {
+        assertFalse(
+            shizukuBootStartWorthAttempting(rootAlreadyActive = false, tokenConfigured = false),
         )
     }
 

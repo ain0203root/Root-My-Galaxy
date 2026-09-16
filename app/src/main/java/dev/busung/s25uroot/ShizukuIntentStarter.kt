@@ -33,6 +33,19 @@ internal fun shizukuStartRoute(rootShellAvailable: Boolean, tokenConfigured: Boo
     }
 
 /**
+ * Whether a boot is worth starting Shizuku on at all.
+ *
+ * The start used to be triggered from inside the boot's root check, which made it root-only in
+ * practice: a device with a stored token and no root never asked Shizuku to start, even though the
+ * token is exactly the route that does not need root. The same two facts as the route decide it, and
+ * a boot with neither is left alone rather than told, once per reboot, that nothing can be done.
+ */
+internal fun shizukuBootStartWorthAttempting(
+    rootAlreadyActive: Boolean,
+    tokenConfigured: Boolean,
+): Boolean = shizukuStartRoute(rootAlreadyActive, tokenConfigured) != ShizukuStartRoute.Unavailable
+
+/**
  * Starts Shizuku by asking the Shizuku app itself, for devices where the app has no root to work with.
  *
  * Shizuku cannot normally be started by another app - that is the whole point of its security model -

@@ -397,10 +397,11 @@
     <string name="settings_shizuku_start">Start Shizuku now</string>
     <string name="settings_shizuku_start_summary">Launch the Shizuku service through KernelSU, so this app keeps working without a computer</string>
     <string name="settings_shizuku_boot">Shizuku on boot</string>
-    <string name="settings_shizuku_boot_summary">Start Shizuku automatically after a reboot when the device already has root</string>
+    <string name="settings_shizuku_boot_summary">Start Shizuku automatically after a reboot, using root when the device has it or the start token when it does not</string>
     <string name="status_shizuku_starting">Starting\u2026</string>
     <string name="status_shizuku_started">Shizuku is running</string>
-    <string name="error_shizuku_start_no_root">Shizuku can only be started here on a device that already has root; run the install first.</string>
+    <string name="error_shizuku_start_no_root">Shizuku cannot be started from here: this device has no root and no stored start token</string>
+    <string name="error_no_root_shell">No root shell is available yet</string>
     <string name="settings_boot_root">Root on boot</string>
     <string name="settings_boot_root_summary">Automatically re-run the install after every reboot when root is not active</string>
     <string name="settings_battery">Battery usage</string>
