@@ -164,6 +164,41 @@ class RootRecoveryTest {
         assertTrue(accepted < script.lastIndexOf("ctl.restart zygote"))
     }
 
+    @Test
+    fun `the restart waits for the modules that inject into Zygote`() {
+        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED)
+
+        // Mounted is not the same as up: creating a Zygote before these services run brings the
+        // framework back without them, which is the opposite of what the restart is for.
+        assertTrue(script.contains("zygisksu:zn-daemon"))
+        assertTrue(script.contains("zygisk_lsposed:lspd"))
+        assertTrue(script.contains("[ -z \"\$rmg_missing_services\" ] || reject_handoff 'module-services-not-ready'"))
+    }
+
+    @Test
+    fun `the wait for module services is bounded and its check is exact`() {
+        val snippet = moduleServiceWaitSnippet(timeoutSeconds = 7)
+
+        // Bounded, so the child always answers inside the window the app waits in.
+        assertTrue(snippet.contains("[ \"\$rmg_service_waited\" -lt 7 ]"))
+        // Whole-name match: `lspd` also starts longer names, and a partial match would call a
+        // service running when it is not.
+        assertTrue(snippet.contains("grep -qx"))
+        // A module that is absent or disabled is skipped rather than waited on.
+        assertTrue(snippet.contains("[ -e \"\$rmg_module_dir/disable\" ] && continue"))
+        assertTrue(snippet.contains("[ -e \"\$rmg_module_dir/remove\" ] && continue"))
+    }
+
+    @Test
+    fun `the waited-for services come from one table`() {
+        val snippet = moduleServiceWaitSnippet(
+            services = listOf(ModuleService(moduleId = "some_module", processName = "some-daemon")),
+        )
+
+        assertTrue(snippet.contains("some_module:some-daemon"))
+        assertFalse(snippet.contains("zygisksu:zn-daemon"))
+    }
+
     // --- the soft reboot ---------------------------------------------------------------------------
 
     @Test

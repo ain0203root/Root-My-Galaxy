@@ -285,6 +285,13 @@ internal object RootRecovery {
         ${KernelSuReadiness.variables()}
         ${KernelSuReadiness.mountsPresentCondition()} || reject_handoff 'modules-not-mounted'
 
+        # Mounted is not the same as up: the modules that inject into Zygote have their own services,
+        # and a Zygote created before those are running comes back without them - the restart would
+        # then do the opposite of what it was asked for. Bounded, so this always answers inside the
+        # window the app is waiting in.
+        ${moduleServiceWaitSnippet()}
+        [ -z "${'$'}rmg_missing_services" ] || reject_handoff 'module-services-not-ready'
+
         if [ "${'$'}(getprop init.svc.zygote_secondary 2>/dev/null)" = "running" ]; then
             setprop ctl.restart zygote_secondary || reject_handoff 'zygote-secondary-restart-failed'
         fi

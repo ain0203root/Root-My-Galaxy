@@ -446,7 +446,13 @@ dialog is one tap away from closing everything open. Each card says what it cost
 - **Restart Zygote** recreates the Android runtime through init — `setprop ctl.restart zygote`, which
   asks init to restart the service it owns, where killing Zygote from the app would leave init to
   recover by accident. The secondary Zygote, when the device runs one, goes first, because it can be
-  restarted without the framework going down and so a failure there is still reportable.
+  restarted without the framework going down and so a failure there is still reportable. It waits for
+  two things first, and refuses in words rather than taking the framework down for nothing: the
+  modules it is meant to load have to be **mounted** (see [KernelSU readiness](#kernelsu-readiness)),
+  and the modules that inject *into* Zygote — Zygisk Next's `zn-daemon` and LSPosed's `lspd`, each
+  only when its module is installed and enabled — have to be **running**, because a Zygote created
+  before those services come up returns without them. That wait is bounded, so the child always
+  answers inside the window the app holds open for it.
 - **KernelSU soft reboot** hands the transition to the installed `ksud`, whose own command table
   lists `soft-reboot` as *Emulate system reboot*: it stops and restarts the userspace and walks the
   module lifecycle in its normal order. It takes a per-boot lock carrying the boot id and the owner's
