@@ -1484,6 +1484,21 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
                         color = contentColor.copy(alpha = 0.78f),
                     )
                 }
+                // Names the catalog, and the revision of it, that this run's payload came from:
+                // two sources can offer the same payload id, so the id alone does not say which
+                // catalog defined the payload that ran.
+                entry.sourceLabel?.let { label ->
+                    val commit = entry.sourceCommit
+                    Text(
+                        if (commit.isNullOrBlank()) {
+                            stringResource(R.string.history_source, label)
+                        } else {
+                            stringResource(R.string.history_source_commit, label, commit.take(7))
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor.copy(alpha = 0.78f),
+                    )
+                }
                 entry.failureStage?.let { stage ->
                     Text(
                         stringResource(

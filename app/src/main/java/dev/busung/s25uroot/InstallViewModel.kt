@@ -229,7 +229,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 if (profile.sourceLabel.isNotEmpty()) {
                     appendLog(app.getString(R.string.log_payload_source, profile.sourceLabel))
                 }
-                updateHistoryProfile(profile.profileId)
+                updateHistoryTarget(profile)
 
                 activeStage = RunStage.Download
                 setPhase(InstallPhase.Downloading, app.getString(R.string.status_downloading_payload))
@@ -654,8 +654,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private fun updateHistoryLog() =
         updateHistory { it.copy(log = mutableState.value.log) }
 
-    private fun updateHistoryProfile(profileId: String) =
-        updateHistory { it.copy(profileId = profileId) }
+    /**
+     * Records which target ran and which catalog defined it, including the commit that catalog was
+     * read at, so a finished run can be traced back to a revision rather than to a branch name.
+     */
+    private fun updateHistoryTarget(profile: TargetProfile) =
+        updateHistory { entry ->
+            entry.copy(
+                profileId = profile.profileId,
+                sourceId = profile.sourceId.takeIf(String::isNotBlank),
+                sourceLabel = profile.sourceLabel.takeIf(String::isNotBlank),
+                sourceCommit = profile.sourceCommit.takeIf(String::isNotBlank),
+            )
+        }
 
     private fun finishHistory(result: InstallRunResult) {
         updateHistory { entry ->

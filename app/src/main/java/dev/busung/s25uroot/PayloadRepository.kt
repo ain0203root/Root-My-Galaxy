@@ -81,6 +81,7 @@ class PayloadRepository(private val context: Context) {
             profile.copy(
                 sourceId = source.id,
                 sourceLabel = source.label,
+                sourceCommit = commit,
                 exploit = profile.exploit.copy(url = pinArtifactUrl(source, profile.exploit.url, commit)),
                 kernelSu = profile.kernelSu.copy(url = pinArtifactUrl(source, profile.kernelSu.url, commit)),
             )

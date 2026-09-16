@@ -62,6 +62,8 @@
     <string name="history_completed">Completed: %1$s</string>
     <string name="history_log_empty">No log output yet.</string>
     <string name="history_payload">Payload: %1$s</string>
+    <string name="history_source">Source: %1$s</string>
+    <string name="history_source_commit">Source: %1$s @ %2$s</string>
     <string name="history_shizuku_used">Shizuku: used</string>
     <string name="history_shizuku_not_used">Shizuku: not used</string>
     <string name="export_log">Export log</string>

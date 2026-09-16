@@ -19,6 +19,14 @@ data class InstallHistoryEntry(
     val result: InstallRunResult,
     val log: String,
     val profileId: String? = null,
+    /**
+     * The catalog a run took its payload from, and the commit it was read at. Recorded because the
+     * same payload id can be offered by several sources: without this a result can say which
+     * payload ran but not which catalog defined it.
+     */
+    val sourceId: String? = null,
+    val sourceLabel: String? = null,
+    val sourceCommit: String? = null,
     val usedShizuku: Boolean = false,
     /** Where a failed run stopped, so the detail screen can say more than "Failed". */
     val failureStage: RunStage? = null,
@@ -80,6 +88,9 @@ class InstallHistoryStore(private val context: Context) {
         .put("result", entry.result.name)
         .put("log", entry.log)
         .put("profileId", entry.profileId ?: JSONObject.NULL)
+        .put("sourceId", entry.sourceId ?: JSONObject.NULL)
+        .put("sourceLabel", entry.sourceLabel ?: JSONObject.NULL)
+        .put("sourceCommit", entry.sourceCommit ?: JSONObject.NULL)
         .put("usedShizuku", entry.usedShizuku)
         .put("failureStage", entry.failureStage?.name ?: JSONObject.NULL)
         .put("failureReason", entry.failureReason ?: JSONObject.NULL)
@@ -105,15 +116,21 @@ class InstallHistoryStore(private val context: Context) {
             },
             result = InstallRunResult.valueOf(value.getString("result")),
             log = value.getString("log"),
-            profileId = if (value.isNull("profileId")) {
-                null
-            } else {
-                value.getString("profileId").takeIf(String::isNotBlank)
-            },
+            profileId = value.optionalString("profileId"),
+            sourceId = value.optionalString("sourceId"),
+            sourceLabel = value.optionalString("sourceLabel"),
+            sourceCommit = value.optionalString("sourceCommit"),
             usedShizuku = value.optBoolean("usedShizuku", false),
-            failureStage = value.optString("failureStage").takeIf(String::isNotBlank)
+            failureStage = value.optionalString("failureStage")
                 ?.let { name -> RunStage.entries.firstOrNull { it.name == name } },
-            failureReason = value.optString("failureReason").takeIf(String::isNotBlank),
+            failureReason = value.optionalString("failureReason"),
         )
     }
+
+    /**
+     * A key that this store writes as JSON null when it has no value. `optString` would hand back
+     * the text "null" for those, which is a value the rest of the app would then try to display.
+     */
+    private fun JSONObject.optionalString(name: String): String? =
+        if (isNull(name)) null else optString(name).takeIf(String::isNotBlank)
 }

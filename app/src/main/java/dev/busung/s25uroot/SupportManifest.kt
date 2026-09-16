@@ -25,6 +25,12 @@ data class TargetProfile(
     /** Source that provided this target, empty when it was not loaded through one. */
     val sourceId: String = "",
     val sourceLabel: String = "",
+    /**
+     * Commit the source was read at when this target was loaded. Artifact URLs are pinned to it, so
+     * recording it is what makes a finished run traceable to the catalog revision it came from
+     * rather than to whatever the branch held at the time.
+     */
+    val sourceCommit: String = "",
 ) {
     init {
         require(models.isNotEmpty()) { "Payload must support at least one model" }
