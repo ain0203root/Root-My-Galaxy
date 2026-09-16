@@ -79,6 +79,7 @@ import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.SelectAll
@@ -197,6 +198,7 @@ class MainActivity : ComponentActivity() {
     private var bootRootMode by mutableStateOf(false)
     private var shizukuBootMode by mutableStateOf(false)
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
+    private var payloadMode by mutableStateOf(PayloadMode.Online)
     private var notificationPermissionAsked = false
     private var batteryUnrestricted by mutableStateOf(false)
     private var batteryPromptAsked = false
@@ -282,6 +284,7 @@ class MainActivity : ComponentActivity() {
         bootRootMode = AppPreferences.bootRootMode(this)
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
+        payloadMode = AppPreferences.payloadMode(this)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
@@ -296,6 +299,7 @@ class MainActivity : ComponentActivity() {
                     bootRootMode = bootRootMode,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
+                    payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
                     onRequestBatteryExemption = ::requestBatteryExemption,
@@ -330,6 +334,15 @@ class MainActivity : ComponentActivity() {
                     onBootSettleChanged = { seconds ->
                         AppPreferences.setBootSettleSeconds(this, seconds)
                         bootSettleSeconds = seconds
+                    },
+                    onPayloadModeChanged = { mode ->
+                        AppPreferences.setPayloadMode(this, mode)
+                        payloadMode = mode
+                    },
+                    onForgetCachedPayload = {
+                        // Says nothing on success: the row it was pressed from already shows
+                        // "Nothing cached yet" once this returns.
+                        KnownGoodPayloadStore.clear(this)
                     },
                     onShizukuBootModeChanged = { enabled ->
                         AppPreferences.setShizukuBootMode(this, enabled)
@@ -425,6 +438,7 @@ private fun RootApp(
     bootRootMode: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
+    payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
@@ -435,6 +449,8 @@ private fun RootApp(
     onBootRootModeChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
+    onPayloadModeChanged: (PayloadMode) -> Unit,
+    onForgetCachedPayload: () -> Unit,
     requestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     openInstaller: (String?) -> Unit,
@@ -487,6 +503,7 @@ private fun RootApp(
             },
             freshSession = freshSession,
             shizuku = shizukuMode,
+            payloadMode = payloadMode,
             cachedOffset = cachedOffset,
             // The profile's own policy, so the preview shows the environment the run will get.
             plan = InstallViewModel.exploitPlan(
@@ -693,6 +710,7 @@ private fun RootApp(
                     bootRootMode = bootRootMode,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
+                    payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     updateStatus = updateStatus,
                     onCheckForUpdate = checkForUpdate,
@@ -706,6 +724,8 @@ private fun RootApp(
                     onBootRootModeChanged = onBootRootModeChanged,
                     onShizukuBootModeChanged = onShizukuBootModeChanged,
                     onBootSettleChanged = onBootSettleChanged,
+                    onPayloadModeChanged = onPayloadModeChanged,
+                    onForgetCachedPayload = onForgetCachedPayload,
                     onRequestNotificationPermission = requestNotificationPermission,
                     onRequestBatteryExemption = onRequestBatteryExemption,
                     runPlan = runPlan,
@@ -1664,6 +1684,7 @@ private fun SettingsPage(
     bootRootMode: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
+    payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     updateStatus: UpdateStatus,
     onCheckForUpdate: () -> Unit,
@@ -1677,6 +1698,8 @@ private fun SettingsPage(
     onBootRootModeChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
+    onPayloadModeChanged: (PayloadMode) -> Unit,
+    onForgetCachedPayload: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     runPlan: () -> RunPlanDisplay,
@@ -1698,6 +1721,8 @@ private fun SettingsPage(
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     var bootSettleMenuTop by remember { mutableStateOf(32.dp) }
     var showBootSettleDialog by remember { mutableStateOf(false) }
+    var payloadModeMenuTop by remember { mutableStateOf(32.dp) }
+    var showPayloadModeDialog by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val currentLanguageTag = AppPreferences.languageTag(context)
 
@@ -1827,6 +1852,23 @@ private fun SettingsPage(
         AboutDialog(onDismiss = { showAboutDialog = false })
     }
 
+    if (showPayloadModeDialog) {
+        SideChoiceMenu(
+            // Online first, because it is the default and the one that follows the configured sources.
+            choices = listOf(
+                stringResource(R.string.settings_payload_mode_online),
+                stringResource(R.string.settings_payload_mode_offline),
+            ),
+            selectedIndex = if (payloadMode == PayloadMode.Offline) 1 else 0,
+            topOffset = payloadModeMenuTop,
+            onSelected = { index ->
+                showPayloadModeDialog = false
+                onPayloadModeChanged(if (index == 1) PayloadMode.Offline else PayloadMode.Online)
+            },
+            onDismiss = { showPayloadModeDialog = false },
+        )
+    }
+
     if (showBootSettleDialog) {
         val settled = BootSettle.allowedSeconds
         SideChoiceMenu(
@@ -1895,6 +1937,61 @@ private fun SettingsPage(
         item { SectionLabel(stringResource(R.string.settings_section_payloads)) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SettingsCard(
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        payloadModeMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
+                    },
+                    icon = Icons.Rounded.CloudOff,
+                    title = stringResource(R.string.settings_payload_mode),
+                    description = stringResource(
+                        if (payloadMode == PayloadMode.Offline) {
+                            R.string.settings_payload_mode_summary_offline
+                        } else {
+                            R.string.settings_payload_mode_summary_online
+                        },
+                    ),
+                    value = stringResource(
+                        if (payloadMode == PayloadMode.Offline) {
+                            R.string.settings_payload_mode_offline
+                        } else {
+                            R.string.settings_payload_mode_online
+                        },
+                    ),
+                    position = SettingsCardPosition.Top,
+                    onClick = {
+                        clickHaptic(view)
+                        showPayloadModeDialog = true
+                    },
+                )
+                // Read when the section is opened rather than on every recomposition: it is a file
+                // read, and what it describes changes only when a run finishes.
+                var cached by remember { mutableStateOf<CachedPayload?>(null) }
+                var showCachedDialog by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    cached = withContext(Dispatchers.IO) { KnownGoodPayloadStore.describe(context) }
+                }
+                SettingsCard(
+                    icon = Icons.Rounded.CloudOff,
+                    title = stringResource(R.string.settings_cached_payload),
+                    description = stringResource(R.string.settings_cached_payload_summary),
+                    value = cached?.profileId ?: stringResource(R.string.settings_cached_payload_none),
+                    position = SettingsCardPosition.Middle,
+                    onClick = {
+                        clickHaptic(view)
+                        showCachedDialog = true
+                    },
+                )
+                if (showCachedDialog) {
+                    CachedPayloadDialog(
+                        cached = cached,
+                        onForget = {
+                            showCachedDialog = false
+                            cached = null
+                            onForgetCachedPayload()
+                        },
+                        onDismiss = { showCachedDialog = false },
+                    )
+                }
                 SettingsCard(
                     icon = Icons.Rounded.Link,
                     title = stringResource(R.string.payload_sources),
@@ -2436,9 +2533,80 @@ private data class RunPlanDisplay(
     val unresolvedNote: String?,
     val freshSession: Boolean,
     val shizuku: Boolean,
+    val payloadMode: PayloadMode,
     val cachedOffset: String?,
     val plan: ExploitPlan,
 )
+
+/**
+ * What is cached for offline use, and the way to get rid of it.
+ *
+ * The digests are shown because they are the reason to trust the cache at all: every one of them is
+ * checked again before a run uses the files, so what is displayed here is what will be enforced.
+ */
+@Composable
+private fun CachedPayloadDialog(
+    cached: CachedPayload?,
+    onForget: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val view = LocalView.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.CloudOff, contentDescription = null) },
+        title = {
+            DialogDimAmount(0.34f)
+            Text(stringResource(R.string.cached_payload_title))
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (cached == null) {
+                    Text(stringResource(R.string.settings_cached_payload_none))
+                } else {
+                    RunPlanRow(stringResource(R.string.cached_payload_profile), cached.profileId)
+                    RunPlanRow(
+                        stringResource(R.string.cached_payload_exploit_sha),
+                        cached.exploit.sha256 ?: stringResource(R.string.cached_payload_no_digest),
+                    )
+                    RunPlanRow(
+                        stringResource(R.string.cached_payload_kernelsu_sha),
+                        cached.kernelSu.sha256 ?: stringResource(R.string.cached_payload_no_digest),
+                    )
+                    Text(
+                        stringResource(R.string.cached_payload_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                clickHaptic(view)
+                onDismiss()
+            }) {
+                Text(stringResource(R.string.action_close))
+            }
+        },
+        dismissButton = if (cached == null) {
+            null
+        } else {
+            {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    onForget()
+                }) {
+                    Text(stringResource(R.string.cached_payload_forget))
+                }
+            }
+        },
+    )
+}
 
 /**
  * Shows what a run will be handed before it is started, so a run that ends at a ceiling says so
@@ -2482,6 +2650,16 @@ private fun RunPlanDialog(
                 RunPlanRow(
                     stringResource(R.string.run_plan_boot_settle),
                     BootSettle.label(display.plan.bootSettleSeconds),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_payload_mode),
+                    stringResource(
+                        if (display.payloadMode == PayloadMode.Offline) {
+                            R.string.settings_payload_mode_offline
+                        } else {
+                            R.string.settings_payload_mode_online
+                        },
+                    ),
                 )
                 RunPlanRow(
                     stringResource(R.string.run_plan_session),

@@ -253,10 +253,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 }
                 activeStage = RunStage.Target
                 setPhase(InstallPhase.Checking, app.getString(R.string.status_checking_github))
-                val profile = if (selectionId == null) {
-                    repository.resolveTarget(DeviceSnapshot.current())
-                } else {
-                    repository.resolveTarget(selectionId)
+                // Offline mode is what makes a run possible with no network at all, so it resolves
+                // nothing: the cached payload already names its target, and asking the catalog would
+                // be the very thing this mode exists to avoid.
+                val offline = AppPreferences.payloadMode(app) == PayloadMode.Offline
+                val profile = when {
+                    offline -> cachedProfileFor(selectionId)
+                    selectionId == null -> repository.resolveTarget(DeviceSnapshot.current())
+                    else -> repository.resolveTarget(selectionId)
                 }
                 appendLog(app.getString(R.string.log_profile, profile.profileId))
                 if (profile.sourceLabel.isNotEmpty()) {
@@ -268,15 +272,25 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // something that appears after the payload is already staged.
                 awaitBootSettle(AppPreferences.bootSettleSeconds(app))
 
-                activeStage = RunStage.Download
-                setPhase(InstallPhase.Downloading, app.getString(R.string.status_downloading_payload))
-                val payloads = repository.download(profile) { appendLog("[*] $it") }
-                appendLog(app.getString(R.string.log_download_verified))
+                val payloads = if (offline) {
+                    activeStage = RunStage.Download
+                    setPhase(InstallPhase.Downloading, app.getString(R.string.status_loading_cached))
+                    KnownGoodPayloadStore.load(app, profile.profileId).also { cached ->
+                        appendLog(app.getString(R.string.log_payload_cached, cached.exploit.name))
+                    }
+                } else {
+                    activeStage = RunStage.Download
+                    setPhase(InstallPhase.Downloading, app.getString(R.string.status_downloading_payload))
+                    repository.download(profile) { appendLog("[*] $it") }.also {
+                        appendLog(app.getString(R.string.log_download_verified))
+                    }
+                }
 
                 activeStage = RunStage.Exploit
                 setPhase(InstallPhase.Exploiting, app.getString(R.string.status_exploit_running))
                 // Stated before the payload runs, so a failed run says which policy produced it.
                 appendLog(profile.routePolicy.describe())
+                appendLog(app.getString(R.string.log_payload_origin, payloads.origin.name.lowercase()))
                 executeExploit(
                     payloads.exploit,
                     profile.requiresFreshP0Session,
@@ -303,6 +317,24 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
                 setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_active))
                 appendLog(app.getString(R.string.log_install_complete))
+                // A payload becomes the offline fallback only here, once KernelSU is verified: that is
+                // what makes "known good" mean something, and it is why nothing is written while the
+                // exploit is running. Publishing is best-effort - a full disk must not turn a root
+                // that worked into a failure - but it is said out loud when it does not happen.
+                if (payloads.origin == PayloadOrigin.Downloaded) {
+                    runCatching { KnownGoodPayloadStore.publish(app, payloads) }
+                        .onSuccess { cached ->
+                            appendLog(app.getString(R.string.log_payload_cached_now, cached.profileId))
+                        }
+                        .onFailure { error ->
+                            appendLog(
+                                app.getString(
+                                    R.string.log_payload_cache_failed,
+                                    error.message ?: error.javaClass.simpleName,
+                                ),
+                            )
+                        }
+                }
                 finishHistory(InstallRunResult.Succeeded)
             } catch (error: Throwable) {
                 // The stage and the last payload output travel with the failure: the message alone
@@ -691,6 +723,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
+
+    /**
+     * The target the cached payload names, refusing a selection that is not it.
+     *
+     * A run asked for offline cannot fall back to the network, so the selection has to agree with the
+     * cache rather than be resolved against a catalog: there is no catalog to resolve it against.
+     */
+    private fun cachedProfileFor(selectionId: String?): TargetProfile = KnownGoodPayloadStore.profileFor(
+        app,
+        selectionId?.let { profileFromSelectionId(it) },
+    )
 
     /**
      * Holds the run until the device has been up long enough, reporting the remaining time as it goes.

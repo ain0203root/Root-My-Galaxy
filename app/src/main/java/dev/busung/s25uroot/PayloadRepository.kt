@@ -14,6 +14,12 @@ data class VerifiedPayloads(
     val profile: TargetProfile,
     val exploit: File,
     val kernelSu: File,
+    /**
+     * Where these files came from. It decides two things: whether the payload may be published to the
+     * known-good cache (only a downloaded one may, because only it was checked against the feed), and
+     * what the log says about the run.
+     */
+    val origin: PayloadOrigin = PayloadOrigin.Downloaded,
 )
 
 /**

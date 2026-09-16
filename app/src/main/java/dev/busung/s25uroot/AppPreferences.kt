@@ -40,6 +40,7 @@ object AppPreferences {
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
     private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
+    private const val PAYLOAD_MODE = "payload_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
     private const val PAYLOAD_SOURCES = "payload_sources"
@@ -164,6 +165,21 @@ object AppPreferences {
     fun setBootRootMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(BOOT_ROOT_MODE, enabled)
+            .apply()
+    }
+
+    /**
+     * Where a run takes its payload from. Online is the default because it is the mode that follows
+     * the sources the user configured; Offline is what makes a run possible with no network.
+     */
+    fun payloadMode(context: Context): PayloadMode {
+        val stored = prefs(context).getString(PAYLOAD_MODE, PayloadMode.Online.name)
+        return PayloadMode.entries.firstOrNull { it.name == stored } ?: PayloadMode.Online
+    }
+
+    fun setPayloadMode(context: Context, mode: PayloadMode) {
+        prefs(context).edit()
+            .putString(PAYLOAD_MODE, mode.name)
             .apply()
     }
 

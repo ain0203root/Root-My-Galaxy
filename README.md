@@ -227,6 +227,28 @@ state a hash instead of switching verification off. An enforced size must also b
 which makes a zero a feed error that fails at parse time rather than a download that can never
 succeed.
 
+## Payload modes
+
+**Settings → Payloads → Payload mode** decides where a run takes its payload from.
+
+**Online** reads the catalog and downloads, so a run uses the revision the sources are on now.
+**Offline** uses the last payload that completed a *verified* run, and touches the network not at all:
+the catalog is not consulted, because asking it is the thing this mode exists to avoid, so the
+selection has to agree with what is cached rather than be resolved against a feed.
+
+A payload is published to the cache only after a run has installed KernelSU successfully, which is
+what makes "known good" mean what it says — nothing is written while the exploit is running. The
+cached copy is not trusted on the strength of being local: it carries its own descriptor, and every
+run re-checks the files against the digests and sizes they were verified with, the device and kernel
+the payload claims to support, and the root helper this build of the app bundles. That last one is
+the check that matters after an app update: a payload verified against a different helper is refused
+rather than run, which is why the cached entry is refused and refreshed rather than silently reused.
+
+Publishing is best-effort and never turns a successful root into a failure; a refusal to publish is
+logged with its reason. Nothing clears the cache automatically either — a cached payload that failed
+could have failed for any reason, and losing the fallback over one bad run would be the wrong trade —
+so **Forget it** in the cached-payload dialog is how it goes away.
+
 ## Boot settle
 
 A run does not start the exploit on a device that has only just booted. **Settings → Run → Boot
