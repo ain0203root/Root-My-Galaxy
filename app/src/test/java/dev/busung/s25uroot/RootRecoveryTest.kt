@@ -203,7 +203,7 @@ class RootRecoveryTest {
         val publish = script.indexOf("publish_handoff \"\$ACCEPTED_VALUE\"")
         assertTrue(call > 0)
         assertTrue(publish > call)
-        assertTrue(script.contains("ksud-soft-reboot-rc-"))
+        assertTrue(script.contains("ksud-soft-reboot-failed-rc-"))
     }
 
     // --- the reboot ---------------------------------------------------------------------------------
@@ -225,10 +225,31 @@ class RootRecoveryTest {
     fun `a daemon that has not returned is stopped, never left to fire later`() {
         val script = RootRecovery.softRebootScript(BOOT, ACCEPTED)
 
-        assertTrue(script.contains("\"\$KSUD\" soft-reboot &"))
+        assertTrue(script.contains("\"\$KSUD\" soft-reboot >>\"\$KSUD_OUT\" 2>&1 &"))
         assertTrue(script.contains("kill -0 \"\$KSUD_PID\""))
         assertTrue(script.contains("kill \"\$KSUD_PID\""))
-        assertTrue(script.contains("reject_handoff 'ksud-soft-reboot-timed-out'"))
+        assertTrue(script.contains("reject_handoff \"ksud-soft-reboot-timed-out"))
+    }
+
+    @Test
+    fun `a failure quotes the daemon instead of only its exit code`() {
+        val script = RootRecovery.softRebootScript(BOOT, ACCEPTED)
+
+        // The daemon's own output is kept, and its last line is what a refusal carries.
+        assertTrue(script.contains(">>\"\$KSUD_OUT\" 2>&1"))
+        assertTrue(script.contains("ksud_words()"))
+        assertTrue(script.contains("reject_handoff \"ksud-soft-reboot-failed-rc-\$RC \$(ksud_words)\""))
+    }
+
+    @Test
+    fun `a lock left behind by a keeper that died does not lock the boot out`() {
+        val script = RootRecovery.softRebootScript(BOOT, ACCEPTED)
+
+        // The owner is recorded, and only a lock whose owner is still alive is an owner.
+        assertTrue(script.contains("printf '%s\\n' \"\$\$\" > \"\$LOCK/pid\""))
+        assertTrue(script.contains("kill -0 \"\$LOCK_PID\" 2>/dev/null; then"))
+        assertTrue(script.contains("reject_handoff 'another-soft-reboot-owns-this-boot'"))
+        assertTrue(script.contains("taking over a lock left by a keeper that is no longer running"))
     }
 
     private fun numberOf(script: String, pattern: String): Int =

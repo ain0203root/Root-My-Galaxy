@@ -11,12 +11,13 @@ internal data class RecoveryOutcome(
 /**
  * What the installed KernelSU daemon can be asked to do, as its own help output states it.
  *
- * This exists because the daemon is not the same across payload feeds. The one this app's default
- * feed installs has `late-load` (with `--post-magica` / `--package-name`) and the module lifecycle
- * events, but no `soft-reboot`; the fork's own feed ships a daemon that has it, along with a
- * late-load readiness marker and `--allow-shell`. Offering a soft reboot on a daemon that has no
- * such command would be a button that always fails, so the action is offered only when the installed
- * daemon lists it.
+ * This exists because the daemon is not the same across payload feeds. The daemon the feed this app
+ * ships with serves is a patched build whose own command table lists `late-load`, `soft-reboot`
+ * ("Emulate system reboot"), `insmod` and `unload`, but a feed may serve a daemon without
+ * `soft-reboot`, and offering a button that can only fail is worse than not offering it. So the
+ * action is offered only when the installed daemon's own help lists it, and the match is whole-token
+ * because the same binary mentions `emulated-soft-reboot` elsewhere - a name that must not be read as
+ * the command.
  */
 internal data class KsudCapabilities(
     val softReboot: Boolean = false,
@@ -293,6 +294,11 @@ internal object RootRecovery {
      * is shorter than that window, and the daemon itself is watched, so a `soft-reboot` that has not
      * returned is stopped and reported instead of being left to fire a userspace transition the app
      * already reported as failed.
+     *
+     * The lock records its owner's pid as well as the boot, and only a lock whose owner is still
+     * running is an owner: a keeper that was killed mid-transition would otherwise refuse every later
+     * attempt for the rest of the boot. The check fails safe - if the pid has since been reused by an
+     * unrelated process, the lock is respected and the request is refused rather than doubled.
      */
     internal fun softRebootScript(bootToken: String, acceptedPath: String): String = """
         #!/system/bin/sh
@@ -300,6 +306,7 @@ internal object RootRecovery {
         ACCEPTED=${shellQuote(acceptedPath)}
         ACCEPTED_VALUE='$ACCEPTED_MARKER'
         LOCK='/data/local/tmp/.rmg-soft-reboot-owner'
+        KSUD_OUT='/data/local/tmp/rmg-soft-reboot-ksud.log'
         KSUD=$KSUD_PATH
 
         log() { echo "[keeper] ${'$'}(date +%s 2>/dev/null) ${'$'}*"; }
@@ -320,13 +327,20 @@ internal object RootRecovery {
 
         if ! mkdir "${'$'}LOCK" 2>/dev/null; then
             LOCK_BOOT="${'$'}(cat "${'$'}LOCK/boot_id" 2>/dev/null)"
-            if [ "${'$'}LOCK_BOOT" = "${'$'}EXPECTED_BOOT" ]; then
+            LOCK_PID="${'$'}(cat "${'$'}LOCK/pid" 2>/dev/null)"
+            if [ "${'$'}LOCK_BOOT" = "${'$'}EXPECTED_BOOT" ] && [ -n "${'$'}LOCK_PID" ] && \
+               kill -0 "${'$'}LOCK_PID" 2>/dev/null; then
                 reject_handoff 'another-soft-reboot-owns-this-boot'
             fi
+            # A lock whose owner is gone is stale, not an owner: a keeper killed mid-transition would
+            # otherwise lock this boot out of every later attempt. Taking it over is safe because a
+            # request that is no longer running cannot be part-way through one.
+            log "taking over a lock left by a keeper that is no longer running (pid ${'$'}LOCK_PID)"
             rm -rf -- "${'$'}LOCK" 2>/dev/null
             mkdir "${'$'}LOCK" 2>/dev/null || reject_handoff 'lock-failed'
         fi
         printf '%s\n' "${'$'}EXPECTED_BOOT" > "${'$'}LOCK/boot_id" 2>/dev/null
+        printf '%s\n' "${'$'}${'$'}" > "${'$'}LOCK/pid" 2>/dev/null
         cleanup() { rm -rf -- "${'$'}LOCK" 2>/dev/null; }
         trap cleanup EXIT INT TERM
 
@@ -340,8 +354,14 @@ internal object RootRecovery {
 
         [ "${'$'}(current_boot)" = "${'$'}EXPECTED_BOOT" ] || reject_handoff 'boot-changed'
 
+        # The daemon's own account of what it did is what a failure has to show: a bare exit code
+        # sends the user looking for a cause that the daemon already printed.
+        : > "${'$'}KSUD_OUT" 2>/dev/null || true
+        chmod 0666 "${'$'}KSUD_OUT" 2>/dev/null || true
+        ksud_words() { tail -n 1 "${'$'}KSUD_OUT" 2>/dev/null | tr -d '\"' | cut -c 1-160; }
+
         log "requesting KernelSU native soft reboot"
-        "${'$'}KSUD" soft-reboot &
+        "${'$'}KSUD" soft-reboot >>"${'$'}KSUD_OUT" 2>&1 &
         KSUD_PID=${'$'}!
         n=0
         while kill -0 "${'$'}KSUD_PID" 2>/dev/null && [ "${'$'}n" -lt 8 ]; do
@@ -351,11 +371,11 @@ internal object RootRecovery {
         if kill -0 "${'$'}KSUD_PID" 2>/dev/null; then
             kill "${'$'}KSUD_PID" 2>/dev/null
             wait "${'$'}KSUD_PID" 2>/dev/null
-            reject_handoff 'ksud-soft-reboot-timed-out'
+            reject_handoff "ksud-soft-reboot-timed-out ${'$'}(ksud_words)"
         fi
         wait "${'$'}KSUD_PID"
         RC=${'$'}?
-        [ "${'$'}RC" = "0" ] || reject_handoff "ksud-soft-reboot-rc-${'$'}RC"
+        [ "${'$'}RC" = "0" ] || reject_handoff "ksud-soft-reboot-failed-rc-${'$'}RC ${'$'}(ksud_words)"
 
         # The daemon hands the transition to a detached worker and returns, so a zero here means the
         # request was accepted - which is the only thing the app may report as scheduled. It is run

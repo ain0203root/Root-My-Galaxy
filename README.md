@@ -289,12 +289,16 @@ dialog is one tap away from closing everything open. Each card says what it cost
   asks init to restart the service it owns, where killing Zygote from the app would leave init to
   recover by accident. The secondary Zygote, when the device runs one, goes first, because it can be
   restarted without the framework going down and so a failure there is still reportable.
-- **KernelSU soft reboot** hands the transition to the installed `ksud`, which stops and restarts the
-  userspace and walks the module lifecycle in its normal order. It takes a lock carrying the boot id,
-  so a second request in the same boot is told the first already owns it rather than racing it, and it
-  is offered only when the installed daemon's own help output lists `soft-reboot` — the daemon this
-  app's default feed installs does not, so on that feed the card reports that instead of failing
-  obscurely. Whole-token matching keeps a feature name such as `emulated-soft-reboot` from counting.
+- **KernelSU soft reboot** hands the transition to the installed `ksud`, whose own command table
+  lists `soft-reboot` as *Emulate system reboot*: it stops and restarts the userspace and walks the
+  module lifecycle in its normal order. It takes a per-boot lock carrying the boot id and the owner's
+  pid, so a second request in the same boot is told the first already owns it rather than racing it —
+  and a lock whose owner is no longer running is taken over, because a keeper killed mid-transition
+  would otherwise lock the boot out of every later attempt. The card is offered only when the
+  installed daemon's own help lists the command, since a feed may serve a daemon without it;
+  whole-token matching keeps the `emulated-soft-reboot` marker in that same binary from counting. A
+  daemon that did not return is stopped, and its last line is what the failure quotes, so the cause
+  comes from KernelSU rather than from us.
 - **Reboot and unroot** clears *root on boot* first and then reboots, because a reboot that happened
   first would come back rooted; if the request is refused, the setting is put back and the screen
   follows the stored value rather than the value it hoped for.
