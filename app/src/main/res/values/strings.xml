@@ -230,6 +230,7 @@
     <string name="log_ksu_modules_restore_failed">[!] KernelSU modules are still at %1$s, move them back to %2$s (%3$s)</string>
     <string name="log_ksu_staged">[+] KernelSU staging complete</string>
     <string name="log_ksu_control_verified">[+] KernelSU control channel verified (%1$s)</string>
+    <string name="log_ksu_control_readings">[*] Control channel readings: %1$s</string>
     <string name="error_ksu_not_ready">KernelSU loaded but no control channel answered; root is not usable yet</string>
     <string name="error_helper_unavailable">The bootstrap helper is not executable</string>
     <string name="error_exploit_stalled">The exploit log did not advance for %1$d seconds</string>

@@ -702,12 +702,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         // An exit code says the late-load command finished, not that anything is reachable now, so
         // the run states which independent reading confirmed the control channel before it claims
         // success - and refuses to claim it when none of them did.
-        val proofs = KernelSuRuntime.proofs(app, lateLoad.output)
-        require(proofs.isNotEmpty()) { app.getString(R.string.error_ksu_not_ready) }
+        val readings = KernelSuRuntime.readings(app, lateLoad.output)
+        // Said every time, not only on a refusal: the readings are how the next person to read the
+        // log tells an unusable load from a check that could not see a healthy one.
+        appendLog(app.getString(R.string.log_ksu_control_readings, readings.summary()))
+        require(readings.proofs.isNotEmpty()) { app.getString(R.string.error_ksu_not_ready) }
         appendLog(
             app.getString(
                 R.string.log_ksu_control_verified,
-                proofs.joinToString { it.label },
+                readings.proofs.joinToString { it.label },
             ),
         )
         storeInstallReceipt()

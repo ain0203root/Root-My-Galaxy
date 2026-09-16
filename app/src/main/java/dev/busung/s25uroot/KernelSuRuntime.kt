@@ -72,17 +72,61 @@ internal fun controlProofs(
 }
 
 /**
+ * What each reading said, kept as words rather than as a yes/no.
+ *
+ * A refusal is only useful if it says which of the three readings answered and which did not, and
+ * what the silent one actually printed - "no control channel answered" on its own is a dead end for
+ * whoever reads the log next, because the three have nothing in common: the native paths are hidden
+ * by policy on this hardware, `su` answers only the manager KernelSU knows, and the helper prints a
+ * report only when the load reached the point of having one.
+ */
+internal data class ControlReadings(
+    val nativeProbe: Boolean,
+    val appSuFailure: SuProbe.Failure,
+    val shizukuElevated: Boolean,
+    val helperOutput: String,
+) {
+    val proofs: Set<ControlProof> = controlProofs(nativeProbe, shizukuElevated, helperOutput)
+
+    /** One line for the run log, in the order the readings are made. */
+    fun summary(): String = buildString {
+        append("native probe ").append(if (nativeProbe) "yes" else "no")
+        if (!nativeProbe && appSuFailure != SuProbe.Failure.NONE) {
+            append(" (the app's own su: ").append(appSuFailure.name.lowercase()).append(")")
+        }
+        append("; su through Shizuku ").append(if (shizukuElevated) "yes" else "no")
+        append("; helper ").append(
+            when {
+                parseControlReport(helperOutput) != null -> "reported a live control channel"
+                helperOutput.isBlank() -> "printed nothing"
+                else -> "printed " + helperOutput.lineSequence().count { it.isNotBlank() } +
+                    " line(s) without a control report"
+            },
+        )
+    }
+}
+
+/**
  * The live probes behind [controlProofs], for the app to call on the device.
  *
  * Everything here is best-effort and reports absence rather than throwing: a probe failing is a
  * reason not to claim control, not a reason for a run to die with a stack trace.
  */
 internal object KernelSuRuntime {
-    fun proofs(context: Context, helperOutput: String): Set<ControlProof> = controlProofs(
-        nativeProbe = runCatching { RootStatusProbe.isActive() }.getOrDefault(false),
-        shizukuElevated = shizukuElevation(),
-        helperOutput = helperOutput,
-    )
+    fun proofs(context: Context, helperOutput: String): Set<ControlProof> =
+        readings(context, helperOutput).proofs
+
+    fun readings(context: Context, helperOutput: String): ControlReadings {
+        val native = runCatching { RootStatusProbe.isActive() }.getOrDefault(false)
+        return ControlReadings(
+            nativeProbe = native,
+            // Read after the probe, whose native path may fall back to it: this is the app's own
+            // reading, where the one below goes through the Shizuku server instead.
+            appSuFailure = SuProbe.lastFailure,
+            shizukuElevated = shizukuElevation(),
+            helperOutput = helperOutput,
+        )
+    }
 
     /**
      * Runs [command] as root, using KernelSU itself rather than the bootstrap handoff.
