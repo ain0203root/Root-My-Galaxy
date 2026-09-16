@@ -248,6 +248,9 @@
     <string name="repo_profile_missing">Support profile %1$s is no longer available</string>
     <string name="select_device_title">Choose a payload</string>
     <string name="select_device_description">Select a payload by device model and kernel version.</string>
+    <string name="kernel_match_exact">Exact kernel release match</string>
+    <string name="kernel_match_version">Kernel version match only (%1$s)</string>
+    <string name="kernel_match_none">Kernel release not listed</string>
     <string name="show_my_device_only">Show only my device</string>
     <string name="no_matching_devices">No payloads match this model and kernel version.</string>
     <string name="device_mismatch_title">Device mismatch</string>

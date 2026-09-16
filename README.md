@@ -24,6 +24,14 @@ the phone. For example, `6.6.98-android15-8-...` matches `6.6.98`. Advanced
 mode filters the catalog by both values and allows manual selection with model
 and kernel-version warnings.
 
+Each candidate in that sheet also reports how its kernel versions line up with
+the phone. Regional siblings share a model and a three-part version, so a
+profile that lists this build's full release is marked **Exact kernel release
+match** while one that only lists the three-part version is marked **Kernel
+version match only (6.6.98)** — the difference between a feed that has tied
+the payload to your build and one that has not. The sheet opens preselected on
+the exact match when the feed offers one.
+
 ## Build
 
 Requirements:

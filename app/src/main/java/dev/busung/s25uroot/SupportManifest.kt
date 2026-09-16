@@ -63,6 +63,30 @@ fun List<TargetProfile>.resolveFor(snapshot: DeviceSnapshot): TargetProfile? =
     firstOrNull { it.matches(snapshot) && snapshot.kernelRelease in it.kernelVersions }
         ?: firstOrNull { it.matches(snapshot) }
 
+/**
+ * How a profile's declared kernel versions line up with a device.
+ *
+ * A profile that lists the device's full `uname -r` release documents this exact build; one that
+ * lists only the three-part version may still be the right payload, but the feed has not tied it to
+ * this build, which is what regional siblings look like from the app's side.
+ */
+enum class KernelMatch {
+    /** The device's full kernel release is listed. */
+    Exact,
+
+    /** Only the three-part kernel version is listed. */
+    Version,
+
+    /** Neither is listed; only reachable in the sheet when the device filter is off. */
+    None,
+}
+
+fun TargetProfile.kernelMatch(snapshot: DeviceSnapshot): KernelMatch = when {
+    snapshot.kernelRelease in kernelVersions -> KernelMatch.Exact
+    snapshot.kernelVersion in kernelVersions -> KernelMatch.Version
+    else -> KernelMatch.None
+}
+
 data class SupportManifest(
     val schemaVersion: Int,
     val targets: List<TargetProfile>,

@@ -2101,6 +2101,10 @@ private fun TargetSelectionSheet(
                         val modelLabel = matchingModel ?: profile.models.take(3).joinToString().let {
                             if (profile.models.size > 3) "$it +${profile.models.size - 3}" else it
                         }
+                        // Regional siblings share a model and a three-part kernel version, so the
+                        // only thing telling them apart in this list is whether the feed ties the
+                        // profile to this build's full release.
+                        val kernelMatch = profile.kernelMatch(device)
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
                             shape = MaterialTheme.shapes.large,
@@ -2135,6 +2139,24 @@ private fun TargetSelectionSheet(
                                         modelLabel,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        when (kernelMatch) {
+                                            KernelMatch.Exact ->
+                                                stringResource(R.string.kernel_match_exact)
+                                            KernelMatch.Version -> stringResource(
+                                                R.string.kernel_match_version,
+                                                device.kernelVersion,
+                                            )
+                                            KernelMatch.None ->
+                                                stringResource(R.string.kernel_match_none)
+                                        },
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = when (kernelMatch) {
+                                            KernelMatch.Exact -> MaterialTheme.colorScheme.primary
+                                            KernelMatch.Version -> MaterialTheme.colorScheme.onSurfaceVariant
+                                            KernelMatch.None -> MaterialTheme.colorScheme.error
+                                        },
                                     )
                                     if (profile.sourceLabel.isNotEmpty()) {
                                         Text(

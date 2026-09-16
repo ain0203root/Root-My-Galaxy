@@ -64,6 +64,35 @@ class TargetProfileTest {
     }
 
     @Test
+    fun kernelMatchSeparatesAnExactReleaseFromAThreePartSibling() {
+        val zhs = profile.copy(
+            profileId = "pa2q-S9360ZHSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf(
+                "6.6.98",
+                "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k",
+            ),
+        )
+        val zcs = profile.copy(
+            profileId = "pa2q-S9360ZCSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf("6.6.98"),
+        )
+        val snapshot = snapshot("SM-S9360", "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k")
+
+        assertEquals(KernelMatch.Exact, zhs.kernelMatch(snapshot))
+        assertEquals(KernelMatch.Version, zcs.kernelMatch(snapshot))
+    }
+
+    @Test
+    fun kernelMatchIsNoneForAnUnlistedKernel() {
+        assertEquals(
+            KernelMatch.None,
+            profile.kernelMatch(snapshot("SM-S931B", "6.6.102-android15-8-build")),
+        )
+    }
+
+    @Test
     fun freshP0SessionOutlastsTheLongestAttemptEnvelopeProposedForIt() {
         // One community proposal allowed a single 840-second attempt, another 1200 s of page scan
         // plus 2200 s of attempt. The app must not be the thing that cuts such a run off, so the
