@@ -405,6 +405,35 @@ build starts itself on boot, the app notices and reports that rather than racing
 Switching the setting on starts Shizuku there and then, so the setting is proven on the device
 instead of at the next reboot.
 
+## Which transport a run uses
+
+A run's payload goes through one of three transports, and the choice is frozen when the run starts so
+a preference changed mid-run cannot mix them between the exploit and the KernelSU staging:
+
+| transport | used when |
+|---|---|
+| Shizuku | it was asked for and it is answering — preferred over a pairing, because the pairing path turns a device setting on and off around itself and this one does not have to |
+| Wireless ADB | the payload needs a shell and Shizuku is not available, and a pairing is stored |
+| The app's own process | the payload does not need a shell and nothing else was asked for |
+
+The two rules that matter:
+
+- **A payload that needs a shell never falls back to the app's own domain.** The feed says the target
+  only works from a shell — a route that reads tracefs, or that stages itself outside the app's
+  directory — and running it as the app anyway fails for a reason that looks like the payload's fault.
+  When neither shell transport is available the run refuses, and the message names both: whether
+  Shizuku is off or switched on but silent, and whether a pairing is stored. Those send you to
+different places, so they are different messages.
+- **Wireless ADB runs the payload in one open shell, streamed.** adbd kills a backgrounded process the
+  moment its shell closes, so a detached payload would be killed at the start while the run waited out
+  its whole ceiling for a process that no longer existed. The transport also carries the exit code
+  itself — the raw `shell:` service does not — so "the payload failed" and "the payload finished and
+  the run got nothing" stay different outcomes.
+
+A profile opts in through its feed entry (`routePolicy.prefersShellTransport`), which is why the run
+plan states it: the line now reads `shell=required` or `shell=optional`, so a refusal for want of a
+transport is visible before a run is started rather than after it fails.
+
 ## Wireless ADB
 
 Every other transport this app has can be absent at the worst moment. A Shizuku binder needs root or a

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.InputStream
 import java.security.MessageDigest
@@ -116,6 +117,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     @Volatile
     private var activeRunShizuku: Boolean? = null
+
+    /** Which transport this run's payload goes through, frozen when the run starts. */
+    @Volatile
+    private var activeRunTransport: RunTransport? = null
 
     /** Set by the run screen's override while a boot-settle wait is in progress. */
     @Volatile
@@ -253,19 +258,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             // exploit and the KernelSU staging steps. The boot service asks for
             // standalone explicitly rather than by toggling the stored
             // preference, which would leave it wrong if the run never finished.
-            activeRunShizuku = !forceStandalone && AppPreferences.shizukuMode(app)
             try {
-                if (shizukuEnabled()) {
-                    activeStage = RunStage.Transport
-                    appendLog(app.getString(R.string.log_shizuku_prepare))
-                    if (!ShizukuController.isRunning() && !ShizukuController.pingUntilRunning()) {
-                        error(app.getString(R.string.error_shizuku_unavailable))
-                    }
-                    if (!ShizukuController.isGranted() && !ShizukuController.requestPermission()) {
-                        error(app.getString(R.string.error_shizuku_permission))
-                    }
-                    appendLog(app.getString(R.string.log_shizuku_permission))
-                }
                 activeStage = RunStage.Target
                 setPhase(InstallPhase.Checking, app.getString(R.string.status_checking_github))
                 // Offline mode is what makes a run possible with no network at all, so it resolves
@@ -277,6 +270,43 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     selectionId == null -> repository.resolveTarget(DeviceSnapshot.current())
                     else -> repository.resolveTarget(selectionId)
                 }
+
+                // The transport is chosen here rather than beside the Shizuku check, because the
+                // profile is what decides whether a shell is required at all - and a target that
+                // requires one can be carried by a pairing instead of by Shizuku. Frozen for the
+                // whole run, so a mid-run preference change cannot mix transports between the exploit
+                // and the KernelSU staging steps.
+                val shizukuRequested = !forceStandalone && AppPreferences.shizukuMode(app)
+                val localAdbPaired = AdbCredentialStore.hasStoredKey(app) && AppPreferences.adbPaired(app)
+                val transport = chooseRunTransport(
+                    shellRequired = profile.routePolicy.prefersShellTransport,
+                    shizukuRequested = shizukuRequested,
+                    shizukuUsable = ShizukuController.isRunning() && ShizukuController.isGranted(),
+                    localAdbPaired = localAdbPaired,
+                ) ?: error(app.getString(shellTransportRefusalStringId(shizukuRequested)))
+                activeRunTransport = transport
+                activeRunShizuku = transport == RunTransport.Shizuku
+
+                if (transport == RunTransport.Shizuku) {
+                    activeStage = RunStage.Transport
+                    appendLog(app.getString(R.string.log_shizuku_prepare))
+                    if (!ShizukuController.isRunning() && !ShizukuController.pingUntilRunning()) {
+                        error(app.getString(R.string.error_shizuku_unavailable))
+                    }
+                    if (!ShizukuController.isGranted() && !ShizukuController.requestPermission()) {
+                        error(app.getString(R.string.error_shizuku_permission))
+                    }
+                    appendLog(app.getString(R.string.log_shizuku_permission))
+                }
+                appendLog(
+                    app.getString(
+                        when (transport) {
+                            RunTransport.Shizuku -> R.string.log_transport_shizuku
+                            RunTransport.LocalAdb -> R.string.log_transport_local_adb
+                            RunTransport.App -> R.string.log_transport_app
+                        },
+                    ),
+                )
                 appendLog(app.getString(R.string.log_profile, profile.profileId))
                 if (profile.sourceLabel.isNotEmpty()) {
                     appendLog(app.getString(R.string.log_payload_source, profile.sourceLabel))
@@ -374,6 +404,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 finishHistory(InstallRunResult.Failed)
             } finally {
                 activeRunShizuku = null
+            activeRunTransport = null
             }
         }
     }
@@ -430,6 +461,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         requiresFreshP0Session: Boolean,
         routePolicy: ExploitRoutePolicy,
     ) {
+        if (activeRunTransport == RunTransport.LocalAdb) {
+            executeExploitOverLocalAdb(payload, requiresFreshP0Session, routePolicy)
+            return
+        }
         val shizuku = shizukuEnabled()
         val logFile = if (shizuku) File(SHIZUKU_LOG_PATH) else File(app.filesDir, "exploit.log")
         if (shizuku) {
@@ -530,6 +565,71 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 delay(500.milliseconds)
                 if (process.isAlive) process.destroyForcibly()
             }
+        }
+        appendLog(app.getString(R.string.log_bootstrap_root))
+    }
+
+    /**
+     * Runs the payload through the device's own adbd, over wireless debugging.
+     *
+     * This is the path for a target whose feed entry says it only works from a shell, on a device with
+     * no usable Shizuku. The shell context is what such a payload needs, and the pairing is what
+     * provides one without a cable.
+     *
+     * Two differences from the other transports are worth knowing. The helper and the payload are
+     * *pushed* rather than staged through a binder, because there is no binder here. And the command
+     * owns one open shell for its whole life, streamed: adbd kills a backgrounded process the moment
+     * its shell closes, so a payload that ran detached would be killed at the start and the run would
+     * wait out its whole ceiling for a process that no longer existed.
+     *
+     * Wireless debugging is turned on for this and off again afterwards by [TemporaryWirelessAdb], so
+     * the window exists only while the payload does.
+     */
+    private suspend fun executeExploitOverLocalAdb(
+        payload: File,
+        requiresFreshP0Session: Boolean,
+        routePolicy: ExploitRoutePolicy,
+    ) {
+        val bootToken = currentBootToken()
+        val cachedP0Offset = if (requiresFreshP0Session) null else cachedP0Offset(bootToken)
+        val logPrefix = mutableState.value.log
+        val helper = nativeHelperFile()
+        require(helper.isFile) { app.getString(R.string.error_helper_unavailable) }
+
+        val totalMillis = exploitTotalMillis(requiresFreshP0Session)
+        // A socket handshake and a pushed upload are blocking work, and the run itself is driven from
+        // the main dispatcher, so the whole transport lives on the IO dispatcher.
+        val output = withContext(Dispatchers.IO) {
+            TemporaryWirelessAdb.use(app) {
+            WirelessAdbSession.open(app).use { session ->
+                session.push(helper, ADB_HELPER_PATH, executable = true)
+                session.push(payload, ADB_PAYLOAD_PATH)
+                session.runStreaming(
+                    command = localAdbExploitCommand(
+                        requiresFreshP0Session,
+                        cachedP0Offset,
+                        routePolicy,
+                    ),
+                    overallTimeoutMs = totalMillis,
+                    // A fresh session is deliberately allowed to sit silent for as long as its ceiling:
+                    // what it is doing is scanning, and a stall limit there would cut off the very run
+                    // the ceiling was set for.
+                    stallTimeoutMs = if (requiresFreshP0Session) totalMillis else EXPLOIT_STALL_MILLIS,
+                    shouldStop = { !mutableState.value.busy },
+                ) { raw ->
+                    if (!requiresFreshP0Session) cacheP0Offset(bootToken, raw)
+                    publishExploitLog(logPrefix, raw)
+                }
+            }
+        }
+        }
+
+        val exitCode = localAdbExploitExitCode(output)
+        require(exitCode == 0) {
+            app.getString(R.string.error_payload_exit, exitCode, payloadExitDetail(exitCode))
+        }
+        require(output.contains("exploit completed") && output.contains("done=1 root=1")) {
+            app.getString(R.string.error_success_marker)
         }
         appendLog(app.getString(R.string.log_bootstrap_root))
     }
@@ -642,6 +742,28 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             .putString(P0_CACHE_BOOT_TOKEN, bootToken)
             .putString(P0_CACHE_OFFSET, value)
             .apply()
+    }
+
+    private fun localAdbExploitCommand(
+        requiresFreshP0Session: Boolean,
+        cachedP0Offset: String?,
+        routePolicy: ExploitRoutePolicy,
+    ): String = buildString {
+        // The environment comes first, quoted as values, because this is a shell command rather than
+        // a process spawn with an environment attached.
+        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy).forEach { (name, value) ->
+            append(name).append('=').append(shellQuote(value)).append(' ')
+        }
+        append(shellQuote(ADB_HELPER_PATH))
+        append(" --run-payload")
+        append(' ').append(shellQuote(ADB_PAYLOAD_PATH))
+        append(' ').append(shellQuote(ADB_HELPER_PATH))
+        append(' ').append(shellQuote(ADB_LOG_PATH))
+        // The raw `shell:` service does not carry an exit code, so the command reports its own on the
+        // end of the stream. Reading it back is what separates "the payload failed" from "the payload
+        // finished and the run got nothing", which need different answers.
+        append("; rc=").append('$').append('?').append("; printf '\\n")
+        append(ADB_EXIT_MARKER).append("%s\\n' \"").append('$').append("rc\"")
     }
 
     private fun helperFile(): File =
@@ -903,6 +1025,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
         // `mv` into an existing directory nests the source inside it, so the two scripts below
         // check for the backup first and refuse rather than bury a module tree somewhere else.
+        /** Where a wireless run stages its helper, payload and log, all under the shell's own directory. */
+        private const val ADB_HELPER_PATH = "/data/local/tmp/rmg-ksud-helper"
+        private const val ADB_PAYLOAD_PATH = "/data/local/tmp/rmg-payload"
+        private const val ADB_LOG_PATH = "/data/local/tmp/rmg-exploit.log"
+
         private val MODULES_ASIDE_SCRIPT = """
             if [ -d $MODULES_BACKUP_DIRECTORY ] && [ ! -e $MODULES_DIRECTORY ]; then
                 /system/bin/mv $MODULES_BACKUP_DIRECTORY $MODULES_DIRECTORY || exit 3

@@ -69,6 +69,11 @@
     <string name="autoroot_channel_name">Root on boot</string>
     <string name="autoroot_channel_description">Runs the install after a reboot and reports what happened</string>
     <string name="settings_section_wireless_adb">Wireless ADB</string>
+    <string name="error_shell_transport_shizuku_silent">This payload only runs from a shell. Shizuku is switched on but not answering, and no wireless pairing is stored: start Shizuku, or pair the device under Settings → Wireless ADB</string>
+    <string name="error_shell_transport_shizuku_off">This payload only runs from a shell. Shizuku is switched off and no wireless pairing is stored: switch Shizuku on, or pair the device under Settings → Wireless ADB</string>
+    <string name="log_transport_local_adb">[*] Transport: this device\'s own adbd, over wireless debugging</string>
+    <string name="log_transport_shizuku">[*] Transport: Shizuku</string>
+    <string name="log_transport_app">[*] Transport: the app\'s own process</string>
     <string name="settings_wireless_adb">Wireless ADB</string>
     <string name="settings_wireless_adb_summary">Pair with this device\'s own wireless debugging, so a run can be given a shell with no computer and no root</string>
     <string name="settings_wireless_adb_none">Not paired</string>
