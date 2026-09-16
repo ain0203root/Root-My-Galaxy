@@ -74,6 +74,8 @@ import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
@@ -1930,6 +1932,7 @@ private fun PayloadSourcesDialog(
 ) {
     val view = LocalView.current
     var sources by remember(initialSources) { mutableStateOf(initialSources) }
+    var showAddSource by remember { mutableStateOf(false) }
     var repository by remember { mutableStateOf("") }
     var branch by remember { mutableStateOf(PayloadSource.DEFAULT_BRANCH) }
     var duplicate by remember { mutableStateOf(false) }
@@ -1962,7 +1965,7 @@ private fun PayloadSourcesDialog(
         text = {
             Column(
                 modifier = Modifier
-                    .heightIn(max = 400.dp)
+                    .heightIn(max = 460.dp)
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -1971,95 +1974,74 @@ private fun PayloadSourcesDialog(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (sources.isEmpty()) {
-                    Text(
-                        stringResource(R.string.payload_sources_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                sources.forEach { source ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Checkbox(
-                            checked = source.enabled,
-                            onCheckedChange = { checked ->
-                                clickHaptic(view)
-                                sources = sources.withSourceEnabled(source.id, checked)
-                            },
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                source.repository,
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                source.branch,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        IconButton(onClick = {
-                            clickHaptic(view)
-                            sources = sources.withSourceRemoved(source.id)
-                        }) {
-                            Icon(
-                                Icons.Rounded.Delete,
-                                contentDescription = stringResource(R.string.payload_source_remove),
-                                modifier = Modifier.size(20.dp),
-                            )
-                        }
-                    }
-                }
 
-                HorizontalDivider()
-                Text(
-                    stringResource(R.string.payload_source_add),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                OutlinedTextField(
-                    value = repository,
-                    onValueChange = {
-                        repository = it
-                        duplicate = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    isError = repositoryError != null || duplicate,
-                    label = { Text(stringResource(R.string.payload_repository_label)) },
-                    placeholder = { Text(PayloadSource.DEFAULT_REPOSITORY) },
-                )
-                OutlinedTextField(
-                    value = branch,
-                    onValueChange = {
-                        branch = it
-                        duplicate = false
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    isError = branchError != null,
-                    label = { Text(stringResource(R.string.payload_branch)) },
-                    placeholder = { Text(PayloadSource.DEFAULT_BRANCH) },
-                    supportingText = { Text(stringResource(R.string.payload_branch_hint)) },
-                )
-                addError?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+                // Above the list and collapsed by default: a long list of added sources can then
+                // never push it out of reach.
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            clickHaptic(view)
+                            showAddSource = !showAddSource
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    Icon(
+                        Icons.Rounded.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        stringResource(R.string.payload_source_add),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        if (showAddSource) {
+                            Icons.Rounded.ExpandLess
+                        } else {
+                            Icons.Rounded.ExpandMore
+                        },
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+
+                if (showAddSource) {
+                    OutlinedTextField(
+                        value = repository,
+                        onValueChange = {
+                            repository = it
+                            duplicate = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = repositoryError != null || duplicate,
+                        label = { Text(stringResource(R.string.payload_repository_label)) },
+                        placeholder = { Text(PayloadSource.DEFAULT_REPOSITORY) },
+                    )
+                    OutlinedTextField(
+                        value = branch,
+                        onValueChange = {
+                            branch = it
+                            duplicate = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        isError = branchError != null,
+                        label = { Text(stringResource(R.string.payload_branch)) },
+                        placeholder = { Text(PayloadSource.DEFAULT_BRANCH) },
+                        supportingText = { Text(stringResource(R.string.payload_branch_hint)) },
+                    )
+                    addError?.let {
+                        Text(
+                            it,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Button(
                         onClick = {
                             clickHaptic(view)
@@ -2083,13 +2065,45 @@ private fun PayloadSourcesDialog(
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.payload_source_add_action))
                     }
-                    if (sources.none { it.id == PayloadSource.DEFAULT.id }) {
-                        FilledTonalButton(onClick = {
-                            clickHaptic(view)
-                            sources = sources.withSourceAdded(PayloadSource.DEFAULT)
-                        }) {
-                            Text(stringResource(R.string.payload_source_default))
+                }
+
+                HorizontalDivider()
+
+                if (sources.isEmpty()) {
+                    Text(
+                        stringResource(R.string.payload_sources_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = if (showAddSource) 220.dp else 340.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        items(sources, key = { it.id }) { source ->
+                            PayloadSourceRow(
+                                source = source,
+                                onEnabledChange = { checked ->
+                                    clickHaptic(view)
+                                    sources = sources.withSourceEnabled(source.id, checked)
+                                },
+                                onRemove = {
+                                    clickHaptic(view)
+                                    sources = sources.withSourceRemoved(source.id)
+                                },
+                            )
                         }
+                    }
+                }
+
+                if (sources.none { it.id == PayloadSource.DEFAULT.id }) {
+                    TextButton(onClick = {
+                        clickHaptic(view)
+                        sources = sources.withSourceAdded(PayloadSource.DEFAULT)
+                    }) {
+                        Text(stringResource(R.string.payload_source_default))
                     }
                 }
             }
@@ -2114,6 +2128,43 @@ private fun PayloadSourcesDialog(
             }
         },
     )
+}
+
+@Composable
+private fun PayloadSourceRow(
+    source: PayloadSource,
+    onEnabledChange: (Boolean) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Checkbox(checked = source.enabled, onCheckedChange = onEnabledChange)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                source.repository,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                source.branch,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        IconButton(onClick = onRemove) {
+            Icon(
+                Icons.Rounded.Delete,
+                contentDescription = stringResource(R.string.payload_source_remove),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
 }
 
 @Composable
