@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -175,7 +176,13 @@ private fun InstallScreen(
             InstallerSteps(installState.phase)
             InstallerLog(
                 output = installState.log,
-                modifier = Modifier.weight(1f),
+                // A floor, because this panel is the only continuous account of a run: with the
+                // failure card above and the steps below it, a short window left the log a clipped
+                // strip and the whole run invisible. The status card is capped for the same reason -
+                // the two bounds together are what make the log's floor reachable.
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 96.dp),
                 scrollState = logScrollState,
             )
 
@@ -243,6 +250,7 @@ private fun InstallerStatusCard(installState: InstallUiState) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
+            .heightIn(max = STATUS_CARD_MAX_HEIGHT)
             .animateContentSize(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
@@ -258,7 +266,12 @@ private fun InstallerStatusCard(installState: InstallUiState) {
         ),
     ) {
         Column(
-            modifier = Modifier.padding(20.dp),
+            // Scrollable, because the cap above must clip something: the payload's own lines are the
+            // part that can be any length, and losing the stage or the progress bar off the top of a
+            // failure card would be worse than scrolling to reach the last of them.
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             Row(
@@ -483,6 +496,15 @@ private fun FailureReport(failure: RunFailure) {
         }
     }
 }
+
+/**
+ * How tall the status card may grow.
+ *
+ * A failure card carries the stage, the cause, the payload's last lines and a progress bar, and it
+ * used to take as much room as its evidence needed - which on a short window left the run log with
+ * nothing and the panel collapsed to an empty strip. It scrolls past this instead.
+ */
+private val STATUS_CARD_MAX_HEIGHT = 216.dp
 
 private fun installProgress(phase: InstallPhase): Float = when (phase) {
     InstallPhase.Checking -> 0.1f
