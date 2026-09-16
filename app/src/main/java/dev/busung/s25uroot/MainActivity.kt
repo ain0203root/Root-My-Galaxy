@@ -2254,12 +2254,12 @@ private fun SettingsCard(
                 Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.titleMedium)
+                    // Wraps like SettingsSwitchCard rather than ellipsising: a description that
+                    // needs a second line is still worth reading.
                     Text(
                         description,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
                     )
                 }
                 if (valueBelow == null && value.isNotBlank()) {
