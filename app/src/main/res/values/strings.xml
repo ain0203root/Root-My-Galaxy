@@ -69,6 +69,9 @@
     <string name="export_log">Export log</string>
     <string name="export_log_saved">Log saved</string>
     <string name="export_log_failed">Unable to save the log</string>
+    <string name="export_logs_saved">%1$d run logs saved</string>
+    <string name="export_logs_failed">Unable to save the selected logs</string>
+    <string name="history_export_selected">Export (%1$d)</string>
     <string name="action_copy_log">Copy log</string>
     <string name="log_copied">Log copied to clipboard</string>
     <string name="about">About</string>

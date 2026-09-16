@@ -139,6 +139,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -174,7 +175,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
-import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -1075,9 +1075,37 @@ private fun HistoryPage(
     onDeleteEntries: (Set<String>) -> Unit,
 ) {
     val view = LocalView.current
+    val context = LocalContext.current
     var selectedHistoryId by remember { mutableStateOf<String?>(null) }
     var selectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
     var pendingDeleteIds by remember { mutableStateOf<Set<String>?>(null) }
+    // saveable: picking a destination starts another activity, which can recreate this one while the
+    // picker is up, and the ids are the only record of what the export was for.
+    var pendingExportIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
+    val exportLogsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val ids = pendingExportIds.toSet()
+        pendingExportIds = arrayListOf()
+        result.data?.data?.let { uri ->
+            val entries = history.filter { it.id in ids && it.result != InstallRunResult.Running }
+            if (entries.isNotEmpty()) HistoryLogExporter.saveArchive(context, uri, entries)
+        }
+    }
+    val launchExport: (Set<String>) -> Unit = { ids ->
+        // A run that is still going has no finished log to archive, so it cannot be part of one.
+        val entries = history.filter { it.id in ids && it.result != InstallRunResult.Running }
+        if (entries.isNotEmpty()) {
+            pendingExportIds = ArrayList(entries.map { it.id })
+            exportLogsLauncher.launch(
+                Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_TITLE, HistoryLogExporter.archiveFileName(entries))
+                },
+            )
+        }
+    }
     val selectedEntry = history.firstOrNull { it.id == selectedHistoryId }
     val selectableIds = history
         .filter { it.result != InstallRunResult.Running }
@@ -1150,6 +1178,7 @@ private fun HistoryPage(
                 onClearSelection = { selectionIds = emptySet() },
                 onEntryClick = { selectedHistoryId = it.id },
                 onDeleteSelected = { pendingDeleteIds = selectionIds },
+                onExportSelected = { launchExport(selectionIds) },
             )
         } else {
             HistoryDetail(
@@ -1172,6 +1201,7 @@ private fun HistoryList(
     onClearSelection: () -> Unit,
     onEntryClick: (InstallHistoryEntry) -> Unit,
     onDeleteSelected: () -> Unit,
+    onExportSelected: () -> Unit,
 ) {
     val view = LocalView.current
     val selecting = selectionIds.isNotEmpty()
@@ -1257,14 +1287,29 @@ private fun HistoryList(
             enter = fadeIn() + scaleIn(initialScale = 0.85f),
             exit = fadeOut() + scaleOut(targetScale = 0.85f),
         ) {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    clickHaptic(view)
-                    onDeleteSelected()
-                },
-                icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                text = { Text(stringResource(R.string.history_delete_selected, selectionIds.size)) },
-            )
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onExportSelected()
+                    },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    icon = { Icon(Icons.Rounded.Save, contentDescription = null) },
+                    text = { Text(stringResource(R.string.history_export_selected, selectionIds.size)) },
+                )
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onDeleteSelected()
+                    },
+                    icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                    text = { Text(stringResource(R.string.history_delete_selected, selectionIds.size)) },
+                )
+            }
         }
     }
 }
@@ -1390,7 +1435,7 @@ private fun HistoryDetail(
     val exportLogLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
-        result.data?.data?.let { uri -> saveRunLog(context, uri, entry) }
+        result.data?.data?.let { uri -> HistoryLogExporter.saveLog(context, uri, entry) }
     }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
@@ -1426,7 +1471,7 @@ private fun HistoryDetail(
                         Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
                             addCategory(Intent.CATEGORY_OPENABLE)
                             type = "text/plain"
-                            putExtra(Intent.EXTRA_TITLE, runLogFileName(entry))
+                            putExtra(Intent.EXTRA_TITLE, HistoryLogExporter.entryFileName(entry))
                         },
                     )
                 }) {
@@ -1569,30 +1614,6 @@ private fun formatHistoryTime(timestamp: Long): String {
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM, locale)
             .format(Date(timestamp))
     }
-}
-
-private fun runLogFileName(entry: InstallHistoryEntry): String =
-    "RootMyGalaxy-" +
-        SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date(entry.startedAtMillis)) +
-        "-${entry.result.name.lowercase(Locale.US)}.log"
-
-private fun saveRunLog(context: Context, uri: Uri, entry: InstallHistoryEntry) {
-    val content = entry.log.ifBlank { context.getString(R.string.history_log_empty) }
-    val saved = runCatching {
-        context.contentResolver.openOutputStream(uri)?.use { output ->
-            output.write(content.toByteArray(Charsets.UTF_8))
-        } ?: error("open failed")
-        true
-    }.getOrDefault(false)
-    Toast.makeText(
-        context,
-        if (saved) {
-            context.getString(R.string.export_log_saved)
-        } else {
-            context.getString(R.string.export_log_failed)
-        },
-        Toast.LENGTH_LONG,
-    ).show()
 }
 
 @Composable
