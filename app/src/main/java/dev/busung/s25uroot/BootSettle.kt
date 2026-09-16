@@ -18,8 +18,20 @@ import kotlin.math.abs
  * word, because someone who knows their device just booted cleanly is better informed than a constant.
  */
 internal object BootSettle {
-    /** What a run waits for unless it is told otherwise. */
+    /** What a manual run waits for unless it is told otherwise. */
     const val DEFAULT_SECONDS = 120
+
+    /**
+     * What an automatic run waits for, and deliberately not [DEFAULT_SECONDS].
+     *
+     * The two floors have different owners. The manual one is a person's setting, and its whole point
+     * is that the person watching can lower or raise it; the automatic one is this app's own claim
+     * about how settled a device has to be before it may act unattended, and it is shorter because an
+     * automatic run has already waited out the part of the boot that precedes `BOOT_COMPLETED`. If the
+     * automatic path read the manual setting, then turning automation on and finding it too slow would
+     * change what a manual run does next time - one decision quietly rewriting another.
+     */
+    const val AUTO_ROOT_DEFAULT_SECONDS = 60
 
     /**
      * What the setting offers. Rounded to these rather than free-form: a value nobody tested is not a

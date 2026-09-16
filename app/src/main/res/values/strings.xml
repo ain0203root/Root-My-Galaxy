@@ -68,6 +68,8 @@
     <string name="autoroot_disable">Turn off</string>
     <string name="autoroot_channel_name">Root on boot</string>
     <string name="autoroot_channel_description">Runs the install after a reboot and reports what happened</string>
+    <string name="settings_autoroot_settle">Root on boot settle time</string>
+    <string name="settings_autoroot_settle_summary">How long the automatic install waits after a boot before it starts. Shorter than a manual run because the boot is already underway by the time it can act</string>
     <string name="settings_boot_settle">Boot settle time</string>
     <string name="settings_boot_settle_summary">How long after a boot a run waits before it starts the exploit. A device is racier right after it comes up, and that is where attempts fail for reasons the payload cannot fix.</string>
     <string name="status_boot_settle">Waiting for the boot to settle: %1$s</string>

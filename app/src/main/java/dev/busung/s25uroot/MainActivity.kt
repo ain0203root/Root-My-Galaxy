@@ -198,6 +198,7 @@ class MainActivity : ComponentActivity() {
     private var bootRootMode by mutableStateOf(false)
     private var shizukuBootMode by mutableStateOf(false)
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
+    private var autoRootSettleSeconds by mutableStateOf(BootSettle.AUTO_ROOT_DEFAULT_SECONDS)
     private var payloadMode by mutableStateOf(PayloadMode.Online)
     private var notificationPermissionAsked = false
     private var batteryUnrestricted by mutableStateOf(false)
@@ -284,6 +285,7 @@ class MainActivity : ComponentActivity() {
         bootRootMode = AppPreferences.bootRootMode(this)
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
+        autoRootSettleSeconds = AppPreferences.autoRootSettleSeconds(this)
         payloadMode = AppPreferences.payloadMode(this)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
@@ -299,6 +301,7 @@ class MainActivity : ComponentActivity() {
                     bootRootMode = bootRootMode,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
+                    autoRootSettleSeconds = autoRootSettleSeconds,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
@@ -337,6 +340,10 @@ class MainActivity : ComponentActivity() {
                     onBootSettleChanged = { seconds ->
                         AppPreferences.setBootSettleSeconds(this, seconds)
                         bootSettleSeconds = seconds
+                    },
+                    onAutoRootSettleChanged = { seconds ->
+                        AppPreferences.setAutoRootSettleSeconds(this, seconds)
+                        autoRootSettleSeconds = seconds
                     },
                     onPayloadModeChanged = { mode ->
                         AppPreferences.setPayloadMode(this, mode)
@@ -441,6 +448,7 @@ private fun RootApp(
     bootRootMode: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
+    autoRootSettleSeconds: Int,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
@@ -452,6 +460,7 @@ private fun RootApp(
     onBootRootModeChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
+    onAutoRootSettleChanged: (Int) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
     onForgetCachedPayload: () -> Unit,
     requestNotificationPermission: () -> Unit,
@@ -713,6 +722,7 @@ private fun RootApp(
                     bootRootMode = bootRootMode,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
+                    autoRootSettleSeconds = autoRootSettleSeconds,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     updateStatus = updateStatus,
@@ -727,6 +737,7 @@ private fun RootApp(
                     onBootRootModeChanged = onBootRootModeChanged,
                     onShizukuBootModeChanged = onShizukuBootModeChanged,
                     onBootSettleChanged = onBootSettleChanged,
+                    onAutoRootSettleChanged = onAutoRootSettleChanged,
                     onPayloadModeChanged = onPayloadModeChanged,
                     onForgetCachedPayload = onForgetCachedPayload,
                     onRequestNotificationPermission = requestNotificationPermission,
@@ -1687,6 +1698,7 @@ private fun SettingsPage(
     bootRootMode: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
+    autoRootSettleSeconds: Int,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     updateStatus: UpdateStatus,
@@ -1701,6 +1713,7 @@ private fun SettingsPage(
     onBootRootModeChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
+    onAutoRootSettleChanged: (Int) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
     onForgetCachedPayload: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
@@ -1724,6 +1737,8 @@ private fun SettingsPage(
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     var bootSettleMenuTop by remember { mutableStateOf(32.dp) }
     var showBootSettleDialog by remember { mutableStateOf(false) }
+    var autoRootSettleMenuTop by remember { mutableStateOf(32.dp) }
+    var showAutoRootSettleDialog by remember { mutableStateOf(false) }
     var payloadModeMenuTop by remember { mutableStateOf(32.dp) }
     var showPayloadModeDialog by remember { mutableStateOf(false) }
     val density = LocalDensity.current
@@ -1883,6 +1898,20 @@ private fun SettingsPage(
                 onBootSettleChanged(settled[index])
             },
             onDismiss = { showBootSettleDialog = false },
+        )
+    }
+
+    if (showAutoRootSettleDialog) {
+        val settled = BootSettle.allowedSeconds
+        SideChoiceMenu(
+            choices = settled.map { BootSettle.label(it) },
+            selectedIndex = settled.indexOf(autoRootSettleSeconds).coerceAtLeast(0),
+            topOffset = autoRootSettleMenuTop,
+            onSelected = { index ->
+                showAutoRootSettleDialog = false
+                onAutoRootSettleChanged(settled[index])
+            },
+            onDismiss = { showAutoRootSettleDialog = false },
         )
     }
 
@@ -2142,11 +2171,26 @@ private fun SettingsPage(
                     title = stringResource(R.string.settings_boot_root),
                     description = stringResource(R.string.settings_boot_root_summary),
                     checked = bootRootMode,
-                    position = SettingsCardPosition.GroupedSingle,
+                    position = SettingsCardPosition.Top,
                     onCheckedChange = { enabled ->
                         clickHaptic(view)
                         if (enabled) onRequestNotificationPermission()
                         onBootRootModeChanged(enabled)
+                    },
+                )
+                SettingsCard(
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        autoRootSettleMenuTop =
+                            with(density) { coordinates.positionInWindow().y.toDp() }
+                    },
+                    icon = Icons.Rounded.HourglassEmpty,
+                    title = stringResource(R.string.settings_autoroot_settle),
+                    description = stringResource(R.string.settings_autoroot_settle_summary),
+                    value = BootSettle.label(autoRootSettleSeconds),
+                    position = SettingsCardPosition.Bottom,
+                    onClick = {
+                        clickHaptic(view)
+                        showAutoRootSettleDialog = true
                     },
                 )
             }

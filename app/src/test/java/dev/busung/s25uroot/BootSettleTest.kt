@@ -15,6 +15,15 @@ class BootSettleTest {
     }
 
     @Test
+    fun `the automatic floor is its own value, shorter than the manual one`() {
+        // Two settings, two owners: a person tuning automation is not deciding how long a manual run
+        // pauses, so the automatic floor must be able to move without the manual one following.
+        assertTrue(BootSettle.allowedSeconds.contains(BootSettle.AUTO_ROOT_DEFAULT_SECONDS))
+        assertTrue(BootSettle.AUTO_ROOT_DEFAULT_SECONDS > 0)
+        assertTrue(BootSettle.AUTO_ROOT_DEFAULT_SECONDS < BootSettle.DEFAULT_SECONDS)
+    }
+
+    @Test
     fun `a stored value is rounded to one of the offered ones`() {
         assertEquals(180, BootSettle.normalize(180))
         assertEquals(120, BootSettle.normalize(119))

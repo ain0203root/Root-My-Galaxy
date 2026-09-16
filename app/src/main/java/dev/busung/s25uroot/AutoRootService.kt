@@ -142,13 +142,16 @@ class AutoRootService : Service() {
     }
 
     /**
-     * Waits out the same boot-settle floor a manual run waits out, reporting the countdown.
+     * Waits out this path's own boot-settle floor, reporting the countdown.
      *
-     * The floor is shared deliberately: what it protects against - a race attempted on a device that
-     * has only just come up - does not care whether a person or a boot started the run.
+     * It is a separate setting from the manual one because the two are waiting out different amounts.
+     * By the time this service is running, `BOOT_COMPLETED` has already passed, so part of the boot is
+     * spent and the remaining wait is shorter; a person who tunes the automatic floor is deciding how
+     * much unattended risk to take, not how long a manual run pauses. Reading one setting for both
+     * would make the second decision silently rewrite the first.
      */
     private suspend fun awaitSettledFloor() {
-        val required = AppPreferences.bootSettleSeconds(this)
+        val required = AppPreferences.autoRootSettleSeconds(this)
         while (true) {
             val left = BootSettle.remainingMillis(required, BootSettle.elapsedMillis())
             if (left <= 0L) return

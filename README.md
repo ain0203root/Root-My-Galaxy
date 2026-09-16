@@ -268,6 +268,13 @@ there with nothing else changed. Someone who knows this boot has already settled
 than a constant, and the alternative — refusing to run — would just move the same decision to a
 reboot.
 
+The automatic install has **its own floor**, under **Settings → Root → Root on boot settle time**,
+defaulting to one minute rather than two. The two are separate settings because they are waiting out
+different amounts and belong to different decisions: by the time the gate runs, `BOOT_COMPLETED` has
+already passed and part of the boot is spent, while the manual floor is a setting a person watching a
+run adjusts for that run. Sharing one value would mean tuning automation silently rewrote what a
+manual run does.
+
 ## Run plan
 
 Advanced mode adds **Run plan**, which shows what the next run will be handed before it starts:
@@ -366,7 +373,8 @@ after, so two components racing one boot cannot both spend it.
 
 The run itself is the same code the install screen drives, started with the cached payload and the
 standalone transport: an automatic install cannot drift from a manual one. It is bounded the whole way
-— the wait uses the same boot-settle floor as a manual run, the run keeps its own cut-offs, and the
+— the wait uses its own shorter boot-settle floor (the manual one is a separate setting), the run
+keeps its own cut-offs, and the
 gate has a deadline of its own — and it reports through the notification it must show anyway,
 including which stage a failure stopped in. Failures are recorded in run history like any other run,
 and the notification's *Turn off* action is how a boot automation is stopped without opening the app.

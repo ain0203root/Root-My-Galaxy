@@ -40,6 +40,7 @@ object AppPreferences {
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
     private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
+    private const val AUTO_ROOT_SETTLE_SECONDS = "auto_root_settle_seconds"
     private const val PAYLOAD_MODE = "payload_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
@@ -194,6 +195,23 @@ object AppPreferences {
     fun setBootSettleSeconds(context: Context, seconds: Int) {
         prefs(context).edit()
             .putInt(BOOT_SETTLE_SECONDS, BootSettle.normalize(seconds))
+            .apply()
+    }
+
+    /**
+     * The same floor for the automatic install, stored separately on purpose.
+     *
+     * See [BootSettle.AUTO_ROOT_DEFAULT_SECONDS]: an automatic run has already waited out the boot
+     * before it can act, so it needs a shorter floor than a manual one - and someone tuning it must not
+     * be changing the wait a manual run does.
+     */
+    fun autoRootSettleSeconds(context: Context): Int = BootSettle.normalize(
+        prefs(context).getInt(AUTO_ROOT_SETTLE_SECONDS, BootSettle.AUTO_ROOT_DEFAULT_SECONDS),
+    )
+
+    fun setAutoRootSettleSeconds(context: Context, seconds: Int) {
+        prefs(context).edit()
+            .putInt(AUTO_ROOT_SETTLE_SECONDS, BootSettle.normalize(seconds))
             .apply()
     }
 
