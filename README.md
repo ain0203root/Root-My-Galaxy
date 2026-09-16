@@ -175,6 +175,38 @@ it ended, and the full log stays attached to the run for export. An unattended r
 stage in its notification title, since that notification is the whole of the explanation available
 when nobody is looking at the screen.
 
+## Build identity
+
+Two builds of the same version are otherwise indistinguishable once installed, so every build
+carries a version name that says which one it is:
+
+| build | version name | version code |
+|---|---|---|
+| CI | `0.2.65+ci.<run number>.<commit>` | base + seconds since 2026-01-01 UTC |
+| local | `0.2.65+local.<commit>` | base + seconds since 2026-01-01 UTC |
+
+`appVersionBase` in `app/build.gradle.kts` is the only version written by hand. Both workflows
+read that literal out of the file, and a release tag is `v<base>`.
+
+The version code is derived from the clock rather than from the CI run number so that it is
+strictly larger on every build anywhere: Android refuses to install a lower version code over a
+higher one, and a run-number code would be far below a local build's and so fail to install over
+it.
+
+That clock reading goes through a `ValueSource` on purpose. A configuration cache entry stores the
+value it was configured with, so reading the clock directly made a local rebuild that changed only
+source files reuse the previous build's version code — two different APKs under one identity.
+Treating the reading as a build configuration input means every build reconfigures, which is the
+cost of the code being unique per build and is deliberate: remove the value source and local builds
+start sharing identities again.
+
+Where to read it: **Settings → About** shows the build label on the row itself and
+`version (code)` inside the dialog, and the first line of every run log is `<version name>
+(<version code>)`, stored with the rest of the log in run history. The name alone would not
+distinguish two builds of one commit; the code is what does, which is why both are shown. The
+update check compares only the dotted numbers, so a build's own suffix is never offered back to it
+as an update.
+
 ## Signing
 
 `assembleRelease` needs the repository release key and fails instead of producing an

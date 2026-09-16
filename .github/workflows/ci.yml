@@ -109,13 +109,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
+          # The base version, not versionName: the built app adds a per-build suffix to its version
+          # name, while release tags and asset names stay on the base.
+          VERSION_NAME="$(grep -oE 'appVersionBase[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
           if [ -z "$VERSION_NAME" ]; then
-            echo "Could not read versionName from app/build.gradle.kts." >&2
+            echo "Could not read appVersionBase from app/build.gradle.kts." >&2
             exit 1
           fi
+          # The run number is in the asset name so two CI downloads of the same version differ.
           mkdir -p ci-release
-          cp app/build/outputs/apk/release/*.apk "ci-release/RootMyGalaxy-${VERSION_NAME}.apk"
+          cp app/build/outputs/apk/release/*.apk \
+            "ci-release/RootMyGalaxy-${VERSION_NAME}-ci${GITHUB_RUN_NUMBER}.apk"
 
       - name: Publish pre-release
         if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
@@ -125,10 +129,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
+          VERSION_NAME="$(grep -oE 'appVersionBase[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
           TAG="ci-${VERSION_NAME}-${GITHUB_RUN_NUMBER}"
           TITLE="CI build ${VERSION_NAME} (${GITHUB_RUN_NUMBER})"
-          APK="ci-release/RootMyGalaxy-${VERSION_NAME}.apk"
+          APK="ci-release/RootMyGalaxy-${VERSION_NAME}-ci${GITHUB_RUN_NUMBER}.apk"
           SHORT_SHA="$(echo "$GITHUB_SHA" | cut -c1-7)"
 
           {
@@ -136,7 +140,7 @@ jobs:
             echo
             echo "Automated build from \`${GITHUB_REF_NAME}\`."
             echo
-            echo "- Version: ${VERSION_NAME}"
+            echo "- Version: ${VERSION_NAME} (installed builds show \`${VERSION_NAME}+ci.${GITHUB_RUN_NUMBER}\`)"
             echo "- Commit: [\`${SHORT_SHA}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) $(git log -1 --format=%s)"
             echo "- Branch: ${GITHUB_REF_NAME}"
             echo "- Workflow run: [${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"

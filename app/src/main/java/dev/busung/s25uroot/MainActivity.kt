@@ -1905,7 +1905,9 @@ private fun SettingsPage(
                     icon = Icons.Rounded.Info,
                     title = stringResource(R.string.about),
                     description = stringResource(R.string.about_description),
-                    value = "",
+                    // The build this is, not just the version it is: two installs of the same
+                    // version differ only by this label.
+                    value = BuildConfig.BUILD_LABEL,
                     position = SettingsCardPosition.Bottom,
                     onClick = {
                         clickHaptic(view)

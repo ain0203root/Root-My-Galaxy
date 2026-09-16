@@ -86,7 +86,9 @@ jobs:
           set -euo pipefail
 
           git fetch --tags --force
-          VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
+          # The base version, not versionName: the built app's version name carries a per-build
+          # suffix, while a release tag is always `v<base>`.
+          VERSION_NAME="$(grep -oE 'appVersionBase[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
           EXPECTED_TAG="v$VERSION_NAME"
 
           if [ -n "$INPUT_TAG_NAME" ]; then
@@ -154,7 +156,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
+          VERSION_NAME="$(grep -oE 'appVersionBase[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
           mkdir -p release-assets
           cp app/build/outputs/apk/release/*.apk "release-assets/RootMyGalaxy-${VERSION_NAME}.apk"
 

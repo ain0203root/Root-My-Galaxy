@@ -200,6 +200,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 probeOutput = mutableState.value.probeOutput,
             )
             startHistory()
+            // First line of every run, and part of its stored history with the rest of the log: a
+            // result is only reproducible if the build that produced it is on the record. The
+            // version code is part of that identity, not decoration: the name only names the
+            // commit, and several local builds share one commit.
+            appendLog(
+                app.getString(
+                    R.string.version_format,
+                    BuildConfig.VERSION_NAME,
+                    BuildConfig.VERSION_CODE,
+                ),
+            )
             // Freeze the transport for the whole run so a mid-run preference
             // change cannot mix Shizuku and standalone execution between the
             // exploit and the KernelSU staging steps. The boot service asks for

@@ -1,4 +1,6 @@
 import java.util.Properties
+import org.gradle.api.provider.ValueSource
+import org.gradle.api.provider.ValueSourceParameters
 
 plugins {
     id("com.android.application")
@@ -16,6 +18,49 @@ fun signingProperty(envName: String, propertyName: String): String? =
     System.getenv(envName)?.takeIf { it.isNotBlank() }
         ?: keystoreProperties.getProperty(propertyName)?.takeIf { it.isNotBlank() }
 
+// The base version, and the only place either number is written by hand. A release tag is
+// `v$appVersionBase` and both workflows read this literal out of this file, so it has to stay a
+// plain string here rather than being assembled from somewhere else.
+val appVersionBase = "0.2.65"
+val appVersionCodeBase = 13
+
+// The clock the version code is derived from, read through a value source so the reading counts as
+// a build configuration input. Reading the clock directly is not enough: configuration cache
+// entries outlive builds and store the value, so a local rebuild that changed only source files
+// was handed the previous build's clock and reused its version code — two different APKs under one
+// identity. Being a configuration input means a changed reading invalidates the entry, so every
+// build reconfigures; that reconfiguration is the price of a version code that is unique per build.
+abstract class BuildClockValueSource : ValueSource<Long, ValueSourceParameters.None> {
+    override fun obtain(): Long = System.currentTimeMillis()
+}
+
+// A version code that only ever grows, on every machine that builds this. A per-CI run counter
+// would not be comparable with a local build, and Android refuses to install a lower version code
+// over a higher one, which would break installing a local build over a CI build (or the reverse),
+// so the number is seconds since 2026-01-01 UTC: unique per build everywhere and always larger
+// than the build before it.
+val appVersionCode =
+    appVersionCodeBase +
+        (providers.of(BuildClockValueSource::class) {}.get() / 1000L - 1_767_225_600L).toInt()
+
+// Which build this is: the CI run that produced it, or the local commit it was built from. Two
+// builds of the same version are otherwise indistinguishable on the phone, which is what this is
+// for: Settings shows it and every run log starts with it.
+val buildCommit: String? = System.getenv("GITHUB_SHA")
+    ?.trim()
+    ?.take(7)
+    ?.takeIf { it.isNotEmpty() }
+    ?: runCatching {
+        providers.exec {
+            commandLine("git", "rev-parse", "--short=7", "HEAD")
+        }.standardOutput.asText.get().trim().takeIf { it.isNotEmpty() }
+    }.getOrNull()
+val buildLabel = listOfNotNull(
+    System.getenv("GITHUB_RUN_NUMBER")?.takeIf { it.isNotBlank() }?.let { "ci.$it" } ?: "local",
+    buildCommit,
+).joinToString(".")
+val appVersionName = "$appVersionBase+$buildLabel"
+
 android {
     namespace = "dev.busung.s25uroot"
     compileSdk = 37
@@ -24,9 +69,13 @@ android {
         applicationId = "dev.busung.s25uroot"
         minSdk = 33
         targetSdk = 36
-        versionCode = 13
-        versionName = "0.2.65"
+        versionCode = appVersionCode
+        versionName = appVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        // VERSION_BASE is what the update check compares against a release tag; the build label is
+        // the same string the version name carries, for showing on its own.
+        buildConfigField("String", "VERSION_BASE", "\"$appVersionBase\"")
+        buildConfigField("String", "BUILD_LABEL", "\"$buildLabel\"")
 
         ndk {
             abiFilters += "arm64-v8a"

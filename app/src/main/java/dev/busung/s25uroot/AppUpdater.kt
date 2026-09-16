@@ -63,8 +63,45 @@ object AppUpdater {
         }
     }
 
-    fun isUpdateAvailable(latestVersion: String, currentVersion: String): Boolean =
-        latestVersion.isNotEmpty() && latestVersion != currentVersion
+    /**
+     * Whether [latestVersion], a release tag, is newer than the installed build.
+     *
+     * Builds carry a `+ci.<run>.<sha>` or `+local.<sha>` suffix so two installs of the same version
+     * can be told apart, which means a plain string comparison would report the release already
+     * installed as an update and offer it forever. The comparison is therefore on the dotted version
+     * numbers, and it also gets `0.2.10` versus `0.2.9` right, which string order does not.
+     */
+    fun isUpdateAvailable(latestVersion: String, currentVersion: String): Boolean {
+        if (latestVersion.isEmpty()) return false
+        val latest = versionBase(latestVersion)
+        val current = versionBase(currentVersion)
+        // A tag that is not a dotted version at all cannot be ordered; fall back to "different".
+        if (latest == null || current == null) return latestVersion != currentVersion
+        return compareVersions(latest, current) > 0
+    }
+
+    /** `v0.2.65+ci.42.ab12cd3` becomes `0.2.65`; null when there is no dotted number in it. */
+    internal fun versionBase(version: String): String? {
+        val stripped = version.trim()
+            .removePrefix("v")
+            .substringBefore('+')
+            .substringBefore('-')
+        return stripped.takeIf { candidate ->
+            candidate.isNotEmpty() && candidate.all { it.isDigit() || it == '.' }
+        }
+    }
+
+    /** Component-wise, so a missing part counts as zero and `0.3` beats `0.2.9`. */
+    internal fun compareVersions(latest: String, current: String): Int {
+        val latestParts = latest.split('.').map { it.toIntOrNull() ?: 0 }
+        val currentParts = current.split('.').map { it.toIntOrNull() ?: 0 }
+        for (index in 0 until maxOf(latestParts.size, currentParts.size)) {
+            val difference =
+                (latestParts.getOrNull(index) ?: 0) - (currentParts.getOrNull(index) ?: 0)
+            if (difference != 0) return difference
+        }
+        return 0
+    }
 
     suspend fun downloadApk(
         context: Context,
