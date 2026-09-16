@@ -32,6 +32,65 @@ internal fun parseCommitResponse(body: String): String? {
     return fromJson.trim().takeIf(PayloadSource::isCommitValid)
 }
 
+/** A revision a source can be pinned to, as a picker lists it. */
+data class SourceRevision(
+    val commit: String,
+    /** The tag this revision is named by, when it has one; null for a plain commit. */
+    val tag: String? = null,
+    /** The first line of the commit message, or the tag name. */
+    val label: String = "",
+    /** The commit date, as the short form shown beside it. */
+    val date: String = "",
+)
+
+/**
+ * The commits GitHub returns, newest first, as the picker lists them.
+ *
+ * A commit whose SHA is not a full commit is dropped rather than listed: picking it would store a
+ * pin that cannot be resolved again, which is the one thing a pin must never be. A message is only
+ * ever shown, never parsed, so only its first line and a bounded length survive.
+ */
+internal fun parseCommits(body: String, limit: Int = Int.MAX_VALUE): List<SourceRevision> {
+    val array = runCatching { org.json.JSONArray(body.trim()) }.getOrNull() ?: return emptyList()
+    return buildList {
+        for (index in 0 until minOf(array.length(), limit)) {
+            val entry = array.optJSONObject(index) ?: continue
+            val sha = entry.optString("sha").trim()
+            if (!PayloadSource.isCommitValid(sha)) continue
+            val commit = entry.optJSONObject("commit")
+            val message = commit?.optString("message").orEmpty().lineSequence()
+                .firstOrNull(String::isNotBlank).orEmpty().trim().take(MESSAGE_MAX_LENGTH)
+            val date = commit?.optJSONObject("committer")?.optString("date")
+                ?.take(DATE_LENGTH)
+                .orEmpty()
+            add(SourceRevision(commit = sha, label = message, date = date))
+        }
+    }
+}
+
+/**
+ * The tags GitHub returns, as the picker lists them. A tag carries the commit it points at, which
+ * is what gets pinned - a tag can be moved onto another commit, so it is never stored as a pin.
+ */
+internal fun parseTags(body: String, limit: Int = Int.MAX_VALUE): List<SourceRevision> {
+    val array = runCatching { org.json.JSONArray(body.trim()) }.getOrNull() ?: return emptyList()
+    return buildList {
+        for (index in 0 until minOf(array.length(), limit)) {
+            val entry = array.optJSONObject(index) ?: continue
+            val name = entry.optString("name").trim()
+            val sha = entry.optJSONObject("commit")?.optString("sha").orEmpty().trim()
+            if (name.isEmpty() || !PayloadSource.isCommitValid(sha)) continue
+            add(SourceRevision(commit = sha, tag = name, label = name.take(MESSAGE_MAX_LENGTH)))
+        }
+    }
+}
+
+/** How long a revision label may be before it stops being a label. */
+private const val MESSAGE_MAX_LENGTH = 96
+
+/** Enough of `2026-09-08T19:55:26Z` to read as a date. */
+private const val DATE_LENGTH = 10
+
 /** SHA-256 of [bytes] as lowercase hex, the form a manifest declares an artifact hash in. */
 internal fun sha256Hex(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
@@ -230,6 +289,56 @@ class PayloadRepository(private val context: Context) {
     /** Resolves a source's ref to the commit it currently points at, for pinning it from the UI. */
     fun resolveRevision(source: PayloadSource): String = resolveCommit(source)
 
+    /**
+     * Resolves a ref the user named - a branch, a tag, or a commit - to the commit to pin.
+     *
+     * A source that is already pinned resolves its own ref instead, because the pin is the revision
+     * being read; naming a different ref from the picker replaces the pin rather than the ref.
+     */
+    fun resolveNamedRevision(repository: String, ref: String): String {
+        val trimmed = ref.trim()
+        if (PayloadSource.isCommitValid(trimmed)) return trimmed.trim()
+        require(PayloadSource.isRepositoryValid(repository)) {
+            context.getString(R.string.payload_repository_invalid)
+        }
+        require(PayloadSource.isBranchValid(trimmed)) { context.getString(R.string.payload_branch_invalid) }
+        val response = downloadBytes(
+            repositoryCommitApiUrl(repository, trimmed),
+            MAX_COMMIT_RESPONSE_BYTES,
+            GITHUB_SHA_MEDIA_TYPE,
+        )
+        val commit = parseCommitResponse(response.toString(Charsets.UTF_8))
+        require(commit != null) { context.getString(R.string.repo_commit_invalid) }
+        return commit
+    }
+
+    /**
+     * The revisions a source can be pinned to: its tags, then its most recent commits, newest first.
+     *
+     * The first commit of a ref *is* that ref's head, so the picker needs no separate call to say
+     * where the branch currently stands, and the list is what gives a pin something to choose from
+     * rather than only "wherever it is now". A repository with no tags is the normal case and is
+     * not an error.
+     */
+    fun revisions(source: PayloadSource, limit: Int = DEFAULT_REVISION_COUNT): List<SourceRevision> {
+        val tags = runCatching { tags(source, limit) }.getOrDefault(emptyList())
+        val commits = commits(source, limit)
+        return tags + commits
+    }
+
+    private fun tags(source: PayloadSource, limit: Int): List<SourceRevision> = parseTags(
+        downloadBytes(tagsApiUrl(source, limit), MAX_LIST_RESPONSE_BYTES).toString(Charsets.UTF_8),
+        limit,
+    )
+
+    private fun commits(source: PayloadSource, limit: Int): List<SourceRevision> = parseCommits(
+        downloadBytes(
+            commitsApiUrl(source, limit),
+            MAX_LIST_RESPONSE_BYTES,
+        ).toString(Charsets.UTF_8),
+        limit,
+    )
+
     private fun resolveCommit(source: PayloadSource): String {
         // A pinned source is taken as written: no API call, so its catalog cannot move and it keeps
         // loading when the API is rate limited or offline in every way except the raw download.
@@ -254,7 +363,17 @@ class PayloadRepository(private val context: Context) {
      * a commit, and this resolves all three to the commit it points at.
      */
     private fun commitApiUrl(source: PayloadSource) =
-        "https://api.github.com/repos/${source.repository}/commits/${source.branch}"
+        repositoryCommitApiUrl(source.repository, source.branch)
+
+    private fun repositoryCommitApiUrl(repository: String, ref: String) =
+        "https://api.github.com/repos/$repository/commits/$ref"
+
+    private fun commitsApiUrl(source: PayloadSource, limit: Int) =
+        "https://api.github.com/repos/${source.repository}/commits" +
+            "?sha=${source.branch}&per_page=$limit"
+
+    private fun tagsApiUrl(source: PayloadSource, limit: Int) =
+        "https://api.github.com/repos/${source.repository}/tags?per_page=$limit"
 
     private fun rawRepository(source: PayloadSource) =
         "https://raw.githubusercontent.com/${source.repository}"
@@ -320,6 +439,12 @@ class PayloadRepository(private val context: Context) {
         // ignoring the media type and sending the commit object still resolves rather than failing
         // on a limit that only ever existed to bound memory.
         private const val MAX_COMMIT_RESPONSE_BYTES = 512 * 1024
+        /** How many revisions a picker offers, per section, when a source is pinned. */
+        const val DEFAULT_REVISION_COUNT = 15
+
+        // A revision list is ~4 KB per commit, so this bounds memory with room to spare; the tags
+        // answer is smaller still. Neither can grow with the commit the way a commit object did.
+        private const val MAX_LIST_RESPONSE_BYTES = 1024 * 1024
         private const val MAX_MANIFEST_BYTES = 256 * 1024
         private const val MANIFEST_PATH = "support/targets-v3.json"
     }

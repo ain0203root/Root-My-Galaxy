@@ -93,9 +93,12 @@ Coverage is kept for the life of the sheet and is not part of what gets saved: a
 branch is stale the moment the branch moves, and a pinned source is how a revision is frozen
 rather than a comment about it.
 
-Any source can be **pinned**. The lock button on a row resolves its ref once — branch, tag, or a
-full commit pasted into the ref field — and stores the commit it resolved to, after which that
-source reads from the pinned revision instead of following the branch. That is what stops a
+Any source can be **pinned**. The lock button on a row opens a revision picker for that source: the
+ref itself (no pin), the repository's tags, and its most recent commits, each showing the commit, the
+first line of its message and its date, with the current head marked. Naming a branch, tag, or commit
+by hand covers anything not in those lists, and a tag named there is resolved to the commit it points
+at now. Choosing a revision stores that commit, after which that source reads from the pinned
+revision instead of following the branch. That is what stops a
 catalog moving under a test, and it has a second effect worth knowing: a pinned source needs no
 GitHub API call to load, so it keeps working when the API is rate limited. Unpinning puts the
 source back on its ref.

@@ -188,6 +188,15 @@
     <string name="payload_branch_hint">A branch or tag is followed on every load; a full commit SHA pins the source to that revision</string>
     <string name="payload_branch_invalid">Enter a valid branch, tag, or commit</string>
     <string name="payload_source_pin">Pin to this commit</string>
+    <string name="payload_pin_title">Pin %1$s to a revision</string>
+    <string name="payload_pin_pinned_at">Pinned at %1$s</string>
+    <string name="payload_pin_follow_summary">No pin: read whatever the branch points at when a run starts</string>
+    <string name="payload_pin_recent">Revisions</string>
+    <string name="payload_pin_current">current</string>
+    <string name="payload_pin_manual">Branch, tag, or commit</string>
+    <string name="payload_pin_manual_hint">A tag is resolved to the commit it points at now</string>
+    <string name="payload_pin_apply">Pin</string>
+    <string name="payload_pin_list_failed">Could not list revisions: %1$s</string>
     <string name="payload_source_unpin">Follow the branch again</string>
     <string name="payload_source_pin_failed">Could not resolve this ref: %1$s</string>
     <string name="payload_source_add">Add a source</string>

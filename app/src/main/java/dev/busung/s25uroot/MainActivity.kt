@@ -72,6 +72,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
+import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BatterySaver
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BrightnessAuto
@@ -2601,8 +2602,10 @@ private fun PayloadSourcesSheet(
     val scope = rememberCoroutineScope()
     var sources by remember(initialSources) { mutableStateOf(initialSources) }
     var showAddSource by remember { mutableStateOf(false) }
-    var pinning by remember { mutableStateOf<String?>(null) }
     var pinError by remember { mutableStateOf<String?>(null) }
+    // The pin is a choice of revision, so the lock opens a picker around one source rather than
+    // pinning to whatever the branch happens to point at the moment it is tapped.
+    var revisionTarget by remember { mutableStateOf<PayloadSource?>(null) }
     // What each source was found to read, keyed by source id and kept for the life of the sheet.
     // Keying by id is what makes the add form work: a repository that failed to read leaves its
     // failure under that candidate id, so editing the field clears the message without any extra
@@ -2668,6 +2671,29 @@ private fun PayloadSourcesSheet(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            // Inside the same sheet rather than a second one: two sheets would fight over the same
+            // dismiss and back handling, and this one already rises with the keyboard.
+            revisionTarget?.let { target ->
+                RevisionPicker(
+                    source = target,
+                    onBack = { revisionTarget = null },
+                    onPick = { commit ->
+                        clickHaptic(view)
+                        revisionTarget = null
+                        val updated = if (commit == null) {
+                            sources.withSourceUnpinned(target.id)
+                        } else {
+                            sources.withSourcePinned(target.id, commit)
+                        }
+                        sources = updated
+                        pinError = null
+                        // What a revision serves is the question a pin raises, so the picked source
+                        // is read again and its coverage replaces the previous one.
+                        updated.firstOrNull { it.id == target.id }?.let { checkSource(it) }
+                    },
+                )
+                return@Column
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -2814,7 +2840,6 @@ private fun PayloadSourcesSheet(
                                 it.message ?: it.javaClass.simpleName
                             },
                             checking = checking == source.id,
-                            pinning = pinning == source.id,
                             onCheck = { checkSource(source) },
                             onEnabledChange = { checked ->
                                 clickHaptic(view)
@@ -2822,29 +2847,8 @@ private fun PayloadSourcesSheet(
                             },
                             onPinChange = {
                                 clickHaptic(view)
-                                if (source.isPinned) {
-                                    sources = sources.withSourceUnpinned(source.id)
-                                    pinError = null
-                                } else {
-                                    // Resolving the ref is a network call, and the resolved commit is
-                                    // what gets stored, so a moved tag or branch cannot affect a
-                                    // pinned source later.
-                                    scope.launch {
-                                        pinning = source.id
-                                        pinError = null
-                                        runCatching {
-                                            withContext(Dispatchers.IO) {
-                                                PayloadRepository(context).resolveRevision(source)
-                                            }
-                                        }.onSuccess { commit ->
-                                            sources = sources.withSourcePinned(source.id, commit)
-                                        }.onFailure { failure ->
-                                            pinError = failure.message
-                                                ?: failure.javaClass.simpleName
-                                        }
-                                        pinning = null
-                                    }
-                                }
+                                pinError = null
+                                revisionTarget = source
                             },
                             onRemove = {
                                 clickHaptic(view)
@@ -2901,6 +2905,244 @@ private fun PayloadSourcesSheet(
     }
 }
 
+/**
+ * Choosing the revision a source is pinned to.
+ *
+ * The lock used to pin whatever the branch pointed at the moment it was tapped, which left the
+ * actual revision - the thing a pin is - out of the user's hands. This lists what there is to pin:
+ * the ref itself (no pin), the repository's tags, and its most recent commits, each with the date
+ * and the first line of its message. Naming a branch, tag, or commit by hand covers the revision
+ * that is not in either list, and naming a tag resolves it to the commit it points at now, because
+ * a tag can be moved onto another commit.
+ */
+@Composable
+private fun RevisionPicker(
+    source: PayloadSource,
+    onBack: () -> Unit,
+    onPick: (String?) -> Unit,
+) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    var loading by remember(source.id) { mutableStateOf(true) }
+    var revisions by remember(source.id) { mutableStateOf<List<SourceRevision>>(emptyList()) }
+    var listFailure by remember(source.id) { mutableStateOf<String?>(null) }
+    var manual by remember(source.id) { mutableStateOf("") }
+    var applying by remember(source.id) { mutableStateOf(false) }
+    var applyFailure by remember(source.id) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(source.id) {
+        loading = true
+        runCatching {
+            withContext(Dispatchers.IO) { PayloadRepository(context).revisions(source) }
+        }.onSuccess { listed ->
+            revisions = listed
+        }.onFailure { failure ->
+            listFailure = failure.message ?: failure.javaClass.simpleName
+        }
+        loading = false
+    }
+
+    // A ref's head is the newest commit that is not a tag, which is the first one listed.
+    val head = revisions.firstOrNull { it.tag == null }?.commit
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            IconButton(onClick = {
+                clickHaptic(view)
+                onBack()
+            }) {
+                Icon(
+                    Icons.Rounded.ArrowBack,
+                    contentDescription = stringResource(R.string.action_back),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.payload_pin_title, source.repository),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    if (source.isPinned) {
+                        stringResource(R.string.payload_pin_pinned_at, source.pinnedCommit.take(7))
+                    } else {
+                        stringResource(R.string.payload_pin_follow_summary)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        RevisionRow(
+            title = stringResource(R.string.payload_source_unpin),
+            subtitle = source.branch,
+            detail = null,
+            selected = !source.isPinned,
+            icon = Icons.Rounded.LockOpen,
+            onClick = { onPick(null) },
+        )
+
+        if (loading) {
+            LoadingIndicator(modifier = Modifier.size(24.dp))
+        } else {
+            listFailure?.let { reason ->
+                Text(
+                    stringResource(R.string.payload_pin_list_failed, reason),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (revisions.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.payload_pin_recent),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(revisions, key = { "${it.tag ?: ""}:${it.commit}" }) { revision ->
+                        RevisionRow(
+                            title = revision.tag ?: revision.label.ifBlank { revision.commit.take(7) },
+                            // A tag names the row, and the commit under it is what a pin stores, so
+                            // pinning by tag is still visibly a decision about a commit.
+                            subtitle = revision.commit.take(7),
+                            detail = revision.date.ifBlank { null },
+                            selected = source.pinnedCommit == revision.commit,
+                            current = revision.commit == head,
+                            icon = if (revision.tag == null) Icons.Rounded.Lock else Icons.Rounded.Link,
+                            onClick = { onPick(revision.commit) },
+                        )
+                    }
+                }
+            }
+        }
+
+        HorizontalDivider()
+
+        OutlinedTextField(
+            value = manual,
+            onValueChange = {
+                manual = it
+                applyFailure = null
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            label = { Text(stringResource(R.string.payload_pin_manual)) },
+            supportingText = { Text(stringResource(R.string.payload_pin_manual_hint)) },
+        )
+        applyFailure?.let { reason ->
+            Text(
+                stringResource(R.string.payload_source_pin_failed, reason),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        Button(
+            onClick = {
+                clickHaptic(view)
+                val ref = manual.trim()
+                if (ref.isEmpty() || applying) return@Button
+                scope.launch {
+                    applying = true
+                    applyFailure = null
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            PayloadRepository(context).resolveNamedRevision(source.repository, ref)
+                        }
+                    }.onSuccess { commit ->
+                        onPick(commit)
+                    }.onFailure { failure ->
+                        applyFailure = failure.message ?: failure.javaClass.simpleName
+                    }
+                    applying = false
+                }
+            },
+            enabled = manual.isNotBlank() && !applying,
+        ) {
+            if (applying) {
+                LoadingIndicator(modifier = Modifier.size(18.dp))
+            } else {
+                Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+            }
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.payload_pin_apply))
+        }
+    }
+}
+
+/** One revision as a selectable line: what it is, the commit, and when. */
+@Composable
+private fun RevisionRow(
+    title: String,
+    subtitle: String,
+    detail: String?,
+    selected: Boolean,
+    icon: ImageVector,
+    current: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Icon(
+            if (selected) Icons.Rounded.CheckCircle else icon,
+            contentDescription = null,
+            modifier = Modifier.size(18.dp),
+            tint = if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        detail?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (current && !selected) {
+            Text(
+                stringResource(R.string.payload_pin_current),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+    }
+}
+
 @Composable
 private fun PayloadSourceRow(
     source: PayloadSource,
@@ -2908,7 +3150,6 @@ private fun PayloadSourceRow(
     coverage: SourceCoverage?,
     checkFailure: String?,
     checking: Boolean,
-    pinning: Boolean,
     onCheck: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onPinChange: () -> Unit,
@@ -2951,22 +3192,18 @@ private fun PayloadSourceRow(
                     )
                 }
             }
-            if (pinning) {
-                LoadingIndicator(modifier = Modifier.size(20.dp))
-            } else {
-                IconButton(onClick = onPinChange) {
-                    Icon(
-                        if (source.isPinned) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                        contentDescription = stringResource(
-                            if (source.isPinned) {
-                                R.string.payload_source_unpin
-                            } else {
-                                R.string.payload_source_pin
-                            },
-                        ),
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
+            IconButton(onClick = onPinChange) {
+                Icon(
+                    if (source.isPinned) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                    contentDescription = stringResource(
+                        if (source.isPinned) {
+                            R.string.payload_source_unpin
+                        } else {
+                            R.string.payload_source_pin
+                        },
+                    ),
+                    modifier = Modifier.size(20.dp),
+                )
             }
             IconButton(onClick = onRemove) {
                 Icon(
