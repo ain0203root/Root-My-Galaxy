@@ -105,6 +105,14 @@ different ids and can be configured side by side, which is how a fixed feed and 
 compared in the selection sheet. Pinning is by commit rather than by tag even when the ref is a
 tag, because a tag can be moved onto a different commit, which would defeat the point.
 
+A ref is resolved to its commit by asking GitHub for `application/vnd.github.sha`, which
+answers with the 40-character commit and nothing else. Asking for the commit object instead was
+fragile in a way that had nothing to do with commits: that response carries the commit's file
+list, so a source whose newest commit touched enough files grew past the app's response limit and
+became unreadable — the built-in feed did exactly that. The bare SHA cannot grow. A server that
+ignores the requested media type and sends the commit object is still understood, and anything
+else is refused rather than trusted.
+
 Each enabled source is fetched on its own: its branch is resolved to a commit, that commit's
 `support/targets-v3.json` is read, and every target is pinned to that commit and tagged with
 the source it came from. Sources therefore do not shadow one another — when two of them offer

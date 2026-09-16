@@ -16,6 +16,22 @@ data class VerifiedPayloads(
     val kernelSu: File,
 )
 
+/**
+ * The commit a ref resolves to, from either shape of answer GitHub can give.
+ *
+ * The app asks for `application/vnd.github.sha`, which answers with the bare 40-character commit,
+ * and that is what it reads first. A JSON commit object is still understood, because a server or a
+ * proxy that ignores the requested media type would otherwise turn a resolvable source into an
+ * unreadable one. Anything else - an error page, a truncated body - resolves to nothing rather than
+ * to a commit the app then trusts.
+ */
+internal fun parseCommitResponse(body: String): String? {
+    val trimmed = body.trim()
+    if (PayloadSource.isCommitValid(trimmed)) return trimmed
+    val fromJson = runCatching { JSONObject(trimmed).optString("sha") }.getOrNull() ?: return null
+    return fromJson.trim().takeIf(PayloadSource::isCommitValid)
+}
+
 /** SHA-256 of [bytes] as lowercase hex, the form a manifest declares an artifact hash in. */
 internal fun sha256Hex(bytes: ByteArray): String =
     MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
@@ -218,9 +234,18 @@ class PayloadRepository(private val context: Context) {
         // A pinned source is taken as written: no API call, so its catalog cannot move and it keeps
         // loading when the API is rate limited or offline in every way except the raw download.
         if (source.isPinned) return source.pinnedCommit
-        val response = downloadBytes(commitApiUrl(source), MAX_COMMIT_RESPONSE_BYTES)
-        val commit = JSONObject(response.toString(Charsets.UTF_8)).getString("sha")
-        require(PayloadSource.isCommitValid(commit)) { context.getString(R.string.repo_commit_invalid) }
+        // `application/vnd.github.sha` answers with the 40-character commit and nothing else: 40
+        // bytes, against the tens of kilobytes a commit's own JSON carries once its file list is
+        // included. Asking for the commit object is what made a source unreadable once its newest
+        // commit touched enough files to exceed the response limit - the only part needed was the
+        // SHA, and the size of the response had nothing to do with it.
+        val response = downloadBytes(
+            commitApiUrl(source),
+            MAX_COMMIT_RESPONSE_BYTES,
+            GITHUB_SHA_MEDIA_TYPE,
+        )
+        val commit = parseCommitResponse(response.toString(Charsets.UTF_8))
+        require(commit != null) { context.getString(R.string.repo_commit_invalid) }
         return commit
     }
 
@@ -257,8 +282,8 @@ class PayloadRepository(private val context: Context) {
         return "${rawRepository(source)}/$commit/$relative"
     }
 
-    private fun downloadBytes(url: String, maximum: Int): ByteArray {
-        val connection = open(url)
+    private fun downloadBytes(url: String, maximum: Int, accept: String? = null): ByteArray {
+        val connection = open(url, accept)
         val bytes = connection.inputStream.use { input ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -276,18 +301,25 @@ class PayloadRepository(private val context: Context) {
         return bytes
     }
 
-    private fun open(url: String): HttpURLConnection =
+    private fun open(url: String, accept: String? = null): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 60_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "S25URoot/${BuildConfig.VERSION_NAME}")
+            accept?.let { setRequestProperty("Accept", it) }
             connect()
             require(responseCode == HttpURLConnection.HTTP_OK) { "HTTP $responseCode" }
         }
 
     companion object {
-        private const val MAX_COMMIT_RESPONSE_BYTES = 16 * 1024
+        /** Asks for the bare commit instead of the commit object, so the answer cannot grow with it. */
+        private const val GITHUB_SHA_MEDIA_TYPE = "application/vnd.github.sha"
+
+        // A ceiling, not a target: the SHA answer is 40 bytes. It is generous enough that a server
+        // ignoring the media type and sending the commit object still resolves rather than failing
+        // on a limit that only ever existed to bound memory.
+        private const val MAX_COMMIT_RESPONSE_BYTES = 512 * 1024
         private const val MAX_MANIFEST_BYTES = 256 * 1024
         private const val MANIFEST_PATH = "support/targets-v3.json"
     }
