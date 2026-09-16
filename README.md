@@ -325,7 +325,24 @@ code for it:
 
 One reading is enough, and the log line names the ones that answered. A run of the old kind — the
 helper exited cleanly and nothing answered afterwards — is now reported as `KernelSU loaded but no
-control channel answered` rather than as a success. Privileged maintenance that runs *after* root
+control channel answered` rather than as a success.
+
+**Control is not the same contract as the modules**, and the two are kept apart deliberately. A run
+needs control; anything that *repairs or reloads modules* has to check its own mount result, because
+KernelSU being reachable says nothing about whether an enabled module is mounted. That check cannot be
+made from wherever a command happens to run: module mounts are per mount namespace, so the probe
+compares init's namespace with its own and enters init's through `nsenter` when they differ — the same
+reason a userspace transition has to be asked of init rather than performed from the app. What should
+be mounted is counted from the module directories themselves (enabled, not marked `remove`, carrying a
+`system` overlay), so installing or disabling one changes the expectation without this app knowing
+which modules exist.
+
+That reading gates **Restart Zygote**, whose whole purpose is to make already-mounted modules take
+effect: with modules enabled but unmounted it is refused in words, rather than taken the framework
+down and back without them. Only a positive finding refuses — an unreadable namespace or an
+unreadable report is reported and allowed, because refusing whenever a check cannot be made would
+make the action unusable on the devices that cannot make it. The child re-runs the same reading, so
+the decision holds where it is actually taken. Privileged maintenance that runs *after* root
 (the module directory move and restore) asks KernelSU for a root shell first and only falls back to
 the helper's temporary handoff socket: a Samsung kernel may refuse new connects to that socket while
 KernelSU itself is perfectly healthy.

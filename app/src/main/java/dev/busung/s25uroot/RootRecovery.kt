@@ -111,13 +111,22 @@ internal object RootRecovery {
     suspend fun restartZygote(
         shell: (String) -> ShizukuController.ShellResult,
         bootToken: String,
-    ): RecoveryOutcome = runDetached(
+    ): RecoveryOutcome {
+        // The restart's purpose is to make already-mounted modules take effect, so a module that is
+        // enabled but not mounted is a reason not to spend the restart: the framework would go down
+        // and come back without it. Refused here in words the user can read, and checked again inside
+        // the child, which is where the decision actually has to hold.
+        KernelSuReadiness.refusal(KernelSuReadiness.probe(shell), bootToken)?.let { reason ->
+            return RecoveryOutcome(accepted = false, detail = reason)
+        }
+        return runDetached(
         shell = shell,
         scriptPath = "/data/local/tmp/rmg-restart-zygote.sh",
         logPath = "/data/local/tmp/rmg-restart-zygote.log",
         acceptedPath = "/data/local/tmp/.rmg-restart-zygote-accepted",
         script = restartZygoteScript(bootToken, "/data/local/tmp/.rmg-restart-zygote-accepted"),
     )
+    }
 
     /**
      * Hands the userspace transition to KernelSU's own `soft-reboot`, which stops and restarts the
@@ -268,6 +277,13 @@ internal object RootRecovery {
         [ "${'$'}(id -u 2>/dev/null)" = "0" ] || reject_handoff 'not-root'
         [ "${'$'}(current_boot)" = "${'$'}EXPECTED_BOOT" ] || reject_handoff 'boot-changed'
         [ "${'$'}(getprop init.svc.zygote 2>/dev/null)" = "running" ] || reject_handoff 'zygote-not-running'
+
+        # The restart exists to load mounted modules, so it checks its own mount result rather than
+        # trusting the app's reading taken a moment ago: a module mounted between the two only makes
+        # the restart more likely to be worth it, and one unmounted makes it a framework outage for
+        # nothing. When the mounts cannot be read at all the restart proceeds, as it does app-side.
+        ${KernelSuReadiness.variables()}
+        ${KernelSuReadiness.mountsPresentCondition()} || reject_handoff 'modules-not-mounted'
 
         if [ "${'$'}(getprop init.svc.zygote_secondary 2>/dev/null)" = "running" ]; then
             setprop ctl.restart zygote_secondary || reject_handoff 'zygote-secondary-restart-failed'
