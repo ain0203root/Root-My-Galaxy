@@ -13,6 +13,7 @@ data class TargetProfile(
     val displayName: String,
     val models: Set<String>,
     val kernelVersions: Set<String>,
+    val requiresFreshP0Session: Boolean = false,
     val exploit: RemoteArtifact,
     val kernelSu: RemoteArtifact,
     /** Source that provided this target, empty when it was not loaded through one. */
@@ -77,6 +78,7 @@ data class SupportManifest(
                             displayName = payload.getString("displayName"),
                             models = payload.getJSONArray("models").strings(),
                             kernelVersions = payload.getJSONArray("kernelVersions").strings(),
+                            requiresFreshP0Session = payload.optBoolean("requiresFreshP0Session", false),
                             exploit = RemoteArtifact(
                                 url = exploit.getString("url"),
                                 size = exploit.getLong("size"),

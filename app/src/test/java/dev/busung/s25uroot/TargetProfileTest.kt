@@ -63,6 +63,16 @@ class TargetProfileTest {
         assertNull(listOf(profile).resolveFor(snapshot("SM-S928B", "6.6.98-android15-8-build-a")))
     }
 
+    @Test
+    fun freshP0SessionRunsOnceWithoutCacheOrShortTimeoutOverrides() {
+        val freshProfile = profile.copy(requiresFreshP0Session = true)
+
+        assertEquals(
+            mapOf("EXPLOIT_ATTEMPTS" to "1"),
+            InstallViewModel.exploitEnvironment(freshProfile.requiresFreshP0Session, "0x1a0000"),
+        )
+    }
+
     private fun snapshot(
         model: String,
         kernelRelease: String,

@@ -81,6 +81,13 @@ others keep working. Installation only fails when no enabled source yields any t
 Payloads are cached per source, so the same payload id from two sources never shares a
 download directory.
 
+A target may set `"requiresFreshP0Session": true` in the manifest. Payloads built for a
+device whose P0 page address is only valid for the attempt that leaked it must not be
+handed the app's cached offset or its attempt/timeout overrides, so marked targets run one
+payload-native attempt per run, ignore the cached slide offset, and are left to their own
+internal retry pacing — the run's overall deadline still applies. The flag defaults to
+false, and eight profiles in the official feed already set it.
+
 ## Signing
 
 `assembleRelease` needs the repository release key and fails instead of producing an
