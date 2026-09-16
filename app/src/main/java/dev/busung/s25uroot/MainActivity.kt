@@ -2141,7 +2141,12 @@ private fun TargetSelectionSheet(
         }
     }
 
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        // Fully expanded, not peeking: the payloads above the fold are the ones a device actually
+        // fits, and opening half-height hid them behind a swipe that looked like the list ending.
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        onDismissRequest = onDismiss,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
