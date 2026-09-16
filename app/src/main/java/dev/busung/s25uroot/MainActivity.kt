@@ -1484,6 +1484,17 @@ private fun HistoryResultCard(entry: InstallHistoryEntry) {
                         color = contentColor.copy(alpha = 0.78f),
                     )
                 }
+                entry.failureStage?.let { stage ->
+                    Text(
+                        stringResource(
+                            R.string.history_failure,
+                            stringResource(stage.label),
+                            entry.failureReason.orEmpty(),
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor.copy(alpha = 0.78f),
+                    )
+                }
                 Text(
                     stringResource(
                         if (entry.usedShizuku) {

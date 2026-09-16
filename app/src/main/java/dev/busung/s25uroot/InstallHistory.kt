@@ -20,6 +20,9 @@ data class InstallHistoryEntry(
     val log: String,
     val profileId: String? = null,
     val usedShizuku: Boolean = false,
+    /** Where a failed run stopped, so the detail screen can say more than "Failed". */
+    val failureStage: RunStage? = null,
+    val failureReason: String? = null,
 )
 
 class InstallHistoryStore(private val context: Context) {
@@ -78,6 +81,8 @@ class InstallHistoryStore(private val context: Context) {
         .put("log", entry.log)
         .put("profileId", entry.profileId ?: JSONObject.NULL)
         .put("usedShizuku", entry.usedShizuku)
+        .put("failureStage", entry.failureStage?.name ?: JSONObject.NULL)
+        .put("failureReason", entry.failureReason ?: JSONObject.NULL)
 
     private fun decodeOrQuarantine(file: File): InstallHistoryEntry? = try {
         decode(AtomicFile(file).openRead().use { it.readBytes() })
@@ -106,6 +111,9 @@ class InstallHistoryStore(private val context: Context) {
                 value.getString("profileId").takeIf(String::isNotBlank)
             },
             usedShizuku = value.optBoolean("usedShizuku", false),
+            failureStage = value.optString("failureStage").takeIf(String::isNotBlank)
+                ?.let { name -> RunStage.entries.firstOrNull { it.name == name } },
+            failureReason = value.optString("failureReason").takeIf(String::isNotBlank),
         )
     }
 }

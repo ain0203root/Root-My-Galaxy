@@ -63,7 +63,7 @@ class BootInstallService : Service() {
             }
             scope.launch { reportProgress() }
             viewModel.runToCompletion(forceStandalone = true)
-            notify(notificationTitleFor(viewModel.state.value.phase))
+            notify(notificationTitleFor(viewModel.state.value))
             stopSelf()
         }
         return START_NOT_STICKY
@@ -90,7 +90,7 @@ class BootInstallService : Service() {
             }
             if (!started) return@collect
             val text = state.log.lineSequence().lastOrNull()?.take(120) ?: state.message
-            notify(notificationTitleFor(state.phase), text)
+            notify(notificationTitleFor(state), text)
         }
     }
 
@@ -120,15 +120,28 @@ class BootInstallService : Service() {
             capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
     }
 
-    private fun notificationTitleFor(phase: InstallPhase): String = getString(
-        when (phase) {
-            InstallPhase.Exploiting -> R.string.status_exploit_running
-            InstallPhase.LoadingKernelSu -> R.string.status_ksu_loading
-            InstallPhase.Installed -> R.string.status_ksu_active
-            InstallPhase.Failed -> R.string.status_install_failed
-            else -> R.string.status_checking_github
-        },
-    )
+    /**
+     * A run nobody is watching is only explained by this notification, so a failure names the stage
+     * it stopped in rather than just saying that it failed.
+     */
+    private fun notificationTitleFor(state: InstallUiState): String {
+        val failure = state.failure
+        if (state.phase == InstallPhase.Failed && failure != null) {
+            return getString(
+                R.string.status_stage_failed,
+                getString(failure.stage.label),
+            )
+        }
+        return getString(
+            when (state.phase) {
+                InstallPhase.Exploiting -> R.string.status_exploit_running
+                InstallPhase.LoadingKernelSu -> R.string.status_ksu_loading
+                InstallPhase.Installed -> R.string.status_ksu_active
+                InstallPhase.Failed -> R.string.status_install_failed
+                else -> R.string.status_checking_github
+            },
+        )
+    }
 
     private fun notify(title: String, text: String = "") {
         val manager = getSystemService(NotificationManager::class.java)

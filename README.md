@@ -133,6 +133,21 @@ from the behaviour, and it answers "why did the run stop there?" before a boot i
 out. Where a payload is left to its own pacing the screen says so rather than showing an app
 ceiling that will not be applied.
 
+## When a run fails
+
+A failed run names the stage it stopped in — starting the transport, resolving the payload for
+this device, downloading the payloads, running the kernel exploit, loading KernelSU, or verifying
+the control channel — reports the reason the app itself reached, and shows the last lines the
+payload printed. The stage matters because the same wording can come out of a download, the
+exploit, or the KernelSU load, and only some of those are worth retrying straight away; the payload
+tail matters because the payload is the only account of the kernel race, so a failure that is not
+the app's own decision is otherwise unexplained.
+
+The stage and reason are stored with the run, so a failure from a previous boot still says where
+it ended, and the full log stays attached to the run for export. An unattended run at boot has the
+stage in its notification title, since that notification is the whole of the explanation available
+when nobody is looking at the screen.
+
 ## Signing
 
 `assembleRelease` needs the repository release key and fails instead of producing an

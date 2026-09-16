@@ -270,11 +270,12 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                         style = MaterialTheme.typography.titleLarge,
                     )
                     Text(
-                        text = installPhaseDetail(installState.phase),
+                        text = installPhaseDetail(installState),
                         color = LocalContentColor.current.copy(alpha = 0.78f),
                     )
                 }
             }
+            installState.failure?.let { failure -> FailureReport(failure) }
             LinearProgressIndicator(
                 progress = { installProgress(installState.phase) },
                 modifier = Modifier.fillMaxWidth(),
@@ -410,17 +411,54 @@ private fun InstallerLog(
 }
 
 @Composable
-private fun installPhaseDetail(phase: InstallPhase): String = stringResource(
-    when (phase) {
-        InstallPhase.Checking -> R.string.phase_checking
-        InstallPhase.Ready -> R.string.phase_ready
-        InstallPhase.Downloading -> R.string.phase_downloading
-        InstallPhase.Exploiting -> R.string.phase_exploiting
-        InstallPhase.LoadingKernelSu -> R.string.phase_loading_ksu
-        InstallPhase.Installed -> R.string.phase_installed
-        InstallPhase.Failed -> R.string.phase_failed
-    },
-)
+private fun installPhaseDetail(installState: InstallUiState): String =
+    if (installState.phase == InstallPhase.Failed && installState.failure != null) {
+        // The stage is the headline, so the detail line carries the cause instead of repeating what
+        // the log is for.
+        installState.failure.reason
+    } else {
+        stringResource(
+            when (installState.phase) {
+                InstallPhase.Checking -> R.string.phase_checking
+                InstallPhase.Ready -> R.string.phase_ready
+                InstallPhase.Downloading -> R.string.phase_downloading
+                InstallPhase.Exploiting -> R.string.phase_exploiting
+                InstallPhase.LoadingKernelSu -> R.string.phase_loading_ksu
+                InstallPhase.Installed -> R.string.phase_installed
+                InstallPhase.Failed -> R.string.phase_failed
+            },
+        )
+    }
+
+/**
+ * The stage, the reason, and the last thing the payload said. Payload output is the only account
+ * of the kernel race, so it is shown where the failure is reported rather than only in the log.
+ */
+@Composable
+private fun FailureReport(failure: RunFailure) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            stringResource(R.string.failure_stage),
+            style = MaterialTheme.typography.labelMedium,
+            color = LocalContentColor.current.copy(alpha = 0.7f),
+        )
+        Text(stringResource(failure.stage.label), style = MaterialTheme.typography.bodyMedium)
+        if (failure.evidence.isNotEmpty()) {
+            Text(
+                stringResource(R.string.failure_evidence),
+                style = MaterialTheme.typography.labelMedium,
+                color = LocalContentColor.current.copy(alpha = 0.7f),
+            )
+            failure.evidence.forEach { line ->
+                Text(
+                    line,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                )
+            }
+        }
+    }
+}
 
 private fun installProgress(phase: InstallPhase): Float = when (phase) {
     InstallPhase.Checking -> 0.1f

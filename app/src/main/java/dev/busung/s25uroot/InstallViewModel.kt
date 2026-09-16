@@ -32,6 +32,8 @@ data class InstallUiState(
     val message: String = "",
     val probeOutput: String = "",
     val log: String = "",
+    /** Set when [phase] is [InstallPhase.Failed], so the screen can name the stage and the cause. */
+    val failure: RunFailure? = null,
 ) {
     val busy: Boolean
         get() = phase in setOf(
@@ -101,6 +103,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private var discoveryJob: Job? = null
     private var installJob: Job? = null
     private var activeHistoryEntry: InstallHistoryEntry? = null
+
+    /** Which stage the run is in, for the failure report. */
+    private var activeStage = RunStage.Target
 
     @Volatile
     private var activeRunShizuku: Boolean? = null
@@ -203,6 +208,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             activeRunShizuku = !forceStandalone && AppPreferences.shizukuMode(app)
             try {
                 if (shizukuEnabled()) {
+                    activeStage = RunStage.Transport
                     appendLog(app.getString(R.string.log_shizuku_prepare))
                     if (!ShizukuController.isRunning() && !ShizukuController.pingUntilRunning()) {
                         error(app.getString(R.string.error_shizuku_unavailable))
@@ -212,6 +218,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     }
                     appendLog(app.getString(R.string.log_shizuku_permission))
                 }
+                activeStage = RunStage.Target
                 setPhase(InstallPhase.Checking, app.getString(R.string.status_checking_github))
                 val profile = if (selectionId == null) {
                     repository.resolveTarget(DeviceSnapshot.current())
@@ -224,10 +231,12 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 }
                 updateHistoryProfile(profile.profileId)
 
+                activeStage = RunStage.Download
                 setPhase(InstallPhase.Downloading, app.getString(R.string.status_downloading_payload))
                 val payloads = repository.download(profile) { appendLog("[*] $it") }
                 appendLog(app.getString(R.string.log_download_verified))
 
+                activeStage = RunStage.Exploit
                 setPhase(InstallPhase.Exploiting, app.getString(R.string.status_exploit_running))
                 executeExploit(payloads.exploit, profile.requiresFreshP0Session)
 
@@ -239,6 +248,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 }
 
                 try {
+                    activeStage = RunStage.KernelSu
                     setPhase(InstallPhase.LoadingKernelSu, app.getString(R.string.status_ksu_loading))
                     installKernelSu(payloads)
                 } finally {
@@ -252,8 +262,21 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 appendLog(app.getString(R.string.log_install_complete))
                 finishHistory(InstallRunResult.Succeeded)
             } catch (error: Throwable) {
-                appendLog("[-] ${error.message ?: error.javaClass.simpleName}")
-                setPhase(InstallPhase.Failed, app.getString(R.string.status_install_failed))
+                // The stage and the last payload output travel with the failure: the message alone
+                // is the same for a download that failed and an exploit that gave up, and only one
+                // of those is worth retrying straight away.
+                val stage = activeStage
+                val reason = error.message ?: error.javaClass.simpleName
+                val failure = RunFailure(stage, reason, failureEvidence(mutableState.value.log))
+                appendLog("[-] $reason")
+                setPhase(
+                    InstallPhase.Failed,
+                    app.getString(R.string.status_stage_failed, app.getString(stage.label)),
+                )
+                mutableState.value = mutableState.value.copy(failure = failure)
+                updateHistory { entry ->
+                    entry.copy(failureStage = stage, failureReason = reason)
+                }
                 finishHistory(InstallRunResult.Failed)
             } finally {
                 activeRunShizuku = null
@@ -372,11 +395,16 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 val now = SystemClock.elapsedRealtime()
                 if (!requiresFreshP0Session) {
                     require(now - lastProgressAt < EXPLOIT_STALL_MILLIS) {
-                        app.getString(R.string.error_exploit_stalled)
+                        app.getString(R.string.error_exploit_stalled, (EXPLOIT_STALL_MILLIS / 1000L).toInt())
                     }
                 }
                 require(now - startedAt < exploitTotalMillis(requiresFreshP0Session)) {
-                    app.getString(R.string.error_exploit_timeout)
+                    // Reported in minutes of the ceiling that actually applies, which is an hour for
+                    // a fresh session and fifteen minutes otherwise.
+                    app.getString(
+                        R.string.error_exploit_timeout,
+                        (exploitTotalMillis(requiresFreshP0Session) / 60_000L).toInt(),
+                    )
                 }
                 delay(if (shizuku) SHIZUKU_LOG_POLL_INTERVAL else LOG_POLL_INTERVAL)
             }
@@ -457,6 +485,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             app.getString(R.string.error_ksu_verify, lateLoad.code, lateLoad.output)
         }
         if (lateLoad.output.isNotBlank()) appendLog(lateLoad.output)
+        activeStage = RunStage.Verify
         storeInstallReceipt()
         appendLog(app.getString(R.string.log_ksu_control_verified))
     }
