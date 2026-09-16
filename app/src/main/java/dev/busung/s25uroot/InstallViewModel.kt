@@ -699,7 +699,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun detectInstalled(): Boolean {
-        if (NativeProbe.isKernelSuActive()) return true
+        // Called from the run's own dispatcher, so the `su` fallback behind this is off the main
+        // thread: the native paths alone under-report on this hardware once the system locks down.
+        if (RootStatusProbe.isActive()) return true
         val bootToken = currentBootToken() ?: return false
         val receipt = app.getSharedPreferences(INSTALL_RECEIPT, Application.MODE_PRIVATE)
         return receipt.getString(RECEIPT_BOOT_TOKEN, null) == bootToken &&

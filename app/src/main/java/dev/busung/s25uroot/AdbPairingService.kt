@@ -117,7 +117,7 @@ class AdbPairingService : Service() {
             text = getString(R.string.adb_pair_success_text)
             // A device that already has KernelSU can use the transport this pairing just created, so
             // the one setting that depends on it is applied here rather than at the next reboot.
-            if (runCatching { NativeProbe.isKernelSuActive() }.getOrDefault(false) &&
+            if (runCatching { RootStatusProbe.isActive() }.getOrDefault(false) &&
                 AppPreferences.shizukuBootMode(this)
             ) {
                 ShizukuBootService.start(this)

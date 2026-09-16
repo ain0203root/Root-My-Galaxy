@@ -21,7 +21,10 @@ class AutoRootBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
 
-        if (NativeProbe.isKernelSuActive()) {
+        // The quick reading only: this runs inside the framework's boot broadcast, and the fallback
+        // starts a process and waits on it. A wrong no here costs a wake-up, not an install - the
+        // gate asks again, authoritatively, before it spends this boot's attempt.
+        if (RootStatusProbe.isActiveQuick()) {
             if (AppPreferences.shizukuBootMode(context)) ShizukuBootService.start(context)
             return
         }

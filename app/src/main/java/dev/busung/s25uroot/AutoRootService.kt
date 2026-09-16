@@ -80,7 +80,10 @@ class AutoRootService : Service() {
             stopWithoutResult()
             return
         }
-        val kernelSuActive = NativeProbe.isKernelSuActive()
+        // The authoritative reading, not the native one: this is the decision that spends the boot's
+        // single install attempt, and on this hardware the native paths can be denied by policy while
+        // root is live. Asking twice costs a process; asking wrongly costs a doomed install.
+        val kernelSuActive = RootStatusProbe.isActive()
         when (AutoRootSupport.decision(this, initialBootToken, kernelSuActive)) {
             // Root already active means this boot needs nothing, recorded against the boot id so the
             // rest of the boot does not ask again either.
@@ -123,7 +126,7 @@ class AutoRootService : Service() {
                 val bootToken = AutoRootSupport.currentBootToken()
                     ?: error(getString(R.string.error_boot_id))
                 require(bootToken == initialBootToken) { getString(R.string.autoroot_boot_changed) }
-                if (NativeProbe.isKernelSuActive()) {
+                if (RootStatusProbe.isActive()) {
                     AutoRootSupport.markVerifiedForBoot(this@AutoRootService, bootToken)
                     Log.i(TAG, "Root on boot skipped after the wait: KernelSU is already active")
                     return@withTimeout

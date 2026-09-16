@@ -79,7 +79,7 @@ internal fun controlProofs(
  */
 internal object KernelSuRuntime {
     fun proofs(context: Context, helperOutput: String): Set<ControlProof> = controlProofs(
-        nativeProbe = runCatching { NativeProbe.isKernelSuActive() }.getOrDefault(false),
+        nativeProbe = runCatching { RootStatusProbe.isActive() }.getOrDefault(false),
         shizukuElevated = shizukuElevation(),
         helperOutput = helperOutput,
     )
