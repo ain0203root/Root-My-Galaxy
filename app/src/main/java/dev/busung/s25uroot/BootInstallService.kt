@@ -6,47 +6,46 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
-import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
  * Foreground service that runs the standalone install path at boot.
  *
- * Forces Shizuku mode off for the duration of the run, so the exploit runs
- * directly in the app's own process. Artifacts are fetched through the
- * normal commit-pinned download flow, so this needs connectivity shortly
- * after boot.
+ * The run is standalone because Shizuku is generally unreachable right after
+ * boot; that is requested for the run alone, so the stored preference is left
+ * as the user set it. Artifacts come from the normal commit-pinned download
+ * flow, which needs the network, so the service waits for a validated
+ * connection before starting rather than spending the boot on a fetch that
+ * cannot succeed.
  *
- * The service stops itself when the install reaches a terminal phase
- * (Installed / Failed). It is not restarted by the system afterwards;
- * re-running happens on the next boot or from the app UI.
+ * The service stops itself once the run reaches a terminal phase, driven by the
+ * run finishing rather than by watching for terminal states, because the
+ * view model's own startup check can publish a terminal state before the run
+ * has begun. It is not restarted by the system afterwards; re-running happens
+ * on the next boot or from the app UI.
  */
 class BootInstallService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val notificationId = 0x42554f54
 
-    private var previousShizukuMode: Boolean? = null
-
     private lateinit var viewModel: InstallViewModel
 
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        // Capture the user's preference so the boot run forces standalone mode
-        // without permanently changing the setting. Shizuku is generally not
-        // reachable at boot time.
-        previousShizukuMode = AppPreferences.shizukuMode(this)
-        AppPreferences.setShizukuMode(this, false)
         viewModel = ViewModelProvider.AndroidViewModelFactory.getInstance(application)
             .create(InstallViewModel::class.java)
         startForeground(
@@ -57,30 +56,20 @@ class BootInstallService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         scope.launch {
-            viewModel.state.collectLatest { state ->
-                val title = when (state.phase) {
-                    InstallPhase.Exploiting -> getString(R.string.status_exploit_running)
-                    InstallPhase.LoadingKernelSu -> getString(R.string.status_ksu_loading)
-                    InstallPhase.Installed -> getString(R.string.status_ksu_active)
-                    InstallPhase.Failed -> getString(R.string.status_install_failed)
-                    else -> getString(R.string.status_checking_github)
-                }
-                val text = state.log.lineSequence().lastOrNull()?.take(120)
-                    ?: state.message
-                notify(title, text)
-                if (state.phase == InstallPhase.Installed || state.phase == InstallPhase.Failed) {
-                    stopSelf()
-                }
+            if (!awaitValidatedNetwork()) {
+                notify(getString(R.string.notification_boot_offline))
+                stopSelf()
+                return@launch
             }
-        }
-        scope.launch {
-            viewModel.install()
+            scope.launch { reportProgress() }
+            viewModel.runToCompletion(forceStandalone = true)
+            notify(notificationTitleFor(viewModel.state.value.phase))
+            stopSelf()
         }
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
-        previousShizukuMode?.let { AppPreferences.setShizukuMode(this, it) }
         scope.cancel()
         stopForegroundCompat()
         super.onDestroy()
@@ -88,7 +77,60 @@ class BootInstallService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun notify(title: String, text: String) {
+    /**
+     * Mirrors the run's progress in the notification. States published before the
+     * run starts (the view model's startup support check can fail on a device
+     * that has no root yet) are skipped so they cannot describe the run wrongly.
+     */
+    private suspend fun reportProgress() {
+        var started = false
+        viewModel.state.collect { state ->
+            if (!started) {
+                started = state.busy
+            }
+            if (!started) return@collect
+            val text = state.log.lineSequence().lastOrNull()?.take(120) ?: state.message
+            notify(notificationTitleFor(state.phase), text)
+        }
+    }
+
+    /**
+     * Boot-time connectivity is routinely not up yet, so wait for a validated
+     * network within a bounded window before touching anything else.
+     */
+    private suspend fun awaitValidatedNetwork(): Boolean {
+        val manager = getSystemService(ConnectivityManager::class.java) ?: return true
+        val deadline = SystemClock.elapsedRealtime() + NETWORK_WAIT_MILLIS
+        var announced = false
+        while (SystemClock.elapsedRealtime() < deadline) {
+            if (hasValidatedNetwork(manager)) return true
+            if (!announced) {
+                announced = true
+                notify(getString(R.string.notification_boot_waiting_network))
+            }
+            delay(NETWORK_POLL_MILLIS)
+        }
+        return hasValidatedNetwork(manager)
+    }
+
+    private fun hasValidatedNetwork(manager: ConnectivityManager): Boolean {
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun notificationTitleFor(phase: InstallPhase): String = getString(
+        when (phase) {
+            InstallPhase.Exploiting -> R.string.status_exploit_running
+            InstallPhase.LoadingKernelSu -> R.string.status_ksu_loading
+            InstallPhase.Installed -> R.string.status_ksu_active
+            InstallPhase.Failed -> R.string.status_install_failed
+            else -> R.string.status_checking_github
+        },
+    )
+
+    private fun notify(title: String, text: String = "") {
         val manager = getSystemService(NotificationManager::class.java)
         manager.notify(notificationId, buildNotification(title, text))
     }
@@ -136,6 +178,8 @@ class BootInstallService : Service() {
 
     companion object {
         private const val CHANNEL_ID = "boot_install"
+        private const val NETWORK_WAIT_MILLIS = 90_000L
+        private const val NETWORK_POLL_MILLIS = 2_000L
 
         fun start(context: Context) {
             val intent = Intent(context, BootInstallService::class.java)

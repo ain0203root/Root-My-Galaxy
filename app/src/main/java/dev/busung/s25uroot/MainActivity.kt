@@ -182,7 +182,11 @@ class MainActivity : ComponentActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-    /** Single POST_NOTIFICATIONS ask so the boot FGS notification is visible. */
+    /**
+     * Asks for POST_NOTIFICATIONS once, when the boot option is switched on, so the foreground
+     * service's progress notification is visible. Asking at launch instead would prompt people
+     * who never enable the feature.
+     */
     private fun maybeRequestNotificationPermission() {
         if (notificationPermissionAsked) return
         notificationPermissionAsked = true
@@ -530,7 +534,6 @@ private fun RootApp(
             when (page) {
                 AppPage.Overview -> OverviewPage(
                     padding = padding,
-                    requestNotificationPermission = requestNotificationPermission,
                     device = device,
                     installState = installState,
                     updateStatus = updateStatus,
@@ -571,6 +574,7 @@ private fun RootApp(
                     onShizukuModeChanged = onShizukuModeChanged,
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                     onBootRootModeChanged = onBootRootModeChanged,
+                    onRequestNotificationPermission = requestNotificationPermission,
                 )
             }
         }
@@ -613,7 +617,6 @@ private fun DialogDimAmount(amount: Float) {
 private fun OverviewPage(
     padding: PaddingValues,
     device: DeviceSnapshot,
-    requestNotificationPermission: () -> Unit,
     installState: InstallUiState,
     updateStatus: UpdateStatus,
     updateCardDismissed: Boolean,
@@ -621,7 +624,6 @@ private fun OverviewPage(
     onStartDownload: (UpdateInfo) -> Unit,
     onInstall: () -> Unit,
 ) {
-    LaunchedEffect(Unit) { requestNotificationPermission() }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
@@ -1488,6 +1490,7 @@ private fun SettingsPage(
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
+    onRequestNotificationPermission: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -1653,9 +1656,10 @@ private fun SettingsPage(
                     description = stringResource(R.string.settings_boot_root_summary),
                     checked = bootRootMode,
                     position = SettingsCardPosition.Bottom,
-                    onCheckedChange = {
+                    onCheckedChange = { enabled ->
                         clickHaptic(view)
-                        onBootRootModeChanged(it)
+                        if (enabled) onRequestNotificationPermission()
+                        onBootRootModeChanged(enabled)
                     },
                 )
             }

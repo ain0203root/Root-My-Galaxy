@@ -161,7 +161,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun install(selectionId: String? = null) {
+    /**
+     * Runs an install and returns once it reaches a terminal phase, for callers outside the
+     * install screen that have to keep a foreground service alive for exactly as long as the run
+     * takes — the boot service, which cannot wait on the UI state itself.
+     */
+    suspend fun runToCompletion(selectionId: String? = null, forceStandalone: Boolean = false) {
+        install(selectionId, forceStandalone)
+        installJob?.join()
+    }
+
+    fun install(selectionId: String? = null, forceStandalone: Boolean = false) {
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
         discoveryJob?.cancel()
         installJob = viewModelScope.launch(Dispatchers.IO) {
@@ -172,8 +182,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             startHistory()
             // Freeze the transport for the whole run so a mid-run preference
             // change cannot mix Shizuku and standalone execution between the
-            // exploit and the KernelSU staging steps.
-            activeRunShizuku = AppPreferences.shizukuMode(app)
+            // exploit and the KernelSU staging steps. The boot service asks for
+            // standalone explicitly rather than by toggling the stored
+            // preference, which would leave it wrong if the run never finished.
+            activeRunShizuku = !forceStandalone && AppPreferences.shizukuMode(app)
             try {
                 if (shizukuEnabled()) {
                     appendLog(app.getString(R.string.log_shizuku_prepare))
