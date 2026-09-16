@@ -311,7 +311,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      * the two moves, so a stranding cannot outlive one interrupted run.
      */
     private suspend fun moveModulesAside(): Boolean {
-        val result = runHelper("-c", MODULES_ASIDE_SCRIPT)
+        val result = runMaintenance(MODULES_ASIDE_SCRIPT)
         when {
             result.code == MODULES_BACKUP_EXISTS -> appendLog(
                 app.getString(R.string.log_ksu_modules_backup_present, MODULES_BACKUP_DIRECTORY),
@@ -332,7 +332,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private suspend fun restoreModules() {
-        val result = runHelper("-c", MODULES_RESTORE_SCRIPT)
+        val result = runMaintenance(MODULES_RESTORE_SCRIPT)
         when {
             result.code != 0 -> appendLog(
                 app.getString(
@@ -508,8 +508,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
         if (lateLoad.output.isNotBlank()) appendLog(lateLoad.output)
         activeStage = RunStage.Verify
+        // An exit code says the late-load command finished, not that anything is reachable now, so
+        // the run states which independent reading confirmed the control channel before it claims
+        // success - and refuses to claim it when none of them did.
+        val proofs = KernelSuRuntime.proofs(app, lateLoad.output)
+        require(proofs.isNotEmpty()) { app.getString(R.string.error_ksu_not_ready) }
+        appendLog(
+            app.getString(
+                R.string.log_ksu_control_verified,
+                proofs.joinToString { it.label },
+            ),
+        )
         storeInstallReceipt()
-        appendLog(app.getString(R.string.log_ksu_control_verified))
     }
 
     private fun detectInstalled(): Boolean {
@@ -601,6 +611,22 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         add("CVE43499_ROOT_HELPER=$helperPath")
         add("LD_PRELOAD=$payloadPath")
     }.toTypedArray()
+
+    /**
+     * Runs a privileged maintenance script through the best transport available.
+     *
+     * The helper's handoff socket only exists to cross the pre-KernelSU boundary, and once
+     * KernelSU has loaded a Samsung kernel may refuse new connects to it while KernelSU itself is
+     * healthy - which is exactly when these module scripts run. KernelSU's own root shell is
+     * therefore tried first and the helper stays as the fallback for a boot where the temporary
+     * socket is still the only way in.
+     */
+    private suspend fun runMaintenance(command: String): CommandResult {
+        val viaKernelSu = if (shizukuEnabled()) KernelSuRuntime.rootShell(command) else null
+        return viaKernelSu
+            ?.let { CommandResult(it.exitCode, it.output) }
+            ?: runHelper("-c", command)
+    }
 
     /**
      * Runs the bootstrap helper for a short management command. Unlike the

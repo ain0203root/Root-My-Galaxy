@@ -79,7 +79,8 @@
     <string name="log_install_complete">[+] Yükleme tamamlandı</string>
     <string name="log_bootstrap_root">[+] Bootstrap root elde edildi</string>
     <string name="log_ksu_staged">[+] KernelSU hazırlama tamamlandı</string>
-    <string name="log_ksu_control_verified">[+] KernelSU kontrol kanalı doğrulandı</string>
+    <string name="log_ksu_control_verified">[+] KernelSU kontrol kanalı doğrulandı (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU yüklendi ancak hiçbir kontrol kanalı yanıt vermedi; root henüz kullanılamıyor</string>
     <string name="error_helper_unavailable">Bootstrap yardımcısı çalıştırılamıyor</string>
     <string name="error_exploit_stalled">Exploit günlüğü 90 saniye boyunca güncellenmedi</string>
     <string name="error_exploit_timeout">Exploit 15 dakikalık süre sınırını aştı</string>

@@ -88,7 +88,8 @@
     <string name="log_install_complete">[+] Установка завершена</string>
     <string name="log_bootstrap_root">[+] Временный root-доступ получен</string>
     <string name="log_ksu_staged">[+] Подготовка KernelSU завершена</string>
-    <string name="log_ksu_control_verified">[+] Канал управления KernelSU проверен</string>
+    <string name="log_ksu_control_verified">[+] Канал управления KernelSU проверен (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU загружен, но канал управления не ответил; root пока недоступен</string>
     <string name="error_helper_unavailable">Вспомогательный bootstrap-файл не является исполняемым</string>
     <string name="error_exploit_stalled">Журнал эксплойта не обновлялся в течение 90 секунд</string>
     <string name="error_exploit_timeout">Эксплойт превысил лимит времени в 15 минут</string>

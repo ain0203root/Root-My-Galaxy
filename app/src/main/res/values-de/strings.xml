@@ -105,7 +105,8 @@
     <string name="log_install_complete">[+] Installation abgeschlossen</string>
     <string name="log_bootstrap_root">[+] Bootstrap-Root erhalten</string>
     <string name="log_ksu_staged">[+] KernelSU-Staging abgeschlossen</string>
-    <string name="log_ksu_control_verified">[+] KernelSU-Steuerungskanal verifiziert</string>
+    <string name="log_ksu_control_verified">[+] KernelSU-Steuerungskanal verifiziert (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU geladen, aber kein Steuerungskanal hat geantwortet; root ist noch nicht nutzbar</string>
     <string name="error_helper_unavailable">Bootstrap-Helfer ist nicht ausführbar</string>
     <string name="error_exploit_stalled">Exploit-Log ist seit 90 Sekunden nicht vorangeschritten</string>
     <string name="error_exploit_timeout">Exploit hat das 15-Minuten-Limit überschritten</string>

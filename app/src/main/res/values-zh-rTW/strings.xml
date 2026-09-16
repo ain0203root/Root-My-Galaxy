@@ -90,7 +90,8 @@
     <string name="log_install_complete">[+] 安裝完成</string>
     <string name="log_bootstrap_root">[+] 已取得 bootstrap root</string>
     <string name="log_ksu_staged">[+] KernelSU 暫存完成</string>
-    <string name="log_ksu_control_verified">[+] KernelSU 控制通道已驗證</string>
+    <string name="log_ksu_control_verified">[+] KernelSU 控制通道已驗證 (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU 已載入，但無控制通道回應；root 尚不可用</string>
 
     <string name="error_helper_unavailable">無法執行 bootstrap helper</string>
     <string name="error_exploit_stalled">Exploit 日誌已 90 秒未更新</string>

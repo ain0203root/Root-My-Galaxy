@@ -88,6 +88,27 @@ object ShizukuController {
         }
     }
 
+    /** What a short command through the running Shizuku server reported. */
+    data class ShellResult(val exitCode: Int, val output: String)
+
+    /**
+     * Runs [command] through the Shizuku server that is already running, with stderr merged into
+     * the output so a caller reads one account of what happened.
+     *
+     * Shizuku hands the client a shell-owned process, so this cannot elevate on its own: a caller
+     * that needs root asks KernelSU, as [KernelSuRuntime] does with `su -c`. It is still the cheap
+     * way to run a privileged command once root exists, because no new transport has to be opened.
+     */
+    fun shell(command: String): ShellResult {
+        val process = exec(arrayOf(SHIZUKU_SHELL, "-c", "$command 2>&1"))
+        return try {
+            val output = process.inputStream.bufferedReader().use { it.readText() }.trim()
+            ShellResult(process.waitFor(), output)
+        } finally {
+            if (process.isAlive) process.destroy()
+        }
+    }
+
     /**
      * Stages [source] at [remotePath].
      *

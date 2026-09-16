@@ -208,6 +208,25 @@ it ended, and the full log stays attached to the run for export. An unattended r
 stage in its notification title, since that notification is the whole of the explanation available
 when nobody is looking at the screen.
 
+## KernelSU readiness
+
+A successful `--late-load` says the command finished, not that KernelSU is reachable afterwards, so
+the run states which independent reading confirmed the control channel instead of taking the exit
+code for it:
+
+- the in-process native probe seeing KernelSU from the app's own process;
+- KernelSU's own `su` answering through the running Shizuku server, which also proves a usable root
+  shell;
+- the helper's control report — `KernelSU control verified version=… flags=0x… uapi=… features=0x…`
+  — with a version of zero or a `control check failed` line deliberately not counting as one.
+
+One reading is enough, and the log line names the ones that answered. A run of the old kind — the
+helper exited cleanly and nothing answered afterwards — is now reported as `KernelSU loaded but no
+control channel answered` rather than as a success. Privileged maintenance that runs *after* root
+(the module directory move and restore) asks KernelSU for a root shell first and only falls back to
+the helper's temporary handoff socket: a Samsung kernel may refuse new connects to that socket while
+KernelSU itself is perfectly healthy.
+
 ## Build identity
 
 Two builds of the same version are otherwise indistinguishable once installed, so every build

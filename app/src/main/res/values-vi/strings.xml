@@ -79,7 +79,8 @@
     <string name="log_install_complete">[+] Cài đặt hoàn tất</string>
     <string name="log_bootstrap_root">[+] Đã giành quyền root khởi tạo</string>
     <string name="log_ksu_staged">[+] Đã chuẩn bị KernelSU</string>
-    <string name="log_ksu_control_verified">[+] Đã xác minh kênh điều khiển KernelSU</string>
+    <string name="log_ksu_control_verified">[+] Đã xác minh kênh điều khiển KernelSU (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU đã nạp nhưng không có kênh điều khiển nào phản hồi; root chưa dùng được</string>
     <string name="error_helper_unavailable">Không thể chạy trình trợ giúp khởi tạo</string>
     <string name="error_exploit_stalled">Nhật ký khai thác không cập nhật trong 90 giây</string>
     <string name="error_exploit_timeout">Khai thác vượt quá giới hạn 15 phút</string>
