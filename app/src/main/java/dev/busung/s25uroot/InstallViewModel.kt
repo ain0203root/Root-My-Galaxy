@@ -337,7 +337,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 appendLog(profile.routePolicy.describe())
                 appendLog(app.getString(R.string.log_payload_origin, payloads.origin.name.lowercase()))
                 executeExploit(
-                    payloads.exploit,
+                    payloads,
                     profile.requiresFreshP0Session,
                     profile.routePolicy,
                 )
@@ -471,16 +471,43 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Puts the KernelSU daemon where the payload will look for it, before the payload runs.
+     *
+     * The order is the whole point. The load of KernelSU is done from the exploit process while
+     * bootstrap root is still live - the payload's own helper has the kernel primitives, and they are
+     * gone when it exits - so a daemon staged afterwards is a daemon nobody is left to load. Staged
+     * here, the payload finds it at the moment root lands; the staging in [installKernelSu] then
+     * re-checks the same two paths by hash and rewrites nothing.
+     *
+     * Only a transport that can write to the device before root (Shizuku, or the paired wireless
+     * shell) makes this possible, and the route that has neither says so rather than pretending.
+     */
+    private suspend fun stageKernelSuBeforeExploit(kernelSu: File) {
+        when (activeRunTransport) {
+            RunTransport.Shizuku -> {
+                shizukuStage(kernelSu, SHIZUKU_KSUD_PATH, "755")
+                shizukuStage(kernelSu, SHIZUKU_KSUD_STAGE_PATH, "755")
+                appendLog(app.getString(R.string.log_ksu_staged_early))
+            }
+            RunTransport.LocalAdb -> Unit // The session itself pushes it, inside its own block.
+            RunTransport.App -> appendLog(app.getString(R.string.log_ksu_staged_late_only))
+            null -> Unit
+        }
+    }
+
     private suspend fun executeExploit(
-        payload: File,
+        payloads: VerifiedPayloads,
         requiresFreshP0Session: Boolean,
         routePolicy: ExploitRoutePolicy,
     ) {
+        val payload = payloads.exploit
         if (activeRunTransport == RunTransport.LocalAdb) {
-            executeExploitOverLocalAdb(payload, requiresFreshP0Session, routePolicy)
+            executeExploitOverLocalAdb(payload, payloads.kernelSu, requiresFreshP0Session, routePolicy)
             return
         }
         val shizuku = shizukuEnabled()
+        stageKernelSuBeforeExploit(payloads.kernelSu)
         val logFile = if (shizuku) File(SHIZUKU_LOG_PATH) else File(app.filesDir, "exploit.log")
         if (shizuku) {
             ShizukuController.exec(arrayOf("rm", "-f", SHIZUKU_LOG_PATH)).waitFor()
@@ -602,6 +629,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      */
     private suspend fun executeExploitOverLocalAdb(
         payload: File,
+        kernelSu: File,
         requiresFreshP0Session: Boolean,
         routePolicy: ExploitRoutePolicy,
     ) {
@@ -619,6 +647,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             WirelessAdbSession.open(app).use { session ->
                 session.push(helper, ADB_HELPER_PATH, executable = true)
                 session.push(payload, ADB_PAYLOAD_PATH)
+                // Ahead of the payload for the same reason as the Shizuku route: the load happens
+                // from the exploit process, so the daemon has to be there when it does.
+                session.push(kernelSu, ADB_KSUD_PATH, executable = true)
+                appendLog(app.getString(R.string.log_ksu_staged_early))
                 session.runStreaming(
                     command = localAdbExploitCommand(
                         requiresFreshP0Session,
@@ -1050,6 +1082,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val ADB_PAYLOAD_PATH = "/data/local/tmp/rmg-payload"
         private const val ADB_LOG_PATH = "/data/local/tmp/rmg-exploit.log"
 
+        /**
+         * Where the KernelSU daemon goes, whichever transport put it there.
+         *
+         * One path and not one per transport: the name is the payload's, not the app's - its helper
+         * looks for the daemon at this exact path when it loads KernelSU itself - so a run that
+         * staged it anywhere else would leave the payload with nothing to load.
+         */
+        private const val KSUD_PATH = "/data/local/tmp/ksud-s25u-kdp"
+        private const val KSUD_STAGE_PATH = "/data/local/tmp/.ksud-stage"
+        private const val ADB_KSUD_PATH = KSUD_PATH
+
         private val MODULES_ASIDE_SCRIPT = """
             if [ -d $MODULES_BACKUP_DIRECTORY ] && [ ! -e $MODULES_DIRECTORY ]; then
                 /system/bin/mv $MODULES_BACKUP_DIRECTORY $MODULES_DIRECTORY || exit 3
@@ -1084,8 +1127,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val SHIZUKU_LOG_PATH = "/data/local/tmp/ksu-exploit.log"
         private const val SHIZUKU_HELPER_PATH = "/data/local/tmp/ksu-helper"
         private const val SHIZUKU_PAYLOAD_PATH = "/data/local/tmp/ksu-payload"
-        private const val SHIZUKU_KSUD_PATH = "/data/local/tmp/ksud-s25u-kdp"
-        private const val SHIZUKU_KSUD_STAGE_PATH = "/data/local/tmp/.ksud-stage"
+        private const val SHIZUKU_KSUD_PATH = KSUD_PATH
+        private const val SHIZUKU_KSUD_STAGE_PATH = KSUD_STAGE_PATH
         private val LOG_POLL_INTERVAL = 250.milliseconds
         private val HELPER_POLL_INTERVAL = 250.milliseconds
         private val SHIZUKU_LOG_POLL_INTERVAL = 1.seconds
