@@ -107,10 +107,22 @@ internal object WirelessAdbDiagnostics {
             )
         }
 
-        if (!AdbPairing.hasWriteSecureSettings(context)) {
+        // The permission is only needed to *turn wireless debugging on*. A device that already has it
+        // on can be tested - and paired, and run through - with no permission at all, which is the
+        // state a user is in the moment they open the pairing dialog in Developer options. Gating the
+        // test on the permission reported a working transport as unusable.
+        if (!wirelessAdbUsable(
+                wirelessDebuggingEnabled = AdbPairing.isWirelessAdbEnabled(context),
+                permissionGranted = AdbPairing.hasWriteSecureSettings(context),
+                rootAvailable = rootIsAvailable(context),
+            )
+        ) {
             return@withContext initial.copy(
                 authState = WirelessAdbAuthState.PermissionRequired,
-                detail = "WRITE_SECURE_SETTINGS is required, and this build does not have it",
+                detail = context.getString(
+                    R.string.wireless_adb_permission_detail,
+                    AdbPairing.GRANT_COMMAND,
+                ),
             )
         }
 
@@ -168,6 +180,15 @@ internal object WirelessAdbDiagnostics {
             )
         }
     }
+
+    /**
+     * Whether root is available to change the setting, which is the app's second route to it.
+     *
+     * Asked rather than assumed: a device with no permission and no root genuinely cannot turn
+     * wireless debugging on, and saying so is more useful than a failure further down.
+     */
+    private fun rootIsAvailable(context: Context): Boolean =
+        runCatching { KernelSuRuntime.rootShell("id") != null }.getOrDefault(false)
 
     private class ConnectPortUnavailableException : IOException(
         "No wireless-debugging port was found, by the system property or by mDNS",
