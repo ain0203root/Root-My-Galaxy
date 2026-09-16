@@ -330,6 +330,9 @@ class MainActivity : ComponentActivity() {
                     onBootRootModeChanged = { enabled ->
                         AppPreferences.setBootRootMode(this, enabled)
                         bootRootMode = enabled
+                        // Turning it off has to reach a gate that is already waiting, not just the
+                        // next boot: a foreground service left running would install anyway.
+                        if (!enabled) AutoRootService.stop(this)
                     },
                     onBootSettleChanged = { seconds ->
                         AppPreferences.setBootSettleSeconds(this, seconds)

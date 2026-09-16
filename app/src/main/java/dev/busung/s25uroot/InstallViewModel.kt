@@ -195,10 +195,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Runs an install and returns once it reaches a terminal phase, for callers outside the
      * install screen that have to keep a foreground service alive for exactly as long as the run
-     * takes — the boot service, which cannot wait on the UI state itself.
+     * takes — the boot gate, which cannot wait on the UI state itself.
      */
-    suspend fun runToCompletion(selectionId: String? = null, forceStandalone: Boolean = false) {
-        install(selectionId, forceStandalone)
+    suspend fun runToCompletion(
+        selectionId: String? = null,
+        forceStandalone: Boolean = false,
+        payloadOffline: Boolean = false,
+    ) {
+        install(selectionId, forceStandalone, payloadOffline)
         installJob?.join()
     }
 
@@ -212,7 +216,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         bootSettleOverridden = true
     }
 
-    fun install(selectionId: String? = null, forceStandalone: Boolean = false) {
+    fun install(
+        selectionId: String? = null,
+        forceStandalone: Boolean = false,
+        /**
+         * Forces this run to use the cached payload.
+         *
+         * A boot-time run sets it because at boot there may be no network to download from and
+         * nobody to wait for one, so the run has to be able to say "cached, or not at all" without
+         * changing the mode the user chose for their own runs.
+         */
+        payloadOffline: Boolean = false,
+    ) {
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
         discoveryJob?.cancel()
         bootSettleOverridden = false
@@ -256,7 +271,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // Offline mode is what makes a run possible with no network at all, so it resolves
                 // nothing: the cached payload already names its target, and asking the catalog would
                 // be the very thing this mode exists to avoid.
-                val offline = AppPreferences.payloadMode(app) == PayloadMode.Offline
+                val offline = payloadOffline || AppPreferences.payloadMode(app) == PayloadMode.Offline
                 val profile = when {
                     offline -> cachedProfileFor(selectionId)
                     selectionId == null -> repository.resolveTarget(DeviceSnapshot.current())

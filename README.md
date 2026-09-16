@@ -346,6 +346,36 @@ privileged process, so the failure names that rather than pretending the button 
 Switching the setting on starts Shizuku there and then, so the setting is proven on the device
 instead of at the next reboot.
 
+## Root on boot
+
+These targets are rooted by loading KernelSU into the running kernel, so root does not survive a power
+cycle by itself: every boot has to load it again. **Settings → Root → Root on boot** makes that
+automatic, and it is a gate rather than a fire-and-forget broadcast.
+
+The gate runs in its own process (`:autoroot_gate`) because it outlives the app process it starts in —
+which is exactly what happens at boot — and it decides whether this boot gets an attempt before doing
+anything else. Its rule is one pure function, in this order: the setting is on; KernelSU is not
+already answering; an install has not already been *verified in this kernel boot*; this boot's single
+attempt has not been spent; and a verified payload is cached. Only the last case asks anything of the
+user, and it asks once.
+
+Two of those are about telling boots apart. A userspace restart re-emits `BOOT_COMPLETED` while the
+kernel stays up, so the boot id — not the event, and not a timestamp — is what decides, and an install
+verified in this boot stays verified across it. The attempt is claimed before the run rather than
+after, so two components racing one boot cannot both spend it.
+
+The run itself is the same code the install screen drives, started with the cached payload and the
+standalone transport: an automatic install cannot drift from a manual one. It is bounded the whole way
+— the wait uses the same boot-settle floor as a manual run, the run keeps its own cut-offs, and the
+gate has a deadline of its own — and it reports through the notification it must show anyway,
+including which stage a failure stopped in. Failures are recorded in run history like any other run,
+and the notification's *Turn off* action is how a boot automation is stopped without opening the app.
+
+One deliberate difference from the reference: after a successful boot install it starts Shizuku when
+*Shizuku on boot* is on, and does not restart the Android runtime by itself. A zygote restart closes
+whatever is open, which is a decision for the person using the phone — *Restart Zygote* in Recovery is
+the same action with a finger on it.
+
 ## Post-root repair
 
 A rooted boot can come up unusable — a module that breaks the framework, a mount that needs the

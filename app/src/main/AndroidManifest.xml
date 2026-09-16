@@ -38,8 +38,9 @@
             android:multiprocess="false"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <service
-            android:name=".BootInstallService"
+            android:name=".AutoRootService"
             android:exported="false"
+            android:process=":autoroot_gate"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
         <service
@@ -48,12 +49,15 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="false" />
         <receiver
-            android:name=".BootReceiver"
+            android:name=".AutoRootBootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+        <receiver
+            android:name=".AutoRootActionReceiver"
+            android:exported="false" />
         <activity
             android:name=".InstallActivity"
             android:exported="false" />

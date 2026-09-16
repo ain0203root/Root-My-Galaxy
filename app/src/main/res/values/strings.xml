@@ -57,6 +57,17 @@
     <string name="run_plan_payload_mode">Payload mode</string>
     <string name="offline_cache_empty">No cached payload is available. Run an online install successfully first.</string>
     <string name="offline_cached_artifact_invalid">The cached %1$s does not match what was verified</string>
+    <string name="autoroot_stabilizing">Waiting for the device to settle</string>
+    <string name="autoroot_starting">Starting the install</string>
+    <string name="autoroot_prior_install_required">Run one online install first: root on boot uses the cached payload</string>
+    <string name="autoroot_failed">Install failed: %1$s</string>
+    <string name="autoroot_failed_at">Install failed at %1$s: %2$s</string>
+    <string name="autoroot_succeeded">Root is active</string>
+    <string name="autoroot_boot_changed">The kernel boot changed before the install started</string>
+    <string name="autoroot_timed_out">it did not finish in time</string>
+    <string name="autoroot_disable">Turn off</string>
+    <string name="autoroot_channel_name">Root on boot</string>
+    <string name="autoroot_channel_description">Runs the install after a reboot and reports what happened</string>
     <string name="settings_boot_settle">Boot settle time</string>
     <string name="settings_boot_settle_summary">How long after a boot a run waits before it starts the exploit. A device is racier right after it comes up, and that is where attempts fail for reasons the payload cannot fix.</string>
     <string name="status_boot_settle">Waiting for the boot to settle: %1$s</string>
