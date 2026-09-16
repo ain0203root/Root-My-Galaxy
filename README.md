@@ -83,7 +83,7 @@ Appearance and a run option is not filed under Advanced:
 | Shizuku | use Shizuku, start Shizuku now, Shizuku start token, Shizuku on boot |
 | Wireless ADB | pair, test, or remove this app's wireless-debugging identity |
 | Root | root on boot, and its settle floor |
-| Recovery | restart Zygote, KernelSU soft reboot, reboot and unroot — hold to run |
+| Recovery | restart Zygote, KernelSU soft reboot, reboot and unroot — each confirms first |
 | System | the battery-optimisation exemption a run with the screen off depends on |
 | About | update check, and the app with its version and build label |
 
@@ -502,9 +502,13 @@ the same action with a finger on it.
 
 A rooted boot can come up unusable — a module that breaks the framework, a mount that needs the
 runtime recreated, a state worth getting out of — and until now the only answers were a reboot or a
-cable. **Recovery**, in Advanced mode, has three actions, and each is a hold rather than a tap: they
-restart the Android runtime or the phone, they are the only repair available, and a tap that opened a
-dialog is one tap away from closing everything open. Each card says what it costs before it is held.
+cable. **Recovery**, in Advanced mode, has three actions, and each one asks before it runs: the card
+opens a dialog naming the consequence — everything open will close, or root will be gone — and the
+dialog's own button starts it. A hold was the older confirmation and it was the wrong one for a card
+that reads like a button: a hold is invisible until it succeeds, so nothing on the screen said the
+cards behaved differently from every other row in Settings, and a dialog can state the cost in words
+that a filling bar cannot. The cards are also the only ones whose taps do not reach the action they
+name, which is the point.
 
 - **Restart Zygote** recreates the Android runtime through init — `setprop ctl.restart zygote`, which
   asks init to restart the service it owns, where killing Zygote from the app would leave init to

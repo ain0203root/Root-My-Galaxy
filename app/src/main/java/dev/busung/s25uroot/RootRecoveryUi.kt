@@ -1,13 +1,7 @@
 package dev.busung.s25uroot
 
 import android.view.HapticFeedbackConstants
-import android.view.View
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -49,9 +42,6 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-/** How long a recovery card has to be held before it acts. */
-private const val HOLD_TO_CONFIRM_MILLIS = 1_400L
 
 private enum class RecoveryTool {
     RestartZygote,
@@ -68,11 +58,16 @@ private data class RecoveryMessage(
 /**
  * The post-root repair actions, in Advanced mode.
  *
- * Every one of them is a hold rather than a tap, and each states what it will cost before it is held:
- * two of them restart the Android user interface, which closes whatever is open, and one of them
- * reboots the phone without root. Root is not asked about up front - the card that is held asks for a
- * root shell and reports the refusal - because the cheap in-process probe for KernelSU can answer no
- * on a device where root is perfectly usable, and a card that refused on that answer would be wrong.
+ * A tap opens a dialog that says what the action will cost, and the dialog's own button is what runs
+ * it. Holding was the older confirmation and it was the wrong one for a card that reads like a button:
+ * a hold is invisible until it succeeds, so nothing on the screen tells you it needs one, and the
+ * three cards here were the only ones in the app that behaved differently from every other row. A
+ * dialog names the consequence in words - everything open will close, or root will be gone - which is
+ * more than a filling bar can say.
+ *
+ * Root is not asked about up front: the action itself asks for a root shell and reports the refusal,
+ * because the cheap in-process probe for KernelSU can answer no on a device where root is perfectly
+ * usable.
  */
 @Composable
 internal fun RootRecoverySection(
@@ -82,14 +77,15 @@ internal fun RootRecoverySection(
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     var running by remember { mutableStateOf<RecoveryTool?>(null) }
+    var confirming by remember { mutableStateOf<RecoveryTool?>(null) }
     var message by remember { mutableStateOf<RecoveryMessage?>(null) }
+
     fun report(tool: RecoveryTool, outcome: RecoveryOutcome) {
         message = RecoveryMessage(
             title = context.getString(tool.titleRes()),
             // What was accepted differs between the actions: two of them restart the Android runtime
             // and one restarts the phone, so the accepted message is the action's own.
-            detail = if (outcome.accepted) context.getString(tool.acceptedRes())
-            else outcome.detail,
+            detail = if (outcome.accepted) context.getString(tool.acceptedRes()) else outcome.detail,
             failure = !outcome.accepted,
         )
     }
@@ -149,6 +145,29 @@ internal fun RootRecoverySection(
         }
     }
 
+    confirming?.let { tool ->
+        AlertDialog(
+            onDismissRequest = { confirming = null },
+            icon = { Icon(tool.icon(), contentDescription = null) },
+            title = { Text(stringResource(tool.titleRes())) },
+            text = { Text(stringResource(tool.confirmRes())) },
+            confirmButton = {
+                TextButton(onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    confirming = null
+                    run(tool)
+                }) {
+                    Text(stringResource(tool.actionRes()))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
     message?.let { shown ->
         AlertDialog(
             onDismissRequest = { message = null },
@@ -173,38 +192,44 @@ internal fun RootRecoverySection(
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // No heading of its own: this block is a settings section and the section label above it says
-        // what it is. What is left is the one line that has to be read before any card here is held.
+        // what it is. What is left is the one line that has to be read before any card here is used.
         Text(
             stringResource(R.string.settings_recovery_summary),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 4.dp, end = 4.dp),
         )
-        RecoveryHoldCard(
+        RecoveryCard(
             icon = Icons.Rounded.RestartAlt,
             title = stringResource(R.string.recovery_restart_zygote),
             description = stringResource(R.string.recovery_restart_zygote_summary),
             enabled = running == null,
             busy = running == RecoveryTool.RestartZygote,
-            onConfirmed = { run(RecoveryTool.RestartZygote) },
+            onClick = { confirming = RecoveryTool.RestartZygote },
         )
-        RecoveryHoldCard(
+        RecoveryCard(
             icon = Icons.Rounded.Memory,
             title = stringResource(R.string.recovery_soft_reboot),
             description = stringResource(R.string.recovery_soft_reboot_summary),
             enabled = running == null,
             busy = running == RecoveryTool.SoftReboot,
-            onConfirmed = { run(RecoveryTool.SoftReboot) },
+            onClick = { confirming = RecoveryTool.SoftReboot },
         )
-        RecoveryHoldCard(
+        RecoveryCard(
             icon = Icons.Rounded.Warning,
             title = stringResource(R.string.recovery_reboot_unroot),
             description = stringResource(R.string.recovery_reboot_unroot_summary),
             enabled = running == null,
             busy = running == RecoveryTool.RebootAndUnroot,
-            onConfirmed = { run(RecoveryTool.RebootAndUnroot) },
+            onClick = { confirming = RecoveryTool.RebootAndUnroot },
         )
     }
+}
+
+private fun RecoveryTool.icon(): ImageVector = when (this) {
+    RecoveryTool.RestartZygote -> Icons.Rounded.RestartAlt
+    RecoveryTool.SoftReboot -> Icons.Rounded.Memory
+    RecoveryTool.RebootAndUnroot -> Icons.Rounded.Warning
 }
 
 private fun RecoveryTool.titleRes(): Int = when (this) {
@@ -213,59 +238,47 @@ private fun RecoveryTool.titleRes(): Int = when (this) {
     RecoveryTool.RebootAndUnroot -> R.string.recovery_reboot_unroot
 }
 
+private fun RecoveryTool.confirmRes(): Int = when (this) {
+    RecoveryTool.RestartZygote -> R.string.recovery_confirm_restart_zygote
+    RecoveryTool.SoftReboot -> R.string.recovery_confirm_soft_reboot
+    RecoveryTool.RebootAndUnroot -> R.string.recovery_confirm_reboot_unroot
+}
+
+private fun RecoveryTool.actionRes(): Int = when (this) {
+    RecoveryTool.RestartZygote -> R.string.recovery_action_restart_zygote
+    RecoveryTool.SoftReboot -> R.string.recovery_action_soft_reboot
+    RecoveryTool.RebootAndUnroot -> R.string.recovery_action_reboot_unroot
+}
+
 private fun RecoveryTool.acceptedRes(): Int = when (this) {
     RecoveryTool.RebootAndUnroot -> R.string.recovery_reboot_scheduled
     else -> R.string.recovery_scheduled
 }
 
 /**
- * A card that acts only after being held, with a bar that fills over the hold.
+ * One repair action: a card that behaves like every other row in Settings, and asks before it acts.
  *
- * Holding is the confirmation here rather than a dialog: these are destructive, they are the only way
- * to repair a rooted boot, and a tap that opened a dialog is a tap away from a restart of the Android
- * runtime. Releasing early cancels, and nothing is scheduled unless the hold ran its course.
+ * The progress bar only appears while the action is running. Nothing else is on it, because the
+ * confirmation is a dialog now and a second, quieter confirmation drawn onto the card would be a way
+ * to start something without reading it.
  */
 @Composable
-private fun RecoveryHoldCard(
+private fun RecoveryCard(
     icon: ImageVector,
     title: String,
     description: String,
     enabled: Boolean,
     busy: Boolean,
-    onConfirmed: () -> Unit,
+    onClick: () -> Unit,
 ) {
     val view = LocalView.current
-    var holding by remember { mutableStateOf(false) }
-    // Fills over the same span the hold has to survive, so the bar is the hold rather than a spinner
-    // next to it, and it drains back when the finger is lifted.
-    val holdProgress by animateFloatAsState(
-        targetValue = if (holding) 1f else 0f,
-        animationSpec = tween(durationMillis = HOLD_TO_CONFIRM_MILLIS.toInt(), easing = LinearEasing),
-        label = "recovery-hold",
-    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .semantics { role = Role.Button }
-            .pointerInput(enabled, onConfirmed) {
-                if (!enabled) return@pointerInput
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    holding = true
-                    // A null result means the timeout fired, which is the hold completing; a released
-                    // pointer returns the up event and cancels.
-                    // The gesture scope's own timeout, not the coroutine one: inside a pointer
-                    // gesture only the event scope's restricted suspending functions may be called,
-                    // and this one is a member of the scope itself.
-                    val released = withTimeoutOrNull(HOLD_TO_CONFIRM_MILLIS) {
-                        waitForUpOrCancellation()
-                    }
-                    holding = false
-                    if (released == null) {
-                        view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                        onConfirmed()
-                    }
-                }
+            .clickable(enabled = enabled) {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                onClick()
             },
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -298,16 +311,6 @@ private fun RecoveryHoldCard(
                         .fillMaxWidth()
                         .height(3.dp),
                     color = MaterialTheme.colorScheme.primary,
-                )
-            } else {
-                LinearProgressIndicator(
-                    progress = { holdProgress },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                    drawStopIndicator = {},
                 )
             }
         }

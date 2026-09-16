@@ -374,7 +374,13 @@
     <string name="shizuku_mode">Use Shizuku</string>
     <string name="shizuku_mode_description">Use Shizuku to run the payload. This can improve reliability.</string>
     <string name="settings_recovery">Recovery</string>
-    <string name="settings_recovery_summary">Repair actions for a rooted boot, for when a module or the framework itself did not come up. Hold a card to run it.</string>
+    <string name="settings_recovery_summary">Repair actions for a rooted boot, for when a module or the framework itself did not come up. Each one asks before it runs.</string>
+    <string name="recovery_confirm_restart_zygote">Restart the Android runtime now? Everything that is open will close, and the screen will go back to the lock screen.</string>
+    <string name="recovery_confirm_soft_reboot">Let KernelSU restart the userspace now? Everything that is open will close, and the modules are walked through their normal order.</string>
+    <string name="recovery_confirm_reboot_unroot">Turn root on boot off and restart the phone? Root is loaded per boot, so it will be gone when the phone comes back and you will have to root it again.</string>
+    <string name="recovery_action_restart_zygote">Restart Zygote</string>
+    <string name="recovery_action_soft_reboot">Soft reboot</string>
+    <string name="recovery_action_reboot_unroot">Reboot and unroot</string>
     <string name="recovery_restart_zygote">Restart Zygote</string>
     <string name="recovery_restart_zygote_summary">Recreate the Android runtime so mounted modules load their framework hooks; running apps are closed</string>
     <string name="recovery_soft_reboot">KernelSU soft reboot</string>
