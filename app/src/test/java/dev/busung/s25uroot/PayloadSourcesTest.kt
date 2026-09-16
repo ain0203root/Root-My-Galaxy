@@ -92,6 +92,67 @@ class PayloadSourcesTest {
     }
 
     @Test
+    fun pastingAFullCommitPinsTheSourceInsteadOfFollowingIt() {
+        val sha = "4f9a2c1d5b8e7a6c3f2e1d0c9b8a7f6e5d4c3b2a"
+
+        val pinned = PayloadSource.create("example-org/payloads", sha)
+
+        assertEquals(sha, pinned?.pinnedCommit)
+        assertTrue(pinned?.isPinned == true)
+        // The ref is kept as the provenance of the pin, and the id names the revision, not the ref.
+        assertEquals(sha, pinned?.branch)
+        assertEquals("example-org/payloads@$sha", pinned?.id)
+    }
+
+    @Test
+    fun aTagOrBranchIsFollowedRatherThanPinned() {
+        val tag = PayloadSource.create("example-org/payloads", "v1.2.3")
+        val branch = PayloadSource.create("example-org/payloads", "feature/multi-source")
+
+        assertFalse(tag?.isPinned == true)
+        assertEquals("example-org/payloads@v1.2.3", tag?.id)
+        assertEquals("example-org/payloads@feature/multi-source", branch?.id)
+    }
+
+    @Test
+    fun pinningFreezesARevisionAndUnpinningReturnsToTheBranch() {
+        val sha = "4f9a2c1d5b8e7a6c3f2e1d0c9b8a7f6e5d4c3b2a"
+        val sources = listOf(PayloadSource("example-org/payloads", "testing"))
+
+        val pinned = sources.withSourcePinned(sources.single().id, sha).single()
+        assertEquals(sha, pinned.pinnedCommit)
+        assertEquals("testing at 4f9a2c1", pinned.refLabel)
+        assertEquals("example-org/payloads @ testing @ 4f9a2c1", pinned.label)
+
+        val unpinned = listOf(pinned).withSourceUnpinned(pinned.id).single()
+        assertEquals("", unpinned.pinnedCommit)
+        assertEquals("testing", unpinned.refLabel)
+
+        // A missing id changes nothing rather than dropping or duplicating a source.
+        assertEquals(listOf(pinned), listOf(pinned).withSourcePinned("other/repo@main", sha))
+    }
+
+    @Test
+    fun aPinnedRevisionAndItsBranchCanBeConfiguredTogether() {
+        val sha = "4f9a2c1d5b8e7a6c3f2e1d0c9b8a7f6e5d4c3b2a"
+        val branch = PayloadSource("example-org/payloads", "testing")
+        val pinned = branch.copy(pinnedCommit = sha)
+
+        assertFalse(branch.id == pinned.id)
+        assertEquals(listOf(branch, pinned), listOf(branch).withSourceAdded(pinned))
+        // Adding the same pin twice is still refused.
+        assertEquals(2, listOf(branch, pinned).withSourceAdded(pinned.copy(enabled = false)).size)
+    }
+
+    @Test
+    fun onlyAFullCommitCountsAsAPin() {
+        assertTrue(PayloadSource.isCommitValid("4f9a2c1d5b8e7a6c3f2e1d0c9b8a7f6e5d4c3b2a"))
+        assertFalse(PayloadSource.isCommitValid("4f9a2c1"))
+        assertFalse(PayloadSource.isCommitValid("4F9A2C1D5B8E7A6C3F2E1D0C9B8A7F6E5D4C3B2A"))
+        assertFalse(PayloadSource.isCommitValid("main"))
+    }
+
+    @Test
     fun aTargetWithoutASourceStillResolvesToItsOwnId() {
         val profile = TargetProfile(
             profileId = "galaxy-s25-series-kernel-6.6.98",

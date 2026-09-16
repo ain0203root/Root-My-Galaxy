@@ -178,9 +178,12 @@
     <string name="payload_repository_label">Owner/Repository</string>
     <string name="payload_repository_hint">Used to fetch the support manifest and payload files</string>
     <string name="payload_repository_invalid">Use the owner/repository format</string>
-    <string name="payload_branch">Branch</string>
-    <string name="payload_branch_hint">Git branch to fetch from, e.g. main or master</string>
-    <string name="payload_branch_invalid">Enter a valid branch name</string>
+    <string name="payload_branch">Branch, tag, or commit</string>
+    <string name="payload_branch_hint">A branch or tag is followed on every load; a full commit SHA pins the source to that revision</string>
+    <string name="payload_branch_invalid">Enter a valid branch, tag, or commit</string>
+    <string name="payload_source_pin">Pin to this commit</string>
+    <string name="payload_source_unpin">Follow the branch again</string>
+    <string name="payload_source_pin_failed">Could not resolve this ref: %1$s</string>
     <string name="payload_source_add">Add a source</string>
     <string name="payload_source_add_action">Add</string>
     <string name="payload_source_default">Restore default</string>

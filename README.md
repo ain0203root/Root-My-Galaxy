@@ -81,6 +81,18 @@ button stay visible on a short screen, where an alert dialog's buttons end up be
 default entry and can be restored with one button, so pointing the list at a testing branch
 for payloads that are not upstream yet does not cost you the official catalog.
 
+Any source can be **pinned**. The lock button on a row resolves its ref once — branch, tag, or a
+full commit pasted into the ref field — and stores the commit it resolved to, after which that
+source reads from the pinned revision instead of following the branch. That is what stops a
+catalog moving under a test, and it has a second effect worth knowing: a pinned source needs no
+GitHub API call to load, so it keeps working when the API is rate limited. Unpinning puts the
+source back on its ref.
+
+A pinned revision and the branch it came from are two different catalogs, so they carry
+different ids and can be configured side by side, which is how a fixed feed and a moving one get
+compared in the selection sheet. Pinning is by commit rather than by tag even when the ref is a
+tag, because a tag can be moved onto a different commit, which would defeat the point.
+
 Each enabled source is fetched on its own: its branch is resolved to a commit, that commit's
 `support/targets-v3.json` is read, and every target is pinned to that commit and tagged with
 the source it came from. Sources therefore do not shadow one another — when two of them offer

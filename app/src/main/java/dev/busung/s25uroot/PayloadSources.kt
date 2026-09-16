@@ -7,14 +7,34 @@ package dev.busung.s25uroot
  */
 data class PayloadSource(
     val repository: String,
+    /** Branch, tag, or commit that [pinnedCommit] was resolved from, and the ref followed when unpinned. */
     val branch: String,
     val enabled: Boolean = true,
+    /**
+     * Full commit SHA this source is frozen at, or empty to follow [branch] on every load.
+     *
+     * A pin is what stops a catalog changing under a test: the branch head is resolved once, at the
+     * moment it is pinned, and every later load reads that revision instead. It also means a pinned
+     * source needs no GitHub API call to load, so it keeps working when the API is rate limited.
+     */
+    val pinnedCommit: String = "",
 ) {
+    val isPinned: Boolean
+        get() = pinnedCommit.isNotEmpty()
+
+    /**
+     * Identifies the catalog, not just the repository: a pinned revision and the branch it came from
+     * are two different catalogs, so they can be configured side by side and compared.
+     */
     val id: String
-        get() = "$repository@$branch"
+        get() = "$repository@${if (isPinned) pinnedCommit else branch}"
 
     val label: String
-        get() = "$repository @ $branch"
+        get() = if (isPinned) "$repository @ $branch @ ${pinnedCommit.take(7)}" else "$repository @ $branch"
+
+    /** How the ref line reads in the settings sheet. */
+    val refLabel: String
+        get() = if (isPinned) "$branch at ${pinnedCommit.take(7)}" else branch
 
     companion object {
         const val DEFAULT_REPOSITORY = "BuSung-dev/Root-My-Galaxy-Payloads"
@@ -22,6 +42,7 @@ data class PayloadSource(
 
         val REPOSITORY_PATTERN = Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
         val BRANCH_PATTERN = Regex("^[A-Za-z0-9_.\\-/]+$")
+        val COMMIT_PATTERN = Regex("^[0-9a-f]{40}$")
 
         val DEFAULT = PayloadSource(
             repository = DEFAULT_REPOSITORY,
@@ -34,7 +55,13 @@ data class PayloadSource(
 
         fun isBranchValid(branch: String): Boolean = BRANCH_PATTERN.matches(branch.trim())
 
-        /** Builds a source from raw input, or null when the repository or branch is unusable. */
+        fun isCommitValid(commit: String): Boolean = COMMIT_PATTERN.matches(commit.trim())
+
+        /**
+         * Builds a source from raw input, or null when the repository or ref is unusable. A ref
+         * that is already a full commit is pinned to it rather than resolved again on every load,
+         * which is the same thing the user asked for by pasting one.
+         */
         fun create(
             repository: String,
             branch: String,
@@ -43,7 +70,11 @@ data class PayloadSource(
             val owner = repository.trim()
             val ref = branch.trim()
             if (!isRepositoryValid(owner) || !isBranchValid(ref)) return null
-            return PayloadSource(owner, ref, enabled)
+            return if (isCommitValid(ref)) {
+                PayloadSource(owner, ref, enabled, pinnedCommit = ref)
+            } else {
+                PayloadSource(owner, ref, enabled)
+            }
         }
     }
 }
@@ -79,3 +110,13 @@ fun List<PayloadSource>.withSourceEnabled(
     sourceId: String,
     enabled: Boolean,
 ): List<PayloadSource> = map { if (it.id == sourceId) it.copy(enabled = enabled) else it }
+
+/** Freezes a source at [commit]. Its id changes, since a pinned revision is a different catalog. */
+fun List<PayloadSource>.withSourcePinned(
+    sourceId: String,
+    commit: String,
+): List<PayloadSource> = map { if (it.id == sourceId) it.copy(pinnedCommit = commit) else it }
+
+/** Puts a source back on its branch, resolving the ref again on every load. */
+fun List<PayloadSource>.withSourceUnpinned(sourceId: String): List<PayloadSource> =
+    map { if (it.id == sourceId) it.copy(pinnedCommit = "") else it }

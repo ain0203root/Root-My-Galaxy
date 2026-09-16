@@ -176,17 +176,25 @@ class PayloadRepository(private val context: Context) {
     private fun sanitize(value: String): String =
         value.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
+    /** Resolves a source's ref to the commit it currently points at, for pinning it from the UI. */
+    fun resolveRevision(source: PayloadSource): String = resolveCommit(source)
+
     private fun resolveCommit(source: PayloadSource): String {
+        // A pinned source is taken as written: no API call, so its catalog cannot move and it keeps
+        // loading when the API is rate limited or offline in every way except the raw download.
+        if (source.isPinned) return source.pinnedCommit
         val response = downloadBytes(commitApiUrl(source), MAX_COMMIT_RESPONSE_BYTES)
-        val commit = JSONObject(response.toString(Charsets.UTF_8))
-            .getJSONObject("object")
-            .getString("sha")
-        require(commit.matches(Regex("[0-9a-f]{40}"))) { context.getString(R.string.repo_commit_invalid) }
+        val commit = JSONObject(response.toString(Charsets.UTF_8)).getString("sha")
+        require(PayloadSource.isCommitValid(commit)) { context.getString(R.string.repo_commit_invalid) }
         return commit
     }
 
+    /**
+     * `/commits/{ref}` and not `/git/refs/heads/{branch}`: a source's ref may be a branch, a tag, or
+     * a commit, and this resolves all three to the commit it points at.
+     */
     private fun commitApiUrl(source: PayloadSource) =
-        "https://api.github.com/repos/${source.repository}/git/refs/heads/${source.branch}"
+        "https://api.github.com/repos/${source.repository}/commits/${source.branch}"
 
     private fun rawRepository(source: PayloadSource) =
         "https://raw.githubusercontent.com/${source.repository}"

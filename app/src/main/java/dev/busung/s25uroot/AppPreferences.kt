@@ -77,7 +77,8 @@ object AppPreferences {
                 JSONObject()
                     .put("repository", source.repository)
                     .put("branch", source.branch)
-                    .put("enabled", source.enabled),
+                    .put("enabled", source.enabled)
+                    .put("pinnedCommit", source.pinnedCommit),
             )
         }
         return array.toString()
@@ -93,7 +94,15 @@ object AppPreferences {
                     branch = item.optString("branch"),
                     enabled = item.optBoolean("enabled", true),
                 ) ?: continue
-                if (none { it.id == source.id }) add(source)
+                // A stored pin is trusted only if it is a full commit; anything else would either
+                // fail later or silently read the wrong revision.
+                val stored = item.optString("pinnedCommit")
+                val pinned = if (PayloadSource.isCommitValid(stored)) {
+                    source.copy(pinnedCommit = stored.trim())
+                } else {
+                    source
+                }
+                if (none { it.id == pinned.id }) add(pinned)
             }
         }
     } catch (error: Throwable) {

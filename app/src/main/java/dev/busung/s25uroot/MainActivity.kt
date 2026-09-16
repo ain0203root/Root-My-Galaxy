@@ -87,6 +87,8 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Memory
@@ -167,8 +169,10 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.busung.s25uroot.ui.theme.RootMyGalaxyTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.DateFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -2478,9 +2482,13 @@ private fun PayloadSourcesSheet(
     onDismiss: () -> Unit,
     onSave: (List<PayloadSource>) -> Unit,
 ) {
+    val context = LocalContext.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     var sources by remember(initialSources) { mutableStateOf(initialSources) }
     var showAddSource by remember { mutableStateOf(false) }
+    var pinning by remember { mutableStateOf<String?>(null) }
+    var pinError by remember { mutableStateOf<String?>(null) }
     var repository by remember { mutableStateOf("") }
     var branch by remember { mutableStateOf(PayloadSource.DEFAULT_BRANCH) }
     var duplicate by remember { mutableStateOf(false) }
@@ -2645,9 +2653,36 @@ private fun PayloadSourcesSheet(
                     items(sources, key = { it.id }) { source ->
                         PayloadSourceRow(
                             source = source,
+                            pinning = pinning == source.id,
                             onEnabledChange = { checked ->
                                 clickHaptic(view)
                                 sources = sources.withSourceEnabled(source.id, checked)
+                            },
+                            onPinChange = {
+                                clickHaptic(view)
+                                if (source.isPinned) {
+                                    sources = sources.withSourceUnpinned(source.id)
+                                    pinError = null
+                                } else {
+                                    // Resolving the ref is a network call, and the resolved commit is
+                                    // what gets stored, so a moved tag or branch cannot affect a
+                                    // pinned source later.
+                                    scope.launch {
+                                        pinning = source.id
+                                        pinError = null
+                                        runCatching {
+                                            withContext(Dispatchers.IO) {
+                                                PayloadRepository(context).resolveRevision(source)
+                                            }
+                                        }.onSuccess { commit ->
+                                            sources = sources.withSourcePinned(source.id, commit)
+                                        }.onFailure { failure ->
+                                            pinError = failure.message
+                                                ?: failure.javaClass.simpleName
+                                        }
+                                        pinning = null
+                                    }
+                                }
                             },
                             onRemove = {
                                 clickHaptic(view)
@@ -2656,6 +2691,14 @@ private fun PayloadSourcesSheet(
                         )
                     }
                 }
+            }
+
+            pinError?.let { message ->
+                Text(
+                    stringResource(R.string.payload_source_pin_failed, message),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
 
             if (sources.none { it.id == PayloadSource.DEFAULT.id }) {
@@ -2699,7 +2742,9 @@ private fun PayloadSourcesSheet(
 @Composable
 private fun PayloadSourceRow(
     source: PayloadSource,
+    pinning: Boolean,
     onEnabledChange: (Boolean) -> Unit,
+    onPinChange: () -> Unit,
     onRemove: () -> Unit,
 ) {
     Row(
@@ -2716,12 +2761,33 @@ private fun PayloadSourceRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                source.branch,
+                source.refLabel,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (source.isPinned) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+        if (pinning) {
+            LoadingIndicator(modifier = Modifier.size(20.dp))
+        } else {
+            IconButton(onClick = onPinChange) {
+                Icon(
+                    if (source.isPinned) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                    contentDescription = stringResource(
+                        if (source.isPinned) {
+                            R.string.payload_source_unpin
+                        } else {
+                            R.string.payload_source_pin
+                        },
+                    ),
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
         IconButton(onClick = onRemove) {
             Icon(
