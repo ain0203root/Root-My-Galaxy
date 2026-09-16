@@ -81,7 +81,7 @@
     <string name="settings_wireless_adb_valid">Working</string>
     <string name="settings_wireless_adb_rejected">Unpaired on the device</string>
     <string name="settings_wireless_adb_port_missing">No port found</string>
-    <string name="settings_wireless_adb_no_permission">Wireless debugging cannot be switched on</string>
+    <string name="settings_wireless_adb_no_permission">Needs permission</string>
     <string name="settings_wireless_adb_failed">Not working</string>
     <string name="wireless_adb_permission_detail">Wireless debugging is off and cannot be switched on: grant it with `%1$s`, install with `adb install -g`, or let the app use root if the device has it</string>
     <string name="wireless_adb_pair">Pair with a code</string>

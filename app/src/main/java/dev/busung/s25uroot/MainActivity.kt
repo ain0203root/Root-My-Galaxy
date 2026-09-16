@@ -56,6 +56,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -168,6 +169,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
@@ -3928,6 +3930,16 @@ private enum class SettingsCardPosition {
     Bottom,
 }
 
+/**
+ * How much of a card a trailing value may take.
+ *
+ * Every band here is short - a state, a count, a mode - so a value that wants more than this is
+ * either a sentence that belongs below the description or one that needs shortening. The cap exists
+ * because the value is measured before the text column beside it, so an uncapped one silently
+ * claimed the row.
+ */
+private val SETTINGS_VALUE_MAX_WIDTH = 140.dp
+
 @Composable
 private fun SettingsCard(
     modifier: Modifier = Modifier,
@@ -3976,7 +3988,13 @@ private fun SettingsCard(
                         value,
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
+                        // Capped, because an unweighted Row child is measured before the weighted one
+                        // beside it: a long value took the whole row and left the title and the
+                        // description one character per line. Two lines and end alignment keeps the
+                        // text column readable without cutting the value off at one line.
+                        modifier = Modifier.widthIn(max = SETTINGS_VALUE_MAX_WIDTH),
+                        textAlign = TextAlign.End,
+                        maxLines = 2,
                     )
                 }
             }
