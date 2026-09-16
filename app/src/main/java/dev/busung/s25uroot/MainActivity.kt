@@ -2004,6 +2004,13 @@ private fun SettingsPage(
                 )
             }
         }
+        item {
+            RootRecoverySection(
+                // Root on boot is what would bring root back, so it is turned off before the reboot
+                // is asked for and this screen has to follow whatever was stored.
+                onBootRootModeChanged = onBootRootModeChanged,
+            )
+        }
         item { SectionLabel(stringResource(R.string.about)) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

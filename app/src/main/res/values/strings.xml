@@ -261,6 +261,17 @@
     <string name="repo_using_local_payload">Using local payload: %1$s</string>
     <string name="shizuku_mode">Use Shizuku</string>
     <string name="shizuku_mode_description">Use Shizuku to run the payload. This can improve reliability.</string>
+    <string name="settings_recovery">Recovery</string>
+    <string name="settings_recovery_summary">Repair actions for a rooted boot, for when a module or the framework itself did not come up. Hold a card to run it.</string>
+    <string name="recovery_restart_zygote">Restart Zygote</string>
+    <string name="recovery_restart_zygote_summary">Recreate the Android runtime so mounted modules load their framework hooks; running apps are closed</string>
+    <string name="recovery_soft_reboot">KernelSU soft reboot</string>
+    <string name="recovery_soft_reboot_summary">Let KernelSU stop and restart the userspace, which walks the module lifecycle in its normal order</string>
+    <string name="recovery_reboot_unroot">Reboot and unroot</string>
+    <string name="recovery_reboot_unroot_summary">Turn root on boot off, then restart the phone; KernelSU is loaded per boot, so root is gone afterwards</string>
+    <string name="recovery_root_required">KernelSU root is not available for this boot</string>
+    <string name="recovery_scheduled">Scheduled. The device will restart its Android runtime shortly.</string>
+    <string name="recovery_reboot_scheduled">Scheduled. The phone will restart without root.</string>
     <string name="settings_shizuku_start">Start Shizuku now</string>
     <string name="settings_shizuku_start_summary">Launch the Shizuku service through KernelSU, so this app keeps working without a computer</string>
     <string name="settings_shizuku_boot">Shizuku on boot</string>

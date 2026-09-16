@@ -277,6 +277,38 @@ privileged process, so the failure names that rather than pretending the button 
 Switching the setting on starts Shizuku there and then, so the setting is proven on the device
 instead of at the next reboot.
 
+## Post-root repair
+
+A rooted boot can come up unusable — a module that breaks the framework, a mount that needs the
+runtime recreated, a state worth getting out of — and until now the only answers were a reboot or a
+cable. **Recovery**, in Advanced mode, has three actions, and each is a hold rather than a tap: they
+restart the Android runtime or the phone, they are the only repair available, and a tap that opened a
+dialog is one tap away from closing everything open. Each card says what it costs before it is held.
+
+- **Restart Zygote** recreates the Android runtime through init — `setprop ctl.restart zygote`, which
+  asks init to restart the service it owns, where killing Zygote from the app would leave init to
+  recover by accident. The secondary Zygote, when the device runs one, goes first, because it can be
+  restarted without the framework going down and so a failure there is still reportable.
+- **KernelSU soft reboot** hands the transition to the installed `ksud`, which stops and restarts the
+  userspace and walks the module lifecycle in its normal order. It takes a lock carrying the boot id,
+  so a second request in the same boot is told the first already owns it rather than racing it, and it
+  is offered only when the installed daemon's own help output lists `soft-reboot` — the daemon this
+  app's default feed installs does not, so on that feed the card reports that instead of failing
+  obscurely. Whole-token matching keeps a feature name such as `emulated-soft-reboot` from counting.
+- **Reboot and unroot** clears *root on boot* first and then reboots, because a reboot that happened
+  first would come back rooted; if the request is refused, the setting is put back and the screen
+  follows the stored value rather than the value it hoped for.
+
+None of it acquires bootstrap root, replays the exploit, or stages a daemon: they consume the root
+the verified load installed. Each action runs its real work in a detached root shell that checks for
+itself that it is root, that the boot id has not changed under it, and — for the restart — that
+Zygote is actually running, and then writes an acknowledgement the app reads back. A successful fork
+is deliberately not an action: an action the child did not acknowledge is reported as a failure,
+because the app must never call something scheduled that never happened. The child's own worst case
+is bounded to stay inside the window the app waits in, so the reverse cannot happen either — a
+daemon that has not returned is stopped and reported rather than left to fire a userspace transition
+the app already gave up on.
+
 ## Build identity
 
 Two builds of the same version are otherwise indistinguishable once installed, so every build

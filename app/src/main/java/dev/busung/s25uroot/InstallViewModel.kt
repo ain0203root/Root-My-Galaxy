@@ -539,12 +539,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         require(stored) { app.getString(R.string.error_receipt) }
     }
 
-    private fun currentBootToken(): String? = runCatching {
-        File("/proc/sys/kernel/random/boot_id")
-            .readText(Charsets.US_ASCII)
-            .trim()
-            .takeIf(String::isNotBlank)
-    }.getOrNull()
+    private fun currentBootToken(): String? = kernelBootToken()
 
     /** The slide offset cached for this boot, if an earlier run found one. */
     internal fun cachedOffsetForThisBoot(): String? = cachedP0Offset(currentBootToken())
