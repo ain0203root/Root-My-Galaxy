@@ -204,14 +204,22 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 setPhase(InstallPhase.Exploiting, app.getString(R.string.status_exploit_running))
                 executeExploit(payloads.exploit)
 
-				if (AppPreferences.disableKsuModules(app)) {
-					DisableConflictingKSUModules()
-				} else {
-					appendLog("[*] Disable KSU Modules option is OFF")
-				}
+                val modulesSkipped = if (AppPreferences.disableKsuModules(app)) {
+                    moveModulesAside()
+                } else {
+                    appendLog(app.getString(R.string.log_ksu_modules_disabled_off))
+                    false
+                }
 
-				setPhase(InstallPhase.LoadingKernelSu, app.getString(R.string.status_ksu_loading))
-                installKernelSu(payloads)
+                try {
+                    setPhase(InstallPhase.LoadingKernelSu, app.getString(R.string.status_ksu_loading))
+                    installKernelSu(payloads)
+                } finally {
+                    // Modules are only meant to sit out the load itself. Restoring here also
+                    // covers a load that fails, which is where leaving them aside would strand
+                    // them with nothing in the app to bring them back.
+                    if (modulesSkipped) restoreModules()
+                }
 
                 setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_active))
                 appendLog(app.getString(R.string.log_install_complete))
@@ -225,37 +233,52 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             }
         }
     }
-	
-    private suspend fun DisableConflictingKSUModules() {
-        val script = "/data/adb/modules"
-        val backup = "${script}_bak"
-		
-        val command = """
-        if [ -d '$script' ]; then
-            if [ ! -e '$backup' ]; then
-                /system/bin/mv '$script' '$backup' || exit 1
-                /system/bin/chmod 755 '$backup' || exit 1
-            else
-                random_suffix=$(/system/bin/tr -dc 'A-Za-z0-9' < /dev/urandom | /system/bin/head -c 13)
-                new_backup="${script}_bak_${'$'}random_suffix"
-                counter=1
 
-                while [ -e "${'$'}new_backup" ]; do
-                    random_suffix=$(/system/bin/tr -dc 'A-Za-z0-9' < /dev/urandom | /system/bin/head -c 13)
-                    new_backup="${script}_bak_${'$'}random_suffix"
-                    counter=${'$'}((counter + 1))
-                done
-
-                /system/bin/mv '$script' "${'$'}new_backup" || exit 1
-                /system/bin/chmod 755 "${'$'}new_backup" || exit 1
-            fi
-        fi
-        """.trimIndent()
-		val result = runHelper("-c", command)
-		require(result.code == 0) {
-            "Failed to disable $script: ${result.output}"
+    /**
+     * Moves the module directory aside so the late-load starts without any module, and reports
+     * whether they are actually out of the way. It never fails the run: the helper holds no
+     * raised privileges of its own, and a device where the move is refused is a device whose
+     * modules were never in the load's way to begin with.
+     *
+     * The move script first puts back a directory left over from a run that was killed between
+     * the two moves, so a stranding cannot outlive one interrupted run.
+     */
+    private suspend fun moveModulesAside(): Boolean {
+        val result = runHelper("-c", MODULES_ASIDE_SCRIPT)
+        when {
+            result.code == MODULES_BACKUP_EXISTS -> appendLog(
+                app.getString(R.string.log_ksu_modules_backup_present, MODULES_BACKUP_DIRECTORY),
+            )
+            result.code != 0 -> appendLog(
+                app.getString(
+                    R.string.log_ksu_modules_move_failed,
+                    result.output.ifBlank { "exit ${result.code}" },
+                ),
+            )
+            result.output.contains(MODULES_MOVED_MARKER) -> {
+                appendLog(app.getString(R.string.log_ksu_modules_moved, MODULES_BACKUP_DIRECTORY))
+                return true
+            }
+            else -> appendLog(app.getString(R.string.log_ksu_modules_absent, MODULES_DIRECTORY))
         }
-        appendLog("[*] Disable conflicting KSU Modules before KernelSU load")
+        return false
+    }
+
+    private suspend fun restoreModules() {
+        val result = runHelper("-c", MODULES_RESTORE_SCRIPT)
+        when {
+            result.code != 0 -> appendLog(
+                app.getString(
+                    R.string.log_ksu_modules_restore_failed,
+                    MODULES_BACKUP_DIRECTORY,
+                    MODULES_DIRECTORY,
+                    result.output.ifBlank { "exit ${result.code}" },
+                ),
+            )
+            result.output.contains(MODULES_RESTORED_MARKER) ->
+                appendLog(app.getString(R.string.log_ksu_modules_restored))
+            else -> appendLog(app.getString(R.string.log_ksu_modules_restore_skipped))
+        }
     }
 
     private suspend fun executeExploit(payload: File) {
@@ -595,6 +618,38 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val EXPLOIT_STALL_MILLIS = 90_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
         private const val HELPER_TIMEOUT_MILLIS = 120_000L
+
+        private const val MODULES_DIRECTORY = "/data/adb/modules"
+        private const val MODULES_BACKUP_DIRECTORY = "/data/adb/modules_rmg_backup"
+        private const val MODULES_MOVED_MARKER = "modules-moved"
+        private const val MODULES_RESTORED_MARKER = "modules-restored"
+        private const val MODULES_BACKUP_EXISTS = 5
+
+        // `mv` into an existing directory nests the source inside it, so the two scripts below
+        // check for the backup first and refuse rather than bury a module tree somewhere else.
+        private val MODULES_ASIDE_SCRIPT = """
+            if [ -d $MODULES_BACKUP_DIRECTORY ] && [ ! -e $MODULES_DIRECTORY ]; then
+                /system/bin/mv $MODULES_BACKUP_DIRECTORY $MODULES_DIRECTORY || exit 3
+            fi
+            if [ -d $MODULES_BACKUP_DIRECTORY ]; then
+                exit $MODULES_BACKUP_EXISTS
+            fi
+            if [ -d $MODULES_DIRECTORY ]; then
+                /system/bin/mv $MODULES_DIRECTORY $MODULES_BACKUP_DIRECTORY || exit 4
+                echo $MODULES_MOVED_MARKER
+            fi
+        """.trimIndent()
+
+        private val MODULES_RESTORE_SCRIPT = """
+            if [ -d $MODULES_BACKUP_DIRECTORY ]; then
+                if [ -e $MODULES_DIRECTORY ]; then
+                    echo modules-already-present
+                else
+                    /system/bin/mv $MODULES_BACKUP_DIRECTORY $MODULES_DIRECTORY || exit 3
+                    echo $MODULES_RESTORED_MARKER
+                fi
+            fi
+        """.trimIndent()
         private const val INSTALL_RECEIPT = "install_receipt"
         private const val RECEIPT_BOOT_TOKEN = "kernel_boot_id"
         private const val RECEIPT_VERIFIED = "verified"

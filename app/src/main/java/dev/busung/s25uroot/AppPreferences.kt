@@ -35,7 +35,7 @@ object AppPreferences {
     private const val ACCENT_COLOR = "accent_color"
     private const val THEME_MODE = "theme_mode"
     private const val ADVANCED_MODE = "advanced_mode"
-	private const val DISABLE_KSU_MODULES = "disable_ksu_modules"
+    private const val DISABLE_KSU_MODULES = "disable_ksu_modules"
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val PAYLOAD_SOURCES = "payload_sources"
     // Superseded by the source list; read once so an existing selection survives the upgrade.
@@ -125,17 +125,15 @@ object AppPreferences {
             .putBoolean(ADVANCED_MODE, enabled)
             .apply()
     }
-	
-	fun disableKsuModules(context: Context): Boolean =
-    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        .getBoolean(DISABLE_KSU_MODULES, false)
-	
-	fun setDisableKsuModules(context: Context, enabled: Boolean) {
-    context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
-        .edit()
-        .putBoolean(DISABLE_KSU_MODULES, enabled)
-        .apply()
-	}
+
+    fun disableKsuModules(context: Context): Boolean =
+        prefs(context).getBoolean(DISABLE_KSU_MODULES, false)
+
+    fun setDisableKsuModules(context: Context, enabled: Boolean) {
+        prefs(context).edit()
+            .putBoolean(DISABLE_KSU_MODULES, enabled)
+            .apply()
+    }
 
     fun shizukuMode(context: Context): Boolean =
         prefs(context).getBoolean(SHIZUKU_MODE, false)

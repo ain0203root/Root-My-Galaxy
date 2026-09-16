@@ -107,6 +107,14 @@
     <string name="log_download_verified">[+] Payload download complete</string>
     <string name="log_install_complete">[+] Installation complete</string>
     <string name="log_bootstrap_root">[+] Bootstrap root acquired</string>
+    <string name="log_ksu_modules_disabled_off">[*] Disable KSU modules is off</string>
+    <string name="log_ksu_modules_moved">[*] KernelSU modules moved to %1$s for the load</string>
+    <string name="log_ksu_modules_restored">[+] KernelSU modules restored</string>
+    <string name="log_ksu_modules_restore_skipped">[*] Nothing to restore, the module directory is already in place</string>
+    <string name="log_ksu_modules_backup_present">[!] A backup from an earlier run is still at %1$s, modules left in place</string>
+    <string name="log_ksu_modules_absent">[*] Nothing to move aside at %1$s</string>
+    <string name="log_ksu_modules_move_failed">[!] KernelSU modules left in place (%1$s)</string>
+    <string name="log_ksu_modules_restore_failed">[!] KernelSU modules are still at %1$s, move them back to %2$s (%3$s)</string>
     <string name="log_ksu_staged">[+] KernelSU staging complete</string>
     <string name="log_ksu_control_verified">[+] KernelSU control channel verified</string>
     <string name="error_helper_unavailable">The bootstrap helper is not executable</string>
