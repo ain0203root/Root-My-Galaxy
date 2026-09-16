@@ -1777,6 +1777,15 @@ private fun TargetSelectionSheet(
     }
     val selectedProfile = catalog.profiles.firstOrNull { it.selectionId == selectedSelectionId }
 
+    // Preselect what the catalog prefers, so a device whose feed lists an exact kernel release
+    // starts on that profile instead of an arbitrary three-part sibling. Only fills an empty
+    // selection: a profile the user picked is never replaced by a catalog reload.
+    LaunchedEffect(catalog.profiles) {
+        if (selectedSelectionId == null) {
+            selectedSelectionId = catalog.profiles.resolveFor(device)?.selectionId
+        }
+    }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
