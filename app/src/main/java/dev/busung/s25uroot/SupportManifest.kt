@@ -136,3 +136,38 @@ data class SupportManifest(
         }
     }
 }
+
+/**
+ * What a catalog offers, summarised so a source can be judged before it is saved rather than
+ * discovered to be useless by a failed run.
+ *
+ * [models] and [kernelVersions] are the union across every payload, sorted, because the question a
+ * source has to answer is what it covers, not which payload happens to be listed first.
+ */
+data class SourceCoverage(
+    /** Revision the catalog was read at, so a summary is tied to the revision that produced it. */
+    val commit: String,
+    val payloadCount: Int,
+    val models: List<String>,
+    val kernelVersions: List<String>,
+    /** The payload a run would pick on this device, or null when nothing here fits it. */
+    val deviceProfileId: String?,
+    /** How many payloads list this device's model and kernel version. */
+    val deviceProfileCount: Int,
+)
+
+/**
+ * Summarises a parsed catalog for [snapshot].
+ *
+ * The device question is answered with the same [resolveFor] the installer uses, so a summary
+ * cannot claim a catalog covers a device that a run would then refuse.
+ */
+fun SupportManifest.coverageFor(snapshot: DeviceSnapshot, commit: String): SourceCoverage =
+    SourceCoverage(
+        commit = commit,
+        payloadCount = targets.size,
+        models = targets.flatMap { it.models }.distinct().sorted(),
+        kernelVersions = targets.flatMap { it.kernelVersions }.distinct().sorted(),
+        deviceProfileId = targets.resolveFor(snapshot)?.profileId,
+        deviceProfileCount = targets.count { it.matches(snapshot) },
+    )

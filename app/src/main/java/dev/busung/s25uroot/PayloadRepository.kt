@@ -71,13 +71,32 @@ class PayloadRepository(private val context: Context) {
             ?: error(context.getString(R.string.repo_profile_missing, profileId))
     }
 
-    private fun loadSource(source: PayloadSource): List<TargetProfile> {
+    /**
+     * Reads a source without saving it: the check the sources sheet runs before a repository is
+     * added. An unreachable repository, a missing manifest, or a schema this app cannot read is
+     * reported here instead of becoming a source that fails silently on every later run.
+     */
+    fun inspect(source: PayloadSource, snapshot: DeviceSnapshot): SourceCoverage {
+        val fetched = fetchManifest(source)
+        return fetched.manifest.coverageFor(snapshot, fetched.commit)
+    }
+
+    /** The manifest and the revision it was read at. Both callers need the revision. */
+    private data class FetchedManifest(val commit: String, val manifest: SupportManifest)
+
+    private fun fetchManifest(source: PayloadSource): FetchedManifest {
         val commit = resolveCommit(source)
         val manifestBytes = downloadBytes(
-            rawUrl(source, commit, "support/targets-v3.json"),
+            rawUrl(source, commit, MANIFEST_PATH),
             MAX_MANIFEST_BYTES,
         )
-        return SupportManifest.parse(manifestBytes).targets.map { profile ->
+        return FetchedManifest(commit, SupportManifest.parse(manifestBytes))
+    }
+
+    private fun loadSource(source: PayloadSource): List<TargetProfile> {
+        val fetched = fetchManifest(source)
+        val commit = fetched.commit
+        return fetched.manifest.targets.map { profile ->
             profile.copy(
                 sourceId = source.id,
                 sourceLabel = source.label,
@@ -254,5 +273,6 @@ class PayloadRepository(private val context: Context) {
     companion object {
         private const val MAX_COMMIT_RESPONSE_BYTES = 16 * 1024
         private const val MAX_MANIFEST_BYTES = 256 * 1024
+        private const val MANIFEST_PATH = "support/targets-v3.json"
     }
 }

@@ -652,6 +652,7 @@ private fun RootApp(
                 )
                 AppPage.Settings -> SettingsPage(
                     padding = padding,
+                    device = device,
                     accentColor = accentColor,
                     themeMode = themeMode,
                     advancedMode = advancedMode,
@@ -1597,6 +1598,7 @@ private fun saveRunLog(context: Context, uri: Uri, entry: InstallHistoryEntry) {
 @Composable
 private fun SettingsPage(
     padding: PaddingValues,
+    device: DeviceSnapshot,
     accentColor: AccentColor,
     themeMode: AppThemeMode,
     advancedMode: Boolean,
@@ -1666,6 +1668,7 @@ private fun SettingsPage(
 
     if (showPayloadSourcesSheet) {
         PayloadSourcesSheet(
+            device = device,
             initialSources = payloadSources,
             onDismiss = { showPayloadSourcesSheet = false },
             onSave = { sources ->
@@ -2480,6 +2483,7 @@ private fun LocalPayloadDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun PayloadSourcesSheet(
+    device: DeviceSnapshot,
     initialSources: List<PayloadSource>,
     onDismiss: () -> Unit,
     onSave: (List<PayloadSource>) -> Unit,
@@ -2491,9 +2495,30 @@ private fun PayloadSourcesSheet(
     var showAddSource by remember { mutableStateOf(false) }
     var pinning by remember { mutableStateOf<String?>(null) }
     var pinError by remember { mutableStateOf<String?>(null) }
+    // What each source was found to read, keyed by source id and kept for the life of the sheet.
+    // Keying by id is what makes the add form work: a repository that failed to read leaves its
+    // failure under that candidate id, so editing the field clears the message without any extra
+    // state, and the entry a successful check stored is the one the added row then shows.
+    var checks by remember { mutableStateOf<Map<String, Result<SourceCoverage>>>(emptyMap()) }
+    var checking by remember { mutableStateOf<String?>(null) }
     var repository by remember { mutableStateOf("") }
     var branch by remember { mutableStateOf(PayloadSource.DEFAULT_BRANCH) }
     var duplicate by remember { mutableStateOf(false) }
+
+    // Reading a source is also how it is validated: an unreachable repository, a missing manifest,
+    // or a schema this app cannot read must not reach the saved list, where it would sit failing on
+    // every later load. Shared with the row action, since both ask what a source actually covers.
+    fun checkSource(source: PayloadSource, onCovered: () -> Unit = {}) {
+        scope.launch {
+            checking = source.id
+            val outcome = runCatching {
+                withContext(Dispatchers.IO) { PayloadRepository(context).inspect(source, device) }
+            }
+            checks = checks + (source.id to outcome)
+            checking = null
+            if (outcome.isSuccess) onCovered()
+        }
+    }
     val invalidRepository = stringResource(R.string.payload_repository_invalid)
     val invalidBranch = stringResource(R.string.payload_branch_invalid)
     val candidate = remember(repository, branch) { PayloadSource.create(repository, branch) }
@@ -2507,7 +2532,13 @@ private fun PayloadSourcesSheet(
         !PayloadSource.isBranchValid(branch) -> invalidBranch
         else -> null
     }
-    val addError = repositoryError ?: branchError ?: if (duplicate) {
+    val candidateCheck = candidate?.let { checks[it.id] }
+    val addError = repositoryError ?: branchError ?: candidateCheck?.exceptionOrNull()?.let {
+        stringResource(
+            R.string.payload_source_check_failed,
+            it.message ?: it.javaClass.simpleName,
+        )
+    } ?: if (duplicate) {
         stringResource(R.string.payload_source_duplicate)
     } else {
         null
@@ -2612,6 +2643,7 @@ private fun PayloadSourcesSheet(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                val candidateChecking = candidate != null && checking == candidate.id
                 Button(
                     onClick = {
                         clickHaptic(view)
@@ -2619,21 +2651,34 @@ private fun PayloadSourcesSheet(
                         if (sources.any { it.id == source.id }) {
                             duplicate = true
                         } else {
-                            sources = sources.withSourceAdded(source)
-                            repository = ""
-                            branch = PayloadSource.DEFAULT_BRANCH
-                            duplicate = false
+                            // Added only once the source has been read, so the list never holds a
+                            // repository nobody has confirmed serves a catalog.
+                            checkSource(source) {
+                                sources = sources.withSourceAdded(source)
+                                repository = ""
+                                branch = PayloadSource.DEFAULT_BRANCH
+                                duplicate = false
+                            }
                         }
                     },
-                    enabled = candidate != null,
+                    enabled = candidate != null && !candidateChecking,
                 ) {
-                    Icon(
-                        Icons.Rounded.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    if (candidateChecking) {
+                        LoadingIndicator(modifier = Modifier.size(18.dp))
+                    } else {
+                        Icon(
+                            Icons.Rounded.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                     Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.payload_source_add_action))
+                    Text(
+                        stringResource(
+                            if (candidateChecking) R.string.payload_source_checking
+                            else R.string.payload_source_add_action,
+                        ),
+                    )
                 }
             }
 
@@ -2655,7 +2700,14 @@ private fun PayloadSourcesSheet(
                     items(sources, key = { it.id }) { source ->
                         PayloadSourceRow(
                             source = source,
+                            device = device,
+                            coverage = checks[source.id]?.getOrNull(),
+                            checkFailure = checks[source.id]?.exceptionOrNull()?.let {
+                                it.message ?: it.javaClass.simpleName
+                            },
+                            checking = checking == source.id,
                             pinning = pinning == source.id,
+                            onCheck = { checkSource(source) },
                             onEnabledChange = { checked ->
                                 clickHaptic(view)
                                 sources = sources.withSourceEnabled(source.id, checked)
@@ -2744,58 +2796,162 @@ private fun PayloadSourcesSheet(
 @Composable
 private fun PayloadSourceRow(
     source: PayloadSource,
+    device: DeviceSnapshot,
+    coverage: SourceCoverage?,
+    checkFailure: String?,
+    checking: Boolean,
     pinning: Boolean,
+    onCheck: () -> Unit,
     onEnabledChange: (Boolean) -> Unit,
     onPinChange: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Checkbox(checked = source.enabled, onCheckedChange = onEnabledChange)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                source.repository,
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                source.refLabel,
-                style = MaterialTheme.typography.bodySmall,
-                color = if (source.isPinned) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        if (pinning) {
-            LoadingIndicator(modifier = Modifier.size(20.dp))
-        } else {
-            IconButton(onClick = onPinChange) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Checkbox(checked = source.enabled, onCheckedChange = onEnabledChange)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    source.repository,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    source.refLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (source.isPinned) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (checking) {
+                LoadingIndicator(modifier = Modifier.size(20.dp))
+            } else {
+                IconButton(onClick = onCheck) {
+                    Icon(
+                        Icons.Rounded.CheckCircle,
+                        contentDescription = stringResource(R.string.payload_source_check),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            if (pinning) {
+                LoadingIndicator(modifier = Modifier.size(20.dp))
+            } else {
+                IconButton(onClick = onPinChange) {
+                    Icon(
+                        if (source.isPinned) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                        contentDescription = stringResource(
+                            if (source.isPinned) {
+                                R.string.payload_source_unpin
+                            } else {
+                                R.string.payload_source_pin
+                            },
+                        ),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            IconButton(onClick = onRemove) {
                 Icon(
-                    if (source.isPinned) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
-                    contentDescription = stringResource(
-                        if (source.isPinned) {
-                            R.string.payload_source_unpin
-                        } else {
-                            R.string.payload_source_pin
-                        },
-                    ),
+                    Icons.Rounded.Delete,
+                    contentDescription = stringResource(R.string.payload_source_remove),
                     modifier = Modifier.size(20.dp),
                 )
             }
         }
-        IconButton(onClick = onRemove) {
-            Icon(
-                Icons.Rounded.Delete,
-                contentDescription = stringResource(R.string.payload_source_remove),
-                modifier = Modifier.size(20.dp),
+        checkFailure?.let { message ->
+            Text(
+                stringResource(R.string.payload_source_check_failed, message),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(start = SOURCE_ROW_INSET, top = 2.dp),
+            )
+        }
+        coverage?.let { SourceCoverageBlock(it, device) }
+    }
+}
+
+/** Lines up a row's detail with the text column, past the checkbox and the row spacing. */
+private val SOURCE_ROW_INSET = 52.dp
+
+/**
+ * What a checked source covers, as the sheet reports it.
+ *
+ * The models and kernel versions are the whole catalog's, not this device's, because the point of
+ * reading a source before saving it is to see what it is for. The last line answers the other half
+ * of the question, which the lists alone cannot: whether any of it fits this phone.
+ */
+@Composable
+private fun SourceCoverageBlock(coverage: SourceCoverage, device: DeviceSnapshot) {
+    val models = coverage.models.joinToString()
+    val kernels = coverage.kernelVersions.joinToString()
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = SOURCE_ROW_INSET, top = 4.dp, end = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(
+            stringResource(R.string.payload_source_verified, coverage.commit.take(7)),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Text(
+            stringResource(R.string.payload_source_coverage_payloads, coverage.payloadCount),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (models.isNotEmpty()) {
+            Text(
+                stringResource(R.string.payload_source_coverage_models, models),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (kernels.isNotEmpty()) {
+            Text(
+                stringResource(R.string.payload_source_coverage_kernels, kernels),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 4,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        val deviceProfileId = coverage.deviceProfileId
+        if (deviceProfileId != null) {
+            // A catalog usually has one payload per device, but a regional sibling makes two; the
+            // count is how a user learns the other one is there without opening the picker.
+            Text(
+                if (coverage.deviceProfileCount > 1) {
+                    stringResource(
+                        R.string.payload_source_device_match_more,
+                        deviceProfileId,
+                        coverage.deviceProfileCount - 1,
+                    )
+                } else {
+                    stringResource(R.string.payload_source_device_match, deviceProfileId)
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        } else {
+            Text(
+                stringResource(R.string.payload_source_device_none, device.model),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }

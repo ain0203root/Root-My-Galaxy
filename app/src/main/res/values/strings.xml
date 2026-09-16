@@ -189,6 +189,16 @@
     <string name="payload_source_default">Restore default</string>
     <string name="payload_source_duplicate">That source is already in the list</string>
     <string name="payload_source_remove">Remove source</string>
+    <string name="payload_source_check">Check what this source covers</string>
+    <string name="payload_source_checking">Checking source...</string>
+    <string name="payload_source_check_failed">Could not read this source: %1$s</string>
+    <string name="payload_source_verified">Verified at %1$s</string>
+    <string name="payload_source_coverage_payloads">Payloads: %1$d</string>
+    <string name="payload_source_coverage_models">Models: %1$s</string>
+    <string name="payload_source_coverage_kernels">Kernels: %1$s</string>
+    <string name="payload_source_device_match">Matches this device: %1$s</string>
+    <string name="payload_source_device_match_more">Matches this device: %1$s (+%2$d more)</string>
+    <string name="payload_source_device_none">No payload for this device (%1$s)</string>
     <string name="action_save">Save</string>
     <string name="run_plan">Run plan</string>
     <string name="run_plan_description">What the next run is handed and where the app cuts it off</string>

@@ -81,6 +81,18 @@ button stay visible on a short screen, where an alert dialog's buttons end up be
 default entry and can be restored with one button, so pointing the list at a testing branch
 for payloads that are not upstream yet does not cost you the official catalog.
 
+Adding a source reads it before it is saved: the repository is resolved to a commit, its
+`support/targets-v3.json` is downloaded and parsed, and only then does it join the list, so a
+repository that is unreachable, has no manifest, or serves a schema this app cannot read is
+refused with the reason instead of becoming a source that fails on every later run. The check
+also reports what the catalog covers — the revision it was read at, how many payloads it holds,
+the models and kernel versions across all of them, and whether any payload fits this phone,
+which is the question a list of models alone cannot answer. Any row can be re-checked with the
+check button once more of the catalog has landed, or after the source it follows has moved.
+Coverage is kept for the life of the sheet and is not part of what gets saved: a summary of a
+branch is stale the moment the branch moves, and a pinned source is how a revision is frozen
+rather than a comment about it.
+
 Any source can be **pinned**. The lock button on a row resolves its ref once — branch, tag, or a
 full commit pasted into the ref field — and stores the commit it resolved to, after which that
 source reads from the pinned revision instead of following the branch. That is what stops a
