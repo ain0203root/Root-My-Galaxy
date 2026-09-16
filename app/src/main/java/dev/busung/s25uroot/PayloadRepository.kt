@@ -52,7 +52,7 @@ class PayloadRepository(private val context: Context) {
     fun loadTargets(): List<TargetProfile> = loadCatalog().targets
 
     fun resolveTarget(snapshot: DeviceSnapshot): TargetProfile = loadTargets()
-        .firstOrNull { it.matches(snapshot) }
+        .resolveFor(snapshot)
         ?: error(context.getString(R.string.repo_no_profile))
 
     /** Resolves a catalog selection, which may name the source it came from. */
