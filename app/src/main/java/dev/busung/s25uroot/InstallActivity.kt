@@ -95,6 +95,7 @@ class InstallActivity : ComponentActivity() {
                 InstallScreen(
                     installState = installState,
                     onRetry = { installViewModel.install(selectionId) },
+                    onSkipBootSettle = { installViewModel.skipBootSettle() },
                     onClose = ::finish,
                 )
             }
@@ -134,6 +135,7 @@ private fun clickHaptic(view: View) {
 private fun InstallScreen(
     installState: InstallUiState,
     onRetry: () -> Unit,
+    onSkipBootSettle: () -> Unit,
     onClose: () -> Unit,
 ) {
     val logScrollState = rememberScrollState()
@@ -176,6 +178,22 @@ private fun InstallScreen(
                 modifier = Modifier.weight(1f),
                 scrollState = logScrollState,
             )
+
+            // Offered only while the app is holding the run: the wait is a floor, not a rule, and the
+            // user is the one who knows whether this boot has already settled.
+            if (installState.phase == InstallPhase.Settling) {
+                FilledTonalButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onSkipBootSettle()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 20.dp),
+                ) {
+                    Text(stringResource(R.string.action_run_now))
+                }
+            }
 
             if (!installState.busy) {
                 Row(
@@ -426,6 +444,7 @@ private fun installPhaseDetail(installState: InstallUiState): String =
             when (installState.phase) {
                 InstallPhase.Checking -> R.string.phase_checking
                 InstallPhase.Ready -> R.string.phase_ready
+                InstallPhase.Settling -> R.string.phase_settling
                 InstallPhase.Downloading -> R.string.phase_downloading
                 InstallPhase.Exploiting -> R.string.phase_exploiting
                 InstallPhase.LoadingKernelSu -> R.string.phase_loading_ksu
@@ -468,6 +487,7 @@ private fun FailureReport(failure: RunFailure) {
 private fun installProgress(phase: InstallPhase): Float = when (phase) {
     InstallPhase.Checking -> 0.1f
     InstallPhase.Ready -> 0f
+    InstallPhase.Settling -> 0.15f
     InstallPhase.Downloading -> 0.3f
     InstallPhase.Exploiting -> 0.6f
     InstallPhase.LoadingKernelSu -> 0.85f
@@ -478,7 +498,7 @@ private fun installProgress(phase: InstallPhase): Float = when (phase) {
 private fun stepState(phase: InstallPhase, stepIndex: Int): Int {
     if (phase == InstallPhase.Installed) return 2
     val activeIndex = when (phase) {
-        InstallPhase.Checking, InstallPhase.Ready, InstallPhase.Failed -> 0
+        InstallPhase.Checking, InstallPhase.Ready, InstallPhase.Settling, InstallPhase.Failed -> 0
         InstallPhase.Downloading -> 1
         InstallPhase.Exploiting -> 2
         InstallPhase.LoadingKernelSu -> 3

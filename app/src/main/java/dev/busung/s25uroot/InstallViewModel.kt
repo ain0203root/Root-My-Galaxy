@@ -20,6 +20,7 @@ import kotlin.time.Duration.Companion.seconds
 enum class InstallPhase {
     Checking,
     Ready,
+    Settling,
     Downloading,
     Exploiting,
     LoadingKernelSu,
@@ -38,6 +39,7 @@ data class InstallUiState(
     val busy: Boolean
         get() = phase in setOf(
             InstallPhase.Checking,
+            InstallPhase.Settling,
             InstallPhase.Downloading,
             InstallPhase.Exploiting,
             InstallPhase.LoadingKernelSu,
@@ -52,6 +54,11 @@ data class InstallUiState(
  * and the rules stay testable without a device.
  */
 internal data class ExploitPlan(
+    /**
+     * The boot-uptime floor a run waits for before the exploit starts; part of the plan because it is
+     * a cut-off the app enforces on the run, and the plan is where those are shown.
+     */
+    val bootSettleSeconds: Int = 0,
     val environment: Map<String, String>,
     val shizukuArguments: Map<String, String>,
     /** Null when no stall watchdog applies, which is the case for a fresh session. */
@@ -109,6 +116,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     @Volatile
     private var activeRunShizuku: Boolean? = null
+
+    /** Set by the run screen's override while a boot-settle wait is in progress. */
+    @Volatile
+    private var bootSettleOverridden = false
     val state: StateFlow<InstallUiState> = mutableState.asStateFlow()
     val history: StateFlow<List<InstallHistoryEntry>> = mutableHistory.asStateFlow()
     val targetCatalog: StateFlow<TargetCatalogUiState> = mutableTargetCatalog.asStateFlow()
@@ -191,9 +202,20 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         installJob?.join()
     }
 
+    /**
+     * Ends a boot-settle wait on the user's word.
+     *
+     * A plain flag rather than a cancellation, because the wait is not the run: what is being skipped
+     * is the pause in front of it, and the run continues from there with nothing else changed.
+     */
+    fun skipBootSettle() {
+        bootSettleOverridden = true
+    }
+
     fun install(selectionId: String? = null, forceStandalone: Boolean = false) {
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
         discoveryJob?.cancel()
+        bootSettleOverridden = false
         installJob = viewModelScope.launch(Dispatchers.IO) {
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
@@ -241,6 +263,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     appendLog(app.getString(R.string.log_payload_source, profile.sourceLabel))
                 }
                 updateHistoryTarget(profile)
+
+                // Before the download, so the wait is the first thing the screen reports rather than
+                // something that appears after the payload is already staged.
+                awaitBootSettle(AppPreferences.bootSettleSeconds(app))
 
                 activeStage = RunStage.Download
                 setPhase(InstallPhase.Downloading, app.getString(R.string.status_downloading_payload))
@@ -666,6 +692,41 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     private fun shellQuote(value: String) = "'${value.replace("'", "'\\''")}'"
 
+    /**
+     * Holds the run until the device has been up long enough, reporting the remaining time as it goes.
+     *
+     * The countdown is the phase message, so it is on the run screen's status card rather than only in
+     * the log, and the wait ends early when the user says so. The elapsed clock is read every tick
+     * rather than accumulated, so the app sleeping through part of the wait does not make the run
+     * believe it waited longer than it did.
+     */
+    private suspend fun awaitBootSettle(requiredSeconds: Int) {
+        val required = BootSettle.normalize(requiredSeconds)
+        if (required <= 0) return
+        val remaining = BootSettle.remainingMillis(required, BootSettle.elapsedMillis())
+        if (remaining <= 0L) {
+            appendLog(app.getString(R.string.log_boot_settled, BootSettle.label(required)))
+            return
+        }
+        appendLog(app.getString(R.string.log_boot_settle, BootSettle.formatRemaining(remaining)))
+        while (true) {
+            if (bootSettleOverridden) {
+                appendLog(app.getString(R.string.log_boot_settle_skipped))
+                return
+            }
+            val left = BootSettle.remainingMillis(required, BootSettle.elapsedMillis())
+            if (left <= 0L) {
+                appendLog(app.getString(R.string.log_boot_settled, BootSettle.label(required)))
+                return
+            }
+            setPhase(
+                InstallPhase.Settling,
+                app.getString(R.string.status_boot_settle, BootSettle.formatRemaining(left)),
+            )
+            delay(BOOT_SETTLE_TICK_MILLIS)
+        }
+    }
+
     private fun setPhase(phase: InstallPhase, message: String) {
         mutableState.value = mutableState.value.copy(phase = phase, message = message)
         appendLog("[*] $message")
@@ -730,6 +791,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private fun File.readTextIfPresent(): String = if (exists()) readText() else ""
 
     companion object {
+        /** How often the settle countdown is redrawn; a second would look like it stutters. */
+        private const val BOOT_SETTLE_TICK_MILLIS = 500L
+
         private const val EXPLOIT_STALL_MILLIS = 90_000L
         private const val EXPLOIT_TOTAL_MILLIS = 900_000L
         // A profile that needs one fresh P0 session hands the pacing to the payload, and the
@@ -810,7 +874,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             cachedP0Offset: String?,
             shizuku: Boolean,
             routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
+            bootSettleSeconds: Int = 0,
         ): ExploitPlan = ExploitPlan(
+            bootSettleSeconds = BootSettle.normalize(bootSettleSeconds),
             environment = exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
             shizukuArguments = if (shizuku) {
                 mapOf(

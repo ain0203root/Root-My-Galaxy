@@ -87,6 +87,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Lock
@@ -195,6 +196,7 @@ class MainActivity : ComponentActivity() {
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
     private var shizukuBootMode by mutableStateOf(false)
+    private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
     private var notificationPermissionAsked = false
     private var batteryUnrestricted by mutableStateOf(false)
     private var batteryPromptAsked = false
@@ -279,6 +281,7 @@ class MainActivity : ComponentActivity() {
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
+        bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
@@ -292,6 +295,7 @@ class MainActivity : ComponentActivity() {
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
                     shizukuBootMode = shizukuBootMode,
+                    bootSettleSeconds = bootSettleSeconds,
                     batteryUnrestricted = batteryUnrestricted,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
                     onRequestBatteryExemption = ::requestBatteryExemption,
@@ -322,6 +326,10 @@ class MainActivity : ComponentActivity() {
                     onBootRootModeChanged = { enabled ->
                         AppPreferences.setBootRootMode(this, enabled)
                         bootRootMode = enabled
+                    },
+                    onBootSettleChanged = { seconds ->
+                        AppPreferences.setBootSettleSeconds(this, seconds)
+                        bootSettleSeconds = seconds
                     },
                     onShizukuBootModeChanged = { enabled ->
                         AppPreferences.setShizukuBootMode(this, enabled)
@@ -416,6 +424,7 @@ private fun RootApp(
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
     shizukuBootMode: Boolean,
+    bootSettleSeconds: Int,
     batteryUnrestricted: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
@@ -425,6 +434,7 @@ private fun RootApp(
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
+    onBootSettleChanged: (Int) -> Unit,
     requestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     openInstaller: (String?) -> Unit,
@@ -484,6 +494,7 @@ private fun RootApp(
                 cachedOffset,
                 shizukuMode,
                 resolved?.routePolicy ?: ExploitRoutePolicy.LEGACY,
+                AppPreferences.bootSettleSeconds(context),
             ),
         )
     }
@@ -681,6 +692,7 @@ private fun RootApp(
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
                     shizukuBootMode = shizukuBootMode,
+                    bootSettleSeconds = bootSettleSeconds,
                     batteryUnrestricted = batteryUnrestricted,
                     updateStatus = updateStatus,
                     onCheckForUpdate = checkForUpdate,
@@ -693,6 +705,7 @@ private fun RootApp(
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                     onBootRootModeChanged = onBootRootModeChanged,
                     onShizukuBootModeChanged = onShizukuBootModeChanged,
+                    onBootSettleChanged = onBootSettleChanged,
                     onRequestNotificationPermission = requestNotificationPermission,
                     onRequestBatteryExemption = onRequestBatteryExemption,
                     runPlan = runPlan,
@@ -1650,6 +1663,7 @@ private fun SettingsPage(
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
     shizukuBootMode: Boolean,
+    bootSettleSeconds: Int,
     batteryUnrestricted: Boolean,
     updateStatus: UpdateStatus,
     onCheckForUpdate: () -> Unit,
@@ -1662,6 +1676,7 @@ private fun SettingsPage(
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
+    onBootSettleChanged: (Int) -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     runPlan: () -> RunPlanDisplay,
@@ -1681,6 +1696,8 @@ private fun SettingsPage(
     var localPayloadName by remember { mutableStateOf(LocalPayload.displayName(context)) }
     var languageMenuTop by remember { mutableStateOf(32.dp) }
     var colorMenuTop by remember { mutableStateOf(32.dp) }
+    var bootSettleMenuTop by remember { mutableStateOf(32.dp) }
+    var showBootSettleDialog by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val currentLanguageTag = AppPreferences.languageTag(context)
 
@@ -1810,6 +1827,20 @@ private fun SettingsPage(
         AboutDialog(onDismiss = { showAboutDialog = false })
     }
 
+    if (showBootSettleDialog) {
+        val settled = BootSettle.allowedSeconds
+        SideChoiceMenu(
+            choices = settled.map { BootSettle.label(it) },
+            selectedIndex = settled.indexOf(bootSettleSeconds).coerceAtLeast(0),
+            topOffset = bootSettleMenuTop,
+            onSelected = { index ->
+                showBootSettleDialog = false
+                onBootSettleChanged(settled[index])
+            },
+            onDismiss = { showBootSettleDialog = false },
+        )
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
@@ -1918,6 +1949,20 @@ private fun SettingsPage(
                     onCheckedChange = {
                         clickHaptic(view)
                         onDisableKsuModulesChanged(it)
+                    },
+                )
+                SettingsCard(
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        bootSettleMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
+                    },
+                    icon = Icons.Rounded.HourglassEmpty,
+                    title = stringResource(R.string.settings_boot_settle),
+                    description = stringResource(R.string.settings_boot_settle_summary),
+                    value = BootSettle.label(bootSettleSeconds),
+                    position = SettingsCardPosition.Middle,
+                    onClick = {
+                        clickHaptic(view)
+                        showBootSettleDialog = true
                     },
                 )
                 SettingsCard(
@@ -2433,6 +2478,10 @@ private fun RunPlanDialog(
                         if (display.shizuku) R.string.run_plan_transport_shizuku
                         else R.string.run_plan_transport_direct,
                     ),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_boot_settle),
+                    BootSettle.label(display.plan.bootSettleSeconds),
                 )
                 RunPlanRow(
                     stringResource(R.string.run_plan_session),

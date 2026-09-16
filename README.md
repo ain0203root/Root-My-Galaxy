@@ -227,6 +227,25 @@ state a hash instead of switching verification off. An enforced size must also b
 which makes a zero a feed error that fails at parse time rather than a download that can never
 succeed.
 
+## Boot settle
+
+A run does not start the exploit on a device that has only just booted. **Settings → Run → Boot
+settle time** sets the floor, and the wait is measured from the boot rather than from the moment the
+run was asked for: a device already past the floor waits not at all, and one rebooted ten seconds ago
+waits the rest. That distinction is the whole point — what the gate protects is the state of a freshly
+booted device, where the exploit's racy stage fails for reasons the payload cannot fix.
+
+The floor defaults to two minutes and is chosen from `Off, 30 s, 1, 1.5, 2, 3, 5, 10 minutes`; a
+value nobody tested is not a better one, which is why the list is fixed rather than free-form. While
+the run is waiting it says so on the status card with a countdown that is read from the clock every
+tick, so the app sleeping through part of the wait cannot make the run believe it waited longer than
+it did. The run plan shows the floor too, beside the other app-side ceilings.
+
+It is a floor, not a rule: the waiting screen offers **Run now anyway**, and the run continues from
+there with nothing else changed. Someone who knows this boot has already settled is better informed
+than a constant, and the alternative — refusing to run — would just move the same decision to a
+reboot.
+
 ## Run plan
 
 Advanced mode adds **Run plan**, which shows what the next run will be handed before it starts:

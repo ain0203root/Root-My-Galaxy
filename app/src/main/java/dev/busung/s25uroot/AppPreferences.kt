@@ -39,6 +39,7 @@ object AppPreferences {
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
+    private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
     private const val PAYLOAD_SOURCES = "payload_sources"
@@ -163,6 +164,20 @@ object AppPreferences {
     fun setBootRootMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(BOOT_ROOT_MODE, enabled)
+            .apply()
+    }
+
+    /**
+     * How long a run waits after a boot before the exploit starts. See [BootSettle]: the wait is
+     * measured from the boot, so it is a floor on the device's uptime and not a delay per run.
+     */
+    fun bootSettleSeconds(context: Context): Int = BootSettle.normalize(
+        prefs(context).getInt(BOOT_SETTLE_SECONDS, BootSettle.DEFAULT_SECONDS),
+    )
+
+    fun setBootSettleSeconds(context: Context, seconds: Int) {
+        prefs(context).edit()
+            .putInt(BOOT_SETTLE_SECONDS, BootSettle.normalize(seconds))
             .apply()
     }
 
