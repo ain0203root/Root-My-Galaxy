@@ -43,6 +43,21 @@ data class InstallUiState(
 
 }
 
+/**
+ * What a run is handed, for the run-plan screen: the variables the app sets for the payload, the
+ * arguments only the Shizuku transport adds, and the cut-offs the app itself enforces. Keeping it
+ * a value type means the screen shows what a run would use rather than a second copy of the rules,
+ * and the rules stay testable without a device.
+ */
+internal data class ExploitPlan(
+    val environment: Map<String, String>,
+    val shizukuArguments: Map<String, String>,
+    /** Null when no stall watchdog applies, which is the case for a fresh session. */
+    val stallLimitMillis: Long?,
+    val totalLimitMillis: Long,
+    val helperLimitMillis: Long,
+)
+
 data class TargetCatalogUiState(
     val loading: Boolean = false,
     val profiles: List<TargetProfile> = emptyList(),
@@ -471,6 +486,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             .takeIf(String::isNotBlank)
     }.getOrNull()
 
+    /** The slide offset cached for this boot, if an earlier run found one. */
+    internal fun cachedOffsetForThisBoot(): String? = cachedP0Offset(currentBootToken())
+
     private fun cachedP0Offset(bootToken: String?): String? {
         if (bootToken == null) return null
         val stored = app.getSharedPreferences(P0_CACHE, Application.MODE_PRIVATE)
@@ -700,6 +718,32 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         /** How long a run may take before the app gives up on it. */
         internal fun exploitTotalMillis(requiresFreshP0Session: Boolean): Long =
             if (requiresFreshP0Session) EXPLOIT_TOTAL_MILLIS_FRESH else EXPLOIT_TOTAL_MILLIS
+
+        /**
+         * The environment and cut-offs a run gets, assembled from the same constants the run uses
+         * so the run-plan screen cannot drift from what actually happens. The direct transport
+         * inherits the app's environment and only overrides these names; the Shizuku transport
+         * passes its whole environment as `NAME=value` arguments, so the staged payload and helper
+         * paths are part of it.
+         */
+        internal fun exploitPlan(
+            requiresFreshP0Session: Boolean,
+            cachedP0Offset: String?,
+            shizuku: Boolean,
+        ): ExploitPlan = ExploitPlan(
+            environment = exploitEnvironment(requiresFreshP0Session, cachedP0Offset),
+            shizukuArguments = if (shizuku) {
+                mapOf(
+                    "CVE43499_ROOT_HELPER" to SHIZUKU_HELPER_PATH,
+                    "LD_PRELOAD" to SHIZUKU_PAYLOAD_PATH,
+                )
+            } else {
+                emptyMap()
+            },
+            stallLimitMillis = if (requiresFreshP0Session) null else EXPLOIT_STALL_MILLIS,
+            totalLimitMillis = exploitTotalMillis(requiresFreshP0Session),
+            helperLimitMillis = HELPER_TIMEOUT_MILLIS,
+        )
 
         internal fun exploitEnvironment(
             requiresFreshP0Session: Boolean,

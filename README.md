@@ -119,6 +119,20 @@ declared size for an artifact is not trustworthy, and it is deliberately per art
 than an app-wide switch: it is the only form of that escape hatch that cannot silently turn off
 size verification for every other payload from every source at once. It defaults to true.
 
+## Run plan
+
+Advanced mode adds **Run plan**, which shows what the next run will be handed before it starts:
+the target the catalog resolves for this device and which source it came from, whether that
+profile needs a fresh P0 session, the transport, the exact environment variables set for the
+payload, the arguments only the Shizuku transport adds, whether a slide offset is already cached
+for this boot, and the app-side ceilings — silence before a run is treated as stalled, the whole
+run, and one helper command.
+
+Every value is assembled from the same constants the run itself uses, so the screen cannot drift
+from the behaviour, and it answers "why did the run stop there?" before a boot is spent finding
+out. Where a payload is left to its own pacing the screen says so rather than showing an app
+ceiling that will not be applied.
+
 ## Signing
 
 `assembleRelease` needs the repository release key and fails instead of producing an

@@ -437,6 +437,30 @@ private fun RootApp(
             }
         }
     }
+    // Built on demand rather than on every recomposition: it reads the boot id to report the
+    // cached offset, and only the run-plan dialog needs it.
+    val runPlan: () -> RunPlanDisplay = {
+        val resolved = targetCatalog.profiles.resolveFor(device)
+        val freshSession = resolved?.requiresFreshP0Session == true
+        val cachedOffset = installViewModel.cachedOffsetForThisBoot()
+        RunPlanDisplay(
+            deviceLabel = "${device.model} \u00b7 ${device.kernelRelease}",
+            targetLabel = resolved?.let { "${it.displayName} (${it.profileId})" },
+            sourceLabel = resolved?.sourceLabel?.takeIf(String::isNotBlank),
+            unresolvedNote = if (resolved != null) {
+                null
+            } else when {
+                targetCatalog.loading -> context.getString(R.string.run_plan_catalog_loading)
+                targetCatalog.error != null -> targetCatalog.error
+                targetCatalog.profiles.isEmpty() -> context.getString(R.string.run_plan_catalog_empty)
+                else -> context.getString(R.string.run_plan_no_target)
+            },
+            freshSession = freshSession,
+            shizuku = shizukuMode,
+            cachedOffset = cachedOffset,
+            plan = InstallViewModel.exploitPlan(freshSession, cachedOffset, shizukuMode),
+        )
+    }
     val startDownload: (UpdateInfo) -> Unit = { info ->
         val apkUrl = info.apkUrl
         if (apkUrl == null) {
@@ -642,6 +666,7 @@ private fun RootApp(
                     onBootRootModeChanged = onBootRootModeChanged,
                     onRequestNotificationPermission = requestNotificationPermission,
                     onRequestBatteryExemption = onRequestBatteryExemption,
+                    runPlan = runPlan,
                 )
             }
         }
@@ -1560,6 +1585,7 @@ private fun SettingsPage(
     onBootRootModeChanged: (Boolean) -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
+    runPlan: () -> RunPlanDisplay,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -1570,6 +1596,7 @@ private fun SettingsPage(
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
     var showPayloadSourcesDialog by remember { mutableStateOf(false) }
     var showLocalPayloadDialog by remember { mutableStateOf(false) }
+    var showRunPlanDialog by remember { mutableStateOf(false) }
     var localPayloadName by remember { mutableStateOf(LocalPayload.displayName(context)) }
     var languageMenuTop by remember { mutableStateOf(32.dp) }
     var colorMenuTop by remember { mutableStateOf(32.dp) }
@@ -1614,6 +1641,10 @@ private fun SettingsPage(
                 onPayloadSourcesChanged(sources)
             },
         )
+    }
+
+    if (showRunPlanDialog) {
+        RunPlanDialog(display = runPlan(), onDismiss = { showRunPlanDialog = false })
     }
 
     if (showLocalPayloadDialog) {
@@ -1810,10 +1841,21 @@ private fun SettingsPage(
                         },
                     ),
                     value = localPayloadName ?: stringResource(R.string.local_payload_none),
-                    position = SettingsCardPosition.Bottom,
+                    position = SettingsCardPosition.Middle,
                     onClick = {
                         clickHaptic(view)
                         showLocalPayloadDialog = true
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.Schedule,
+                    title = stringResource(R.string.run_plan),
+                    description = stringResource(R.string.run_plan_description),
+                    value = "",
+                    position = SettingsCardPosition.Bottom,
+                    onClick = {
+                        clickHaptic(view)
+                        showRunPlanDialog = true
                     },
                 )
             }
@@ -2122,6 +2164,159 @@ private fun TargetSelectionSheet(
                 }
             }
         }
+    }
+}
+
+/**
+ * Everything the run-plan dialog reports: which target the app would pick, which transport it
+ * would use, and the environment and ceilings that go with them.
+ */
+private data class RunPlanDisplay(
+    val deviceLabel: String,
+    val targetLabel: String?,
+    val sourceLabel: String?,
+    val unresolvedNote: String?,
+    val freshSession: Boolean,
+    val shizuku: Boolean,
+    val cachedOffset: String?,
+    val plan: ExploitPlan,
+)
+
+/**
+ * Shows what a run will be handed before it is started, so a run that ends at a ceiling says so
+ * here first. Every value comes from the same constants the run uses.
+ */
+@Composable
+private fun RunPlanDialog(
+    display: RunPlanDisplay,
+    onDismiss: () -> Unit,
+) {
+    val view = LocalView.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Schedule, contentDescription = null) },
+        title = {
+            DialogDimAmount(0.34f)
+            Text(stringResource(R.string.run_plan_title))
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                RunPlanRow(stringResource(R.string.run_plan_device), display.deviceLabel)
+                RunPlanRow(
+                    stringResource(R.string.run_plan_target),
+                    display.targetLabel ?: display.unresolvedNote.orEmpty(),
+                )
+                if (display.sourceLabel != null) {
+                    RunPlanRow(stringResource(R.string.run_plan_source), display.sourceLabel)
+                }
+                RunPlanRow(
+                    stringResource(R.string.run_plan_transport),
+                    stringResource(
+                        if (display.shizuku) R.string.run_plan_transport_shizuku
+                        else R.string.run_plan_transport_direct,
+                    ),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_session),
+                    stringResource(
+                        if (display.freshSession) R.string.run_plan_fresh_yes
+                        else R.string.run_plan_fresh_no,
+                    ),
+                )
+                RunPlanSection(stringResource(R.string.run_plan_variables))
+                if (display.plan.environment.isEmpty()) {
+                    RunPlanMonospace(stringResource(R.string.run_plan_variables_defaults))
+                } else {
+                    display.plan.environment.forEach { (name, value) ->
+                        RunPlanMonospace("$name=$value")
+                    }
+                }
+                if (display.plan.shizukuArguments.isNotEmpty()) {
+                    RunPlanSection(stringResource(R.string.run_plan_shizuku_arguments))
+                    display.plan.shizukuArguments.forEach { (name, value) ->
+                        RunPlanMonospace("$name=$value")
+                    }
+                }
+                RunPlanRow(
+                    stringResource(R.string.run_plan_cached_offset),
+                    display.cachedOffset
+                        ?: stringResource(R.string.run_plan_cached_offset_none),
+                )
+                RunPlanSection(stringResource(R.string.run_plan_limits))
+                RunPlanRow(
+                    stringResource(R.string.run_plan_stall),
+                    display.plan.stallLimitMillis
+                        ?.let(::formatDuration)
+                        ?: stringResource(R.string.run_plan_stall_none),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_total),
+                    formatDuration(display.plan.totalLimitMillis),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_helper),
+                    formatDuration(display.plan.helperLimitMillis),
+                )
+                Text(
+                    stringResource(R.string.run_plan_footnote),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                clickHaptic(view)
+                onDismiss()
+            }) {
+                Text(stringResource(R.string.action_close))
+            }
+        },
+    )
+}
+
+@Composable
+private fun RunPlanRow(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(value, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun RunPlanSection(title: String) {
+    Text(
+        title,
+        style = MaterialTheme.typography.titleSmall,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+}
+
+@Composable
+private fun RunPlanMonospace(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        fontFamily = FontFamily.Monospace,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
+private fun formatDuration(millis: Long): String {
+    val seconds = millis / 1000
+    return when {
+        seconds % 3600 == 0L -> "${seconds / 3600} h"
+        seconds % 60 == 0L -> "${seconds / 60} min"
+        else -> "$seconds s"
     }
 }
 
