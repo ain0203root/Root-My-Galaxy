@@ -72,9 +72,11 @@ app/build/outputs/apk/release/app-release.apk
 
 ## Payload sources
 
-Advanced mode adds a **Payload sources** entry under Settings. It lists the GitHub
-`owner/repository` and branch of every catalog the app may use, with a checkbox per entry to
-enable or disable it and a delete action to drop it. The built-in feed
+Advanced mode adds a **Payload sources** entry under Settings. It opens a bottom sheet that
+lists the GitHub `owner/repository` and branch of every catalog the app may use, with a checkbox
+per entry to enable or disable it and a delete action to drop it. The sheet is the right shape
+for this form: it rises with the keyboard, so the repository and branch fields and their Add
+button stay visible on a short screen, where an alert dialog's buttons end up behind the IME. The built-in feed
 ([Root-My-Galaxy-Payloads](https://github.com/BuSung-dev/Root-My-Galaxy-Payloads)) is the
 default entry and can be restored with one button, so pointing the list at a testing branch
 for payloads that are not upstream yet does not cost you the official catalog.

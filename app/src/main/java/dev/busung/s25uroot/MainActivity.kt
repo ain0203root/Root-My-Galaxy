@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -117,6 +118,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
@@ -1620,7 +1622,7 @@ private fun SettingsPage(
     var showColorDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
-    var showPayloadSourcesDialog by remember { mutableStateOf(false) }
+    var showPayloadSourcesSheet by remember { mutableStateOf(false) }
     var showLocalPayloadDialog by remember { mutableStateOf(false) }
     var showRunPlanDialog by remember { mutableStateOf(false) }
     var localPayloadName by remember { mutableStateOf(LocalPayload.displayName(context)) }
@@ -1658,12 +1660,12 @@ private fun SettingsPage(
         )
     }
 
-    if (showPayloadSourcesDialog) {
-        PayloadSourcesDialog(
+    if (showPayloadSourcesSheet) {
+        PayloadSourcesSheet(
             initialSources = payloadSources,
-            onDismiss = { showPayloadSourcesDialog = false },
+            onDismiss = { showPayloadSourcesSheet = false },
             onSave = { sources ->
-                showPayloadSourcesDialog = false
+                showPayloadSourcesSheet = false
                 onPayloadSourcesChanged(sources)
             },
         )
@@ -1853,7 +1855,7 @@ private fun SettingsPage(
                     position = SettingsCardPosition.Middle,
                     onClick = {
                         clickHaptic(view)
-                        showPayloadSourcesDialog = true
+                        showPayloadSourcesSheet = true
                     },
                 )
                 SettingsCard(
@@ -2469,8 +2471,9 @@ private fun LocalPayloadDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PayloadSourcesDialog(
+private fun PayloadSourcesSheet(
     initialSources: List<PayloadSource>,
     onDismiss: () -> Unit,
     onSave: (List<PayloadSource>) -> Unit,
@@ -2500,179 +2503,197 @@ private fun PayloadSourcesDialog(
         null
     }
     val enabledCount = sources.count { it.enabled }
-    AlertDialog(
+    ModalBottomSheet(
+        // A sheet rather than an alert dialog: this form has text fields, and on a short screen an
+        // alert dialog's buttons sit under the keyboard. The sheet rises with the IME instead, and
+        // opens fully expanded because the list and the form together are taller than the peek.
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Link, contentDescription = null) },
-        title = {
-            DialogDimAmount(0.34f)
-            Text(stringResource(R.string.payload_sources_title))
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 460.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                Icon(Icons.Rounded.Link, contentDescription = null)
                 Text(
-                    stringResource(R.string.payload_sources_summary, enabledCount, sources.size),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    stringResource(R.string.payload_sources_title),
+                    style = MaterialTheme.typography.headlineSmall,
                 )
+            }
+            Text(
+                stringResource(R.string.payload_sources_summary, enabledCount, sources.size),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
 
-                // Above the list and collapsed by default: a long list of added sources can then
-                // never push it out of reach.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            clickHaptic(view)
-                            showAddSource = !showAddSource
+            // Above the list and collapsed by default: a long list of added sources can then
+            // never push it out of reach.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        clickHaptic(view)
+                        showAddSource = !showAddSource
+                    }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.Add,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    stringResource(R.string.payload_source_add),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Icon(
+                    if (showAddSource) {
+                        Icons.Rounded.ExpandLess
+                    } else {
+                        Icons.Rounded.ExpandMore
+                    },
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+
+            if (showAddSource) {
+                OutlinedTextField(
+                    value = repository,
+                    onValueChange = {
+                        repository = it
+                        duplicate = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = repositoryError != null || duplicate,
+                    label = { Text(stringResource(R.string.payload_repository_label)) },
+                    placeholder = { Text(PayloadSource.DEFAULT_REPOSITORY) },
+                )
+                OutlinedTextField(
+                    value = branch,
+                    onValueChange = {
+                        branch = it
+                        duplicate = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = branchError != null,
+                    label = { Text(stringResource(R.string.payload_branch)) },
+                    placeholder = { Text(PayloadSource.DEFAULT_BRANCH) },
+                    supportingText = { Text(stringResource(R.string.payload_branch_hint)) },
+                )
+                addError?.let {
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Button(
+                    onClick = {
+                        clickHaptic(view)
+                        val source = candidate ?: return@Button
+                        if (sources.any { it.id == source.id }) {
+                            duplicate = true
+                        } else {
+                            sources = sources.withSourceAdded(source)
+                            repository = ""
+                            branch = PayloadSource.DEFAULT_BRANCH
+                            duplicate = false
                         }
-                        .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    },
+                    enabled = candidate != null,
                 ) {
                     Icon(
                         Icons.Rounded.Add,
                         contentDescription = null,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                     )
-                    Text(
-                        stringResource(R.string.payload_source_add),
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Icon(
-                        if (showAddSource) {
-                            Icons.Rounded.ExpandLess
-                        } else {
-                            Icons.Rounded.ExpandMore
-                        },
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.payload_source_add_action))
                 }
+            }
 
-                if (showAddSource) {
-                    OutlinedTextField(
-                        value = repository,
-                        onValueChange = {
-                            repository = it
-                            duplicate = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = repositoryError != null || duplicate,
-                        label = { Text(stringResource(R.string.payload_repository_label)) },
-                        placeholder = { Text(PayloadSource.DEFAULT_REPOSITORY) },
-                    )
-                    OutlinedTextField(
-                        value = branch,
-                        onValueChange = {
-                            branch = it
-                            duplicate = false
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        isError = branchError != null,
-                        label = { Text(stringResource(R.string.payload_branch)) },
-                        placeholder = { Text(PayloadSource.DEFAULT_BRANCH) },
-                        supportingText = { Text(stringResource(R.string.payload_branch_hint)) },
-                    )
-                    addError?.let {
-                        Text(
-                            it,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
+            HorizontalDivider()
+
+            if (sources.isEmpty()) {
+                Text(
+                    stringResource(R.string.payload_sources_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = if (showAddSource) 260.dp else 380.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(sources, key = { it.id }) { source ->
+                        PayloadSourceRow(
+                            source = source,
+                            onEnabledChange = { checked ->
+                                clickHaptic(view)
+                                sources = sources.withSourceEnabled(source.id, checked)
+                            },
+                            onRemove = {
+                                clickHaptic(view)
+                                sources = sources.withSourceRemoved(source.id)
+                            },
                         )
-                    }
-                    Button(
-                        onClick = {
-                            clickHaptic(view)
-                            val source = candidate ?: return@Button
-                            if (sources.any { it.id == source.id }) {
-                                duplicate = true
-                            } else {
-                                sources = sources.withSourceAdded(source)
-                                repository = ""
-                                branch = PayloadSource.DEFAULT_BRANCH
-                                duplicate = false
-                            }
-                        },
-                        enabled = candidate != null,
-                    ) {
-                        Icon(
-                            Icons.Rounded.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.payload_source_add_action))
-                    }
-                }
-
-                HorizontalDivider()
-
-                if (sources.isEmpty()) {
-                    Text(
-                        stringResource(R.string.payload_sources_empty),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = if (showAddSource) 220.dp else 340.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(sources, key = { it.id }) { source ->
-                            PayloadSourceRow(
-                                source = source,
-                                onEnabledChange = { checked ->
-                                    clickHaptic(view)
-                                    sources = sources.withSourceEnabled(source.id, checked)
-                                },
-                                onRemove = {
-                                    clickHaptic(view)
-                                    sources = sources.withSourceRemoved(source.id)
-                                },
-                            )
-                        }
-                    }
-                }
-
-                if (sources.none { it.id == PayloadSource.DEFAULT.id }) {
-                    TextButton(onClick = {
-                        clickHaptic(view)
-                        sources = sources.withSourceAdded(PayloadSource.DEFAULT)
-                    }) {
-                        Text(stringResource(R.string.payload_source_default))
                     }
                 }
             }
-        },
-        confirmButton = {
-            FilledTonalButton(
-                onClick = {
+
+            if (sources.none { it.id == PayloadSource.DEFAULT.id }) {
+                TextButton(onClick = {
                     clickHaptic(view)
-                    onSave(sources)
-                },
-                enabled = enabledCount > 0,
+                    sources = sources.withSourceAdded(PayloadSource.DEFAULT)
+                }) {
+                    Text(stringResource(R.string.payload_source_default))
+                }
+            }
+
+            HorizontalDivider()
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text(stringResource(R.string.action_save))
+                TextButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+                Button(
+                    onClick = {
+                        clickHaptic(view)
+                        onSave(sources)
+                    },
+                    enabled = enabledCount > 0,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(stringResource(R.string.action_save))
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = {
-                clickHaptic(view)
-                onDismiss()
-            }) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        },
-    )
+        }
+    }
 }
 
 @Composable
