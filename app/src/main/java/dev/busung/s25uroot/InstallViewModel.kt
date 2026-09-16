@@ -364,6 +364,21 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     if (modulesSkipped) restoreModules()
                 }
 
+                // While the run still holds the root it just obtained: the permission below cannot be
+                // given any other way on the device, and the Shizuku start is what makes the next run
+                // possible without a cable. Neither can fail the install.
+                runCatching { PostRootSetup.apply(app) }
+                    .onSuccess { outcome -> appendLog(outcome.logLine(app)) }
+                    .onFailure { error ->
+                        appendLog(
+                            app.getString(
+                                R.string.log_postroot_permission_failed,
+                                error.message ?: error.javaClass.simpleName,
+                            ),
+                        )
+                    }
+                if (AppPreferences.shizukuBootMode(app)) ShizukuBootService.start(app)
+
                 setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_active))
                 appendLog(app.getString(R.string.log_install_complete))
                 // A payload becomes the offline fallback only here, once KernelSU is verified: that is

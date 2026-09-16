@@ -212,6 +212,10 @@
     <string name="log_payload_source">[+] Payload source: %1$s</string>
     <string name="log_download_verified">[+] Payload download complete</string>
     <string name="log_install_complete">[+] Installation complete</string>
+    <string name="log_postroot_permission_granted">[+] Secure-settings permission granted: wireless debugging can be turned on without a cable</string>
+    <string name="log_postroot_permission_present">[*] Secure-settings permission already granted</string>
+    <string name="log_postroot_permission_failed">[!] Secure-settings permission was not granted: %1$s</string>
+    <string name="log_postroot_no_shell">[*] No root shell for the secure-settings grant; it is left to the next boot</string>
     <string name="log_bootstrap_root">[+] Bootstrap root acquired</string>
     <string name="log_ro_blocks_successful">[+] Set %1$d partitions to read-only</string>
     <string name="log_ro_blocks_failed">[!] Could not set partitions to read-only</string>

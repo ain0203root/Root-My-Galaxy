@@ -291,6 +291,27 @@ out. Where a payload is left to its own pacing the screen says so rather than sh
 ceiling that will not be applied. It also states whether the run will mark the image partitions
 read-only, because that changes what the run does before it starts.
 
+## What a run does once KernelSU is verified
+
+Two readings of "is root live" are kept apart, because either alone is wrong on this hardware. The
+native one is fast — `/sys/module/kernelsu` and `/proc/modules` — and can be hidden by Samsung's
+SELinux policy once the modules are loaded: a device with root working perfectly can be reported as
+not rooted, which is what makes a boot automation decide a rooted boot needs rooting again. The
+second reading asks KernelSU itself, by running `su`: the app is the manager the payload crowns, so
+KernelSU's own compatibility layer answers it, and a shell that answers `uid=0` is KernelSU saying it
+is live. A yes from either is a yes; a no from both is a no. Positive answers are cached for the
+process and negative ones are not, since KernelSU does not unload itself while the kernel is up. The
+boot broadcast takes the fast reading only — the fallback starts a process — and the gate asks again,
+authoritatively, before it spends the boot's single attempt.
+
+A verified install also grants itself `WRITE_SECURE_SETTINGS` while it still holds the root it just
+obtained, over the same post-root shell the rest of the app uses. That permission is
+development-flagged and otherwise needs a cable, and it is what lets wireless debugging be turned on
+for a later run; without it the wireless transport only works when the user has already switched
+wireless debugging on by hand. A grant that does not happen is a line in the log and nothing more: the
+root that was obtained is the result, and the cable (or the next boot, which has root of its own) is
+still there.
+
 ## Protecting the image partitions
 
 **Settings → Run → Protect image partitions**, off by default, marks `boot`, `init_boot`,
