@@ -32,6 +32,19 @@ internal fun parseCommitResponse(body: String): String? {
     return fromJson.trim().takeIf(PayloadSource::isCommitValid)
 }
 
+/** Where a catalog lives inside a repository. */
+internal const val MANIFEST_PATH = "support/targets-v3.json"
+
+/**
+ * The URL a catalog is read from at one specific revision.
+ *
+ * Pure, and named after the revision rather than after the source, because the property that makes a
+ * revision summary worth showing is that it reads the revision the user is looking at and not the
+ * branch's current head.
+ */
+internal fun revisionManifestUrl(repository: String, commit: String): String =
+    "https://raw.githubusercontent.com/$repository/$commit/$MANIFEST_PATH"
+
 /** A revision a source can be pinned to, as a picker lists it. */
 data class SourceRevision(
     val commit: String,
@@ -193,6 +206,24 @@ class PayloadRepository(private val context: Context) {
     fun inspect(source: PayloadSource, snapshot: DeviceSnapshot): SourceCoverage {
         val fetched = fetchManifest(source)
         return fetched.manifest.coverageFor(snapshot, fetched.commit)
+    }
+
+    /**
+     * Reads what a source would serve at [commit], with nothing pinned.
+     *
+     * This is the picker's question - what does *this* revision contain - and it has to be asked while
+     * the pin is still a proposal, so the revision is an argument here instead of being resolved from
+     * the source's own state. The catalog is read from the revision itself, so the summary describes
+     * the revision the user chose rather than whichever one the branch is on.
+     */
+    fun inspectAt(source: PayloadSource, snapshot: DeviceSnapshot, commit: String): SourceCoverage {
+        require(PayloadSource.isCommitValid(commit)) {
+            context.getString(R.string.repo_commit_invalid)
+        }
+        val manifest = SupportManifest.parse(
+            downloadBytes(revisionManifestUrl(source.repository, commit), MAX_MANIFEST_BYTES),
+        )
+        return manifest.coverageFor(snapshot, commit)
     }
 
     /** The manifest and the revision it was read at. Both callers need the revision. */
@@ -502,6 +533,5 @@ class PayloadRepository(private val context: Context) {
         // answer is smaller still. Neither can grow with the commit the way a commit object did.
         private const val MAX_LIST_RESPONSE_BYTES = 1024 * 1024
         private const val MAX_MANIFEST_BYTES = 256 * 1024
-        private const val MANIFEST_PATH = "support/targets-v3.json"
     }
 }

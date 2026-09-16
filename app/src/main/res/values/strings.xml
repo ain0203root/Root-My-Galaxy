@@ -197,6 +197,13 @@
     <string name="payload_pin_manual">Branch, tag, or commit</string>
     <string name="payload_pin_manual_hint">A tag is resolved to the commit it points at now</string>
     <string name="payload_pin_apply">Pin</string>
+    <string name="payload_pin_follow_action">Follow the branch</string>
+    <string name="payload_pin_resolve">Resolve</string>
+    <string name="payload_pin_serves_at">What revision %1$s serves</string>
+    <string name="payload_pin_serves_branch">What the %1$s branch serves now</string>
+    <string name="payload_pin_reading">Reading what this revision serves\u2026</string>
+    <string name="payload_pin_read_failed">Could not read this revision: %1$s</string>
+    <string name="payload_pin_pinned">pinned</string>
     <string name="payload_pin_list_failed">Could not list revisions: %1$s</string>
     <string name="payload_source_unpin">Follow the branch again</string>
     <string name="payload_source_pin_failed">Could not resolve this ref: %1$s</string>

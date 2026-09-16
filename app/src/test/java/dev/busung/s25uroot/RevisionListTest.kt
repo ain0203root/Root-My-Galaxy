@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,6 +38,17 @@ private val ATOM_FEED = """
 """.trimIndent()
 
 class RevisionListTest {
+
+    @Test
+    fun `a revision summary reads the revision, not the branch`() {
+        val url = revisionManifestUrl("BuSung-dev/Root-My-Galaxy-Payloads", HEAD)
+
+        // The one property a summary of a *revision* depends on: it describes the revision the user
+        // is looking at, and not wherever the branch happens to be.
+        assertTrue(url.contains("/$HEAD/"))
+        assertTrue(url.endsWith(MANIFEST_PATH))
+        assertFalse(url.contains("/main/"))
+    }
 
     @Test
     fun `the atom feed lists commits with their sha, first line and date`() {

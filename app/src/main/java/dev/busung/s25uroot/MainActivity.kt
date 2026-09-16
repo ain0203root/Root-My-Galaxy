@@ -96,6 +96,7 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.PowerSettingsNew
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SystemUpdate
@@ -126,6 +127,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -2688,6 +2690,7 @@ private fun PayloadSourcesSheet(
             revisionTarget?.let { target ->
                 RevisionPicker(
                     source = target,
+                    device = device,
                     onBack = { revisionTarget = null },
                     onPick = { commit ->
                         clickHaptic(view)
@@ -2930,6 +2933,7 @@ private fun PayloadSourcesSheet(
 @Composable
 private fun RevisionPicker(
     source: PayloadSource,
+    device: DeviceSnapshot,
     onBack: () -> Unit,
     onPick: (String?) -> Unit,
 ) {
@@ -2942,6 +2946,19 @@ private fun RevisionPicker(
     var manual by remember(source.id) { mutableStateOf("") }
     var applying by remember(source.id) { mutableStateOf(false) }
     var applyFailure by remember(source.id) { mutableStateOf<String?>(null) }
+    // What is being considered, which is not yet what is pinned: the revision is chosen first, then
+    // read, and only then stored. Tapping used to store the pin and describe it afterwards, which is
+    // the wrong order for the one decision a catalog cannot take back.
+    // Opening the picker already has a subject: what the source is on now, so the first thing shown is
+    // what the pin currently means rather than an empty panel.
+    var choice by remember(source.id) {
+        mutableStateOf<RevisionChoice?>(
+            if (source.isPinned) RevisionChoice.Commit(source.pinnedCommit) else RevisionChoice.Branch,
+        )
+    }
+    var coverage by remember(source.id) { mutableStateOf<SourceCoverage?>(null) }
+    var coverageFailure by remember(source.id) { mutableStateOf<String?>(null) }
+    var reading by remember(source.id) { mutableStateOf(false) }
 
     LaunchedEffect(source.id) {
         loading = true
@@ -2953,6 +2970,30 @@ private fun RevisionPicker(
             listFailure = failure.message ?: failure.javaClass.simpleName
         }
         loading = false
+    }
+
+    LaunchedEffect(source.id, choice) {
+        val chosen = choice ?: return@LaunchedEffect
+        reading = true
+        coverage = null
+        coverageFailure = null
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val repository = PayloadRepository(context)
+                when (chosen) {
+                    // Following the branch has an answer too, and it is the one a branch's coverage has
+                    // to be read at: the branch's head, with no pin in the way.
+                    RevisionChoice.Branch ->
+                        repository.inspect(source.copy(pinnedCommit = ""), device)
+                    is RevisionChoice.Commit -> repository.inspectAt(source, device, chosen.commit)
+                }
+            }
+        }.onSuccess { read ->
+            coverage = read
+        }.onFailure { failure ->
+            coverageFailure = failure.message ?: failure.javaClass.simpleName
+        }
+        reading = false
     }
 
     // A ref's head is the newest commit that is not a tag, which is the first one listed.
@@ -2997,9 +3038,10 @@ private fun RevisionPicker(
             title = stringResource(R.string.payload_source_unpin),
             subtitle = source.branch,
             detail = null,
-            selected = !source.isPinned,
+            selected = choice == RevisionChoice.Branch,
             icon = Icons.Rounded.LockOpen,
-            onClick = { onPick(null) },
+            pinned = !source.isPinned,
+            onClick = { choice = RevisionChoice.Branch },
         )
 
         if (loading) {
@@ -3031,10 +3073,11 @@ private fun RevisionPicker(
                             // pinning by tag is still visibly a decision about a commit.
                             subtitle = revision.commit.take(7),
                             detail = revision.date.ifBlank { null },
-                            selected = source.pinnedCommit == revision.commit,
+                            selected = choice == RevisionChoice.Commit(revision.commit),
                             current = revision.commit == head,
+                            pinned = source.pinnedCommit == revision.commit,
                             icon = if (revision.tag == null) Icons.Rounded.Lock else Icons.Rounded.Link,
-                            onClick = { onPick(revision.commit) },
+                            onClick = { choice = RevisionChoice.Commit(revision.commit) },
                         )
                     }
                 }
@@ -3061,11 +3104,11 @@ private fun RevisionPicker(
                 color = MaterialTheme.colorScheme.error,
             )
         }
-        Button(
+        OutlinedButton(
             onClick = {
                 clickHaptic(view)
                 val ref = manual.trim()
-                if (ref.isEmpty() || applying) return@Button
+                if (ref.isEmpty() || applying) return@OutlinedButton
                 scope.launch {
                     applying = true
                     applyFailure = null
@@ -3073,11 +3116,10 @@ private fun RevisionPicker(
                         withContext(Dispatchers.IO) {
                             PayloadRepository(context).resolveNamedRevision(source.repository, ref)
                         }
-                    }.onSuccess { commit ->
-                        onPick(commit)
-                    }.onFailure { failure ->
-                        applyFailure = failure.message ?: failure.javaClass.simpleName
-                    }
+                    }.onSuccess { commit -> choice = RevisionChoice.Commit(commit) }
+                        .onFailure { failure ->
+                            applyFailure = failure.message ?: failure.javaClass.simpleName
+                        }
                     applying = false
                 }
             },
@@ -3086,12 +3128,79 @@ private fun RevisionPicker(
             if (applying) {
                 LoadingIndicator(modifier = Modifier.size(18.dp))
             } else {
-                Icon(Icons.Rounded.Lock, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Rounded.Search, contentDescription = null, modifier = Modifier.size(18.dp))
             }
             Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.payload_pin_apply))
+            Text(stringResource(R.string.payload_pin_resolve))
+        }
+
+        // What the chosen revision serves, stated before it is what the source is pinned to. The
+        // lists are the whole catalog's, because a pin is a decision about the catalog and not only
+        // about this phone, and the last line of the block answers the phone's half of it.
+        choice?.let { chosen ->
+            Text(
+                if (chosen is RevisionChoice.Commit) {
+                    stringResource(R.string.payload_pin_serves_at, chosen.commit.take(7))
+                } else {
+                    stringResource(R.string.payload_pin_serves_branch, source.branch)
+                },
+                style = MaterialTheme.typography.titleSmall,
+            )
+            val read = coverage
+            val failure = coverageFailure
+            when {
+                reading -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    LoadingIndicator(modifier = Modifier.size(18.dp))
+                    Text(
+                        stringResource(R.string.payload_pin_reading),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                read != null -> SourceCoverageBlock(read, device, inset = 0.dp)
+                failure != null -> Text(
+                    stringResource(R.string.payload_pin_read_failed, failure),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+
+        Button(
+            onClick = {
+                clickHaptic(view)
+                onPick((choice as? RevisionChoice.Commit)?.commit)
+            },
+            // Deliberately not gated on the read having succeeded: a pin is a decision about a
+            // revision, and a network refusal while summarising it is not a reason to leave the user
+            // unable to pin or to stop following a branch at all.
+            enabled = choice != null && !reading && !applying,
+        ) {
+            Icon(
+                if (choice is RevisionChoice.Commit) Icons.Rounded.Lock else Icons.Rounded.LockOpen,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                if (choice is RevisionChoice.Commit) {
+                    stringResource(R.string.payload_pin_apply)
+                } else {
+                    stringResource(R.string.payload_pin_follow_action)
+                },
+            )
         }
     }
+}
+
+/** Which revision is being considered: the branch as it stands, or one commit of it. */
+private sealed interface RevisionChoice {
+    data object Branch : RevisionChoice
+
+    data class Commit(val commit: String) : RevisionChoice
 }
 
 /** One revision as a selectable line: what it is, the commit, and when. */
@@ -3103,6 +3212,7 @@ private fun RevisionRow(
     selected: Boolean,
     icon: ImageVector,
     current: Boolean = false,
+    pinned: Boolean = false,
     onClick: () -> Unit,
 ) {
     Row(
@@ -3145,12 +3255,21 @@ private fun RevisionRow(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        if (current && !selected) {
-            Text(
-                stringResource(R.string.payload_pin_current),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
+        // Exactly one label, because the two states are alternatives rather than degrees: `current`
+        // is where the branch points now, `pinned` is what the source is frozen at.
+        if (!selected) {
+            val label = when {
+                current -> R.string.payload_pin_current
+                pinned -> R.string.payload_pin_pinned
+                else -> null
+            }
+            label?.let {
+                Text(
+                    stringResource(it),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
     }
 }
@@ -3248,13 +3367,18 @@ private val SOURCE_ROW_INSET = 52.dp
  * of the question, which the lists alone cannot: whether any of it fits this phone.
  */
 @Composable
-private fun SourceCoverageBlock(coverage: SourceCoverage, device: DeviceSnapshot) {
+private fun SourceCoverageBlock(
+    coverage: SourceCoverage,
+    device: DeviceSnapshot,
+    // The sheet's rows align their detail past a checkbox; the picker's panel has none to clear.
+    inset: Dp = SOURCE_ROW_INSET,
+) {
     val models = coverage.models.joinToString()
     val kernels = coverage.kernelVersions.joinToString()
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = SOURCE_ROW_INSET, top = 4.dp, end = 4.dp),
+            .padding(start = inset, top = 4.dp, end = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Text(

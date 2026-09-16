@@ -95,13 +95,22 @@ rather than a comment about it.
 
 Any source can be **pinned**. The lock button on a row opens a revision picker for that source: the
 ref itself (no pin), the repository's tags, and its most recent commits, each showing the commit, the
-first line of its message and its date, with the current head marked. Naming a branch, tag, or commit
-by hand covers anything not in those lists, and a tag named there is resolved to the commit it points
-at now. Choosing a revision stores that commit, after which that source reads from the pinned
-revision instead of following the branch. That is what stops a
-catalog moving under a test, and it has a second effect worth knowing: a pinned source needs no
-GitHub API call to load, so it keeps working when the API is rate limited. Unpinning puts the
-source back on its ref.
+first line of its message and its date, with the current head marked `current` and whatever the
+source is frozen at marked `pinned`. Naming a branch, tag, or commit by hand covers anything not in
+those lists, and a tag named there is resolved to the commit it points at now.
+
+**Choosing a revision and pinning to it are two separate steps**, because a pin is the one decision a
+catalog cannot take back. Selecting a revision — or resolving a name to one — reads that revision and
+shows what it serves: how many payloads it holds, the models and kernel versions they cover, and
+whether any of them fits this phone, with the revision named as the revision the summary is about.
+The picker then applies it with *Pin* (or *Follow the branch* for the no-pin choice). Opening the
+picker starts on what the source is on now, so the first thing shown is what the current pin means.
+A revision whose catalog cannot be read still says so and can still be pinned: an unreachable
+manifest is not a reason to be unable to move a source off a bad revision. Pinning stores that
+commit, after which the source reads from the pinned revision instead of following the branch. That
+is what stops a catalog moving under a test, and it has a second effect worth knowing: a pinned
+source needs no GitHub API call to load, so it keeps working when the API is rate limited. Unpinning
+puts the source back on its ref.
 
 A pinned revision and the branch it came from are two different catalogs, so they carry
 different ids and can be configured side by side, which is how a fixed feed and a moving one get
