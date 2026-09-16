@@ -28,7 +28,21 @@ data class RunFailure(
     val stage: RunStage,
     val reason: String,
     val evidence: List<String> = emptyList(),
-)
+) {
+    companion object {
+        /**
+         * A failure whose reason is reduced to one short line by [failureSummary].
+         *
+         * Going through here rather than through the constructor is what keeps the card readable:
+         * a message that arrives carrying a log is turned into a cause, not rendered as one.
+         */
+        fun of(
+            stage: RunStage,
+            reason: String,
+            evidence: List<String> = emptyList(),
+        ): RunFailure = RunFailure(stage, failureSummary(reason), evidence)
+    }
+}
 
 /**
  * The meaningful tail of a run log. Blank lines are dropped and long lines are clipped, because
@@ -42,3 +56,54 @@ internal fun failureEvidence(log: String, maxLines: Int = 4, maxLength: Int = 16
         .toList()
         .takeLast(maxLines)
         .map { line -> if (line.length <= maxLength) line else line.take(maxLength - 1) + "\u2026" }
+
+/**
+ * A reason as one short line.
+ *
+ * The reason is rendered as the cause under the failed stage, in a card, so anything long enough to
+ * be a log belongs in the log instead: a message that carried a payload's whole output turned the
+ * failure card into a page of text with the stage nowhere in sight. Anything after the first line is
+ * dropped here rather than there, so a message can never do that again, and the payload's own lines
+ * still reach the card as [failureEvidence] and the log.
+ */
+internal fun failureSummary(reason: String, maxLength: Int = 240): String {
+    val line = reason.lineSequence().map(String::trim).firstOrNull(String::isNotEmpty).orEmpty()
+    return if (line.length <= maxLength) line else line.take(maxLength - 1) + "\u2026"
+}
+
+/** Signal names for the codes a process killed by a signal reports through its exit status. */
+private val SIGNAL_NAMES = mapOf(
+    4 to "SIGILL",
+    6 to "SIGABRT",
+    7 to "SIGBUS",
+    8 to "SIGFPE",
+    9 to "SIGKILL",
+    11 to "SIGSEGV",
+    13 to "SIGPIPE",
+    15 to "SIGTERM",
+)
+
+/**
+ * What a shell reports as a signal rather than an exit code, read back.
+ *
+ * `128 + n` is how a killed process is reported by a shell, which the app then sees as an exit code.
+ * Saying `137` tells nobody anything; saying that the payload was killed by signal 9 is the single
+ * most useful thing a run can report about a payload that died without choosing to.
+ */
+internal fun exitCodeSummary(exitCode: Int): String? {
+    val signal = exitCode - 128
+    if (exitCode !in 129..192 || signal <= 0) return null
+    val name = SIGNAL_NAMES[signal]
+    return if (name != null) "signal $signal ($name)" else "signal $signal"
+}
+
+/**
+ * The short account of a payload that stopped, for the exit message.
+ *
+ * The payload's whole output used to be inlined here, which is what made a failed run unreadable.
+ * Only the reading of the status survives, because the payload's lines are in the log and, clipped,
+ * on the failure card. Kept in the shape the message already expects, so every translation stays
+ * valid.
+ */
+internal fun payloadExitDetail(exitCode: Int): String =
+    exitCodeSummary(exitCode)?.let { " \u2014 $it" }.orEmpty()

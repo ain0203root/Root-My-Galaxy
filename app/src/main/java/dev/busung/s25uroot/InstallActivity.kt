@@ -62,6 +62,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -272,6 +273,10 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                     Text(
                         text = installPhaseDetail(installState),
                         color = LocalContentColor.current.copy(alpha = 0.78f),
+                        // A cause, not a log: the card must not grow into one no matter what a
+                        // payload or a message turns out to contain.
+                        maxLines = 4,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }

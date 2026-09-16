@@ -284,7 +284,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // of those is worth retrying straight away.
                 val stage = activeStage
                 val reason = error.message ?: error.javaClass.simpleName
-                val failure = RunFailure(stage, reason, failureEvidence(mutableState.value.log))
+                val failure = RunFailure.of(stage, reason, failureEvidence(mutableState.value.log))
                 appendLog("[-] $reason")
                 setPhase(
                     InstallPhase.Failed,
@@ -435,15 +435,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             val rawLog = readLog()
             if (!requiresFreshP0Session) cacheP0Offset(bootToken, rawLog)
             publishExploitLog(logPrefix, rawLog)
-            // Both transports drain into `captured` during the poll loop, so
-            // this never blocks on a child still holding the pipe open.
-            val earlyOutput = captured.toString().trim()
+            // Both transports drain into `captured` during the poll loop, so a child that still
+            // holds the pipe open cannot block the loop; nothing here reads it, because what the
+            // payload said belongs in the log rather than in a failure message.
             require(exitCode == 0) {
-                app.getString(
-                    R.string.error_payload_exit,
-                    exitCode,
-                    earlyOutput.takeIf(String::isNotBlank)?.let { " ($it)" } ?: "",
-                )
+                // The payload's output is the log, so the message says what the status means instead
+                // of repeating it: inlining the whole output here is what turned a failed run into a
+                // page of unreadable text.
+                app.getString(R.string.error_payload_exit, exitCode, payloadExitDetail(exitCode))
             }
             require(rawLog.contains("exploit completed") && rawLog.contains("done=1 root=1")) {
                 app.getString(R.string.error_success_marker)

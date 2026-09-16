@@ -203,6 +203,13 @@ exploit, or the KernelSU load, and only some of those are worth retrying straigh
 tail matters because the payload is the only account of the kernel race, so a failure that is not
 the app's own decision is otherwise unexplained.
 
+A payload that was killed rather than exiting is reported as the signal that killed it — `137` is
+read back as `signal 9 (SIGKILL)`, because that is the one thing a status can say about a payload
+that died without choosing to — and the reason is reduced to a single short line before it reaches
+the card. The payload's own words belong in the log and, clipped to the last few lines, on the
+failure card; a message that carried them instead once turned the card into a page of text with the
+stage nowhere in sight.
+
 The stage and reason are stored with the run, so a failure from a previous boot still says where
 it ended, and the full log stays attached to the run for export. An unattended run at boot has the
 stage in its notification title, since that notification is the whole of the explanation available
