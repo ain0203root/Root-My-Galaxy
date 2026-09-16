@@ -2107,7 +2107,9 @@ private fun SettingsPage(
                     icon = Icons.Rounded.Link,
                     title = stringResource(R.string.payload_sources),
                     description = stringResource(R.string.payload_sources_description),
-                    position = SettingsCardPosition.Top,
+                    // Flat on top: this card sits between two others in the payloads group, and a
+                    // second group top there drew it as the start of another list.
+                    position = SettingsCardPosition.Middle,
                     onClick = {
                         clickHaptic(view)
                         showPayloadSourcesSheet = true
