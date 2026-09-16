@@ -6,6 +6,9 @@ on:
       - '**'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -49,3 +52,60 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Stage APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
+          if [ -z "$VERSION_NAME" ]; then
+            echo "Could not read versionName from app/build.gradle.kts." >&2
+            exit 1
+          fi
+          mkdir -p ci-release
+          cp app/build/outputs/apk/debug/*.apk "ci-release/RootMyGalaxy-${VERSION_NAME}-debug.apk"
+
+      - name: Publish pre-release
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
+          TAG="ci-${VERSION_NAME}-${GITHUB_RUN_NUMBER}"
+          TITLE="CI build ${VERSION_NAME} (${GITHUB_RUN_NUMBER})"
+          APK="ci-release/RootMyGalaxy-${VERSION_NAME}-debug.apk"
+          SHORT_SHA="$(echo "$GITHUB_SHA" | cut -c1-7)"
+
+          {
+            echo "# ${TITLE}"
+            echo
+            echo "Automated build from \`${GITHUB_REF_NAME}\`."
+            echo
+            echo "- Version: ${VERSION_NAME}"
+            echo "- Commit: [\`${SHORT_SHA}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) $(git log -1 --format=%s)"
+            echo "- Branch: ${GITHUB_REF_NAME}"
+            echo "- Workflow run: [${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+            echo
+            echo "Debug-signed APK, installs on the debug keystore of the machine that built it:"
+            echo "uninstall any differently signed build first. Tagged releases come from the"
+            echo "Release Build workflow, not from here."
+          } > ci-release/notes.md
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --title "$TITLE" \
+              --notes-file ci-release/notes.md \
+              --prerelease \
+              --latest=false
+            gh release upload "$TAG" "$APK" --clobber
+          else
+            gh release create "$TAG" "$APK" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes-file ci-release/notes.md \
+              --prerelease \
+              --latest=false
+          fi
