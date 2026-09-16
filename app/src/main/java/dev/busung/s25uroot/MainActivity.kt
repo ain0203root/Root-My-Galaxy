@@ -55,11 +55,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
@@ -167,8 +170,7 @@ class MainActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(AppThemeMode.System)
     private var advancedMode by mutableStateOf(false)
     private var shizukuMode by mutableStateOf(false)
-    private var payloadRepository by mutableStateOf("")
-    private var payloadBranch by mutableStateOf("")
+    private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -178,8 +180,7 @@ class MainActivity : ComponentActivity() {
         themeMode = AppPreferences.themeMode(this)
         advancedMode = AppPreferences.advancedMode(this)
         shizukuMode = AppPreferences.shizukuMode(this)
-        payloadRepository = AppPreferences.payloadRepository(this)
-        payloadBranch = AppPreferences.payloadBranch(this)
+        payloadSources = AppPreferences.payloadSources(this)
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
                 RootApp(
@@ -188,8 +189,7 @@ class MainActivity : ComponentActivity() {
                     themeMode = themeMode,
                     advancedMode = advancedMode,
                     shizukuMode = shizukuMode,
-                    payloadRepository = payloadRepository,
-                    payloadBranch = payloadBranch,
+                    payloadSources = payloadSources,
                     onAccentColorChanged = { color ->
                         AppPreferences.setAccentColor(this, color)
                         accentColor = color
@@ -206,19 +206,15 @@ class MainActivity : ComponentActivity() {
                         AppPreferences.setShizukuMode(this, enabled)
                         shizukuMode = enabled
                     },
-                    onPayloadRepositoryChanged = { repository ->
-                        AppPreferences.setPayloadRepository(this, repository)
-                        payloadRepository = repository
+                    onPayloadSourcesChanged = { sources ->
+                        AppPreferences.setPayloadSources(this, sources)
+                        payloadSources = sources
                     },
-                    onPayloadBranchChanged = { branch ->
-                        AppPreferences.setPayloadBranch(this, branch)
-                        payloadBranch = branch
-                    },
-                    openInstaller = { profileId ->
+                    openInstaller = { selectionId ->
                         val installer = Intent(this, InstallActivity::class.java)
                             .putExtra(InstallActivity.EXTRA_INSTALL_REQUEST_ID, UUID.randomUUID().toString())
-                        if (profileId != null) {
-                            installer.putExtra(InstallActivity.EXTRA_PROFILE_ID, profileId)
+                        if (selectionId != null) {
+                            installer.putExtra(InstallActivity.EXTRA_PROFILE_ID, selectionId)
                         }
                         startActivity(installer)
                     },
@@ -267,8 +263,6 @@ private const val KERNEL_SU_MANAGER_PACKAGE = "me.weishu.kernelsu"
 private const val KERNEL_SU_HOME_URL = "https://kernelsu.org/"
 private const val SHIZUKU_MANAGER_PACKAGE = "moe.shizuku.manager"
 private const val SHIZUKU_MANAGER_URL = "https://github.com/thedjchi/Shizuku/releases/"
-private val PAYLOAD_REPOSITORY_PATTERN = Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-private val PAYLOAD_BRANCH_PATTERN = Regex("^[A-Za-z0-9_.\\-/]+$")
 
 private fun isKernelSuManagerInstalled(context: Context): Boolean =
     context.packageManager.getLaunchIntentForPackage(KERNEL_SU_MANAGER_PACKAGE) != null
@@ -298,14 +292,12 @@ private fun RootApp(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
     shizukuMode: Boolean,
-    payloadRepository: String,
-    payloadBranch: String,
+    payloadSources: List<PayloadSource>,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
-    onPayloadRepositoryChanged: (String) -> Unit,
-    onPayloadBranchChanged: (String) -> Unit,
+    onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     openInstaller: (String?) -> Unit,
 ) {
     val installState by installViewModel.state.collectAsStateWithLifecycle()
@@ -455,7 +447,7 @@ private fun RootApp(
                 FilledTonalButton(onClick = {
                     clickHaptic(view)
                     showInstallConfirmation = false
-                    openInstaller(selectedProfile?.profileId)
+                    openInstaller(selectedProfile?.selectionId)
                     selectedProfile = null
                 }) {
                     Text(stringResource(R.string.action_confirm))
@@ -525,8 +517,7 @@ private fun RootApp(
                     themeMode = themeMode,
                     advancedMode = advancedMode,
                     shizukuMode = shizukuMode,
-                    payloadRepository = payloadRepository,
-                    payloadBranch = payloadBranch,
+                    payloadSources = payloadSources,
                     updateStatus = updateStatus,
                     onCheckForUpdate = checkForUpdate,
                     onStartDownload = startDownload,
@@ -534,8 +525,7 @@ private fun RootApp(
                     onThemeModeChanged = onThemeModeChanged,
                     onAdvancedModeChanged = onAdvancedModeChanged,
                     onShizukuModeChanged = onShizukuModeChanged,
-                    onPayloadRepositoryChanged = onPayloadRepositoryChanged,
-                    onPayloadBranchChanged = onPayloadBranchChanged,
+                    onPayloadSourcesChanged = onPayloadSourcesChanged,
                 )
             }
         }
@@ -1438,8 +1428,7 @@ private fun SettingsPage(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
     shizukuMode: Boolean,
-    payloadRepository: String,
-    payloadBranch: String,
+    payloadSources: List<PayloadSource>,
     updateStatus: UpdateStatus,
     onCheckForUpdate: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
@@ -1447,8 +1436,7 @@ private fun SettingsPage(
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
-    onPayloadRepositoryChanged: (String) -> Unit,
-    onPayloadBranchChanged: (String) -> Unit,
+    onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -1457,7 +1445,7 @@ private fun SettingsPage(
     var showColorDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
-    var showPayloadRepositoryDialog by remember { mutableStateOf(false) }
+    var showPayloadSourcesDialog by remember { mutableStateOf(false) }
     var languageMenuTop by remember { mutableStateOf(32.dp) }
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     val density = LocalDensity.current
@@ -1492,17 +1480,13 @@ private fun SettingsPage(
         )
     }
 
-    if (showPayloadRepositoryDialog) {
-        PayloadRepositoryDialog(
-            initialRepository = payloadRepository,
-            initialBranch = payloadBranch,
-            repositoryPlaceholder = AppPreferences.DEFAULT_PAYLOAD_REPOSITORY,
-            branchPlaceholder = AppPreferences.DEFAULT_PAYLOAD_BRANCH,
-            onDismiss = { showPayloadRepositoryDialog = false },
-            onSave = { repository, branch ->
-                showPayloadRepositoryDialog = false
-                onPayloadRepositoryChanged(repository)
-                onPayloadBranchChanged(branch)
+    if (showPayloadSourcesDialog) {
+        PayloadSourcesDialog(
+            initialSources = payloadSources,
+            onDismiss = { showPayloadSourcesDialog = false },
+            onSave = { sources ->
+                showPayloadSourcesDialog = false
+                onPayloadSourcesChanged(sources)
             },
         )
     }
@@ -1630,13 +1614,12 @@ private fun SettingsPage(
                 )
                 SettingsCard(
                     icon = Icons.Rounded.Link,
-                    title = stringResource(R.string.payload_repository),
-                    description = stringResource(R.string.payload_repository_description),
-                    valueBelow = "$payloadRepository @ $payloadBranch",
+                    title = stringResource(R.string.payload_sources),
+                    description = stringResource(R.string.payload_sources_description),
                     position = SettingsCardPosition.Bottom,
                     onClick = {
                         clickHaptic(view)
-                        showPayloadRepositoryDialog = true
+                        showPayloadSourcesDialog = true
                     },
                 )
             }
@@ -1756,7 +1739,7 @@ private fun TargetSelectionSheet(
     onNext: (TargetProfile) -> Unit,
 ) {
     var showOnlyMyDevice by remember { mutableStateOf(true) }
-    var selectedProfileId by remember { mutableStateOf<String?>(null) }
+    var selectedSelectionId by remember { mutableStateOf<String?>(null) }
     val view = LocalView.current
     val visibleProfiles = remember(catalog.profiles, showOnlyMyDevice, device) {
         if (showOnlyMyDevice) {
@@ -1765,7 +1748,7 @@ private fun TargetSelectionSheet(
             catalog.profiles
         }
     }
-    val selectedProfile = catalog.profiles.firstOrNull { it.profileId == selectedProfileId }
+    val selectedProfile = catalog.profiles.firstOrNull { it.selectionId == selectedSelectionId }
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
@@ -1796,7 +1779,7 @@ private fun TargetSelectionSheet(
                             clickHaptic(view)
                             showOnlyMyDevice = enabled
                             if (enabled && selectedProfile?.matches(device) == false) {
-                                selectedProfileId = null
+                                selectedSelectionId = null
                             }
                         },
                     )
@@ -1806,6 +1789,23 @@ private fun TargetSelectionSheet(
             ) {
                 Checkbox(checked = showOnlyMyDevice, onCheckedChange = null)
                 Text(stringResource(R.string.show_my_device_only), style = MaterialTheme.typography.titleMedium)
+            }
+
+            if (catalog.sourceFailures.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        stringResource(R.string.payload_sources_failed),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    catalog.sourceFailures.forEach { failure ->
+                        Text(
+                            failure,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
             }
 
             when {
@@ -1837,8 +1837,8 @@ private fun TargetSelectionSheet(
                         .selectableGroup(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    items(visibleProfiles, key = TargetProfile::profileId) { profile ->
-                        val selected = selectedProfileId == profile.profileId
+                    items(visibleProfiles, key = { it.selectionId }) { profile ->
+                        val selected = selectedSelectionId == profile.selectionId
                         val matchingModel = profile.models.firstOrNull {
                             it.equals(device.model, ignoreCase = true)
                         }
@@ -1862,7 +1862,7 @@ private fun TargetSelectionSheet(
                                         role = Role.RadioButton,
                                         onClick = {
                                             clickHaptic(view)
-                                            selectedProfileId = profile.profileId
+                                            selectedSelectionId = profile.selectionId
                                         },
                                     )
                                     .padding(horizontal = 14.dp, vertical = 12.dp),
@@ -1880,6 +1880,15 @@ private fun TargetSelectionSheet(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
+                                    if (profile.sourceLabel.isNotEmpty()) {
+                                        Text(
+                                            profile.sourceLabel,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1914,76 +1923,174 @@ private fun TargetSelectionSheet(
 }
 
 @Composable
-private fun PayloadRepositoryDialog(
-    initialRepository: String,
-    initialBranch: String,
-    repositoryPlaceholder: String,
-    branchPlaceholder: String,
+private fun PayloadSourcesDialog(
+    initialSources: List<PayloadSource>,
     onDismiss: () -> Unit,
-    onSave: (repository: String, branch: String) -> Unit,
+    onSave: (List<PayloadSource>) -> Unit,
 ) {
     val view = LocalView.current
-    var repository by remember(initialRepository) { mutableStateOf(initialRepository) }
-    var branch by remember(initialBranch) { mutableStateOf(initialBranch) }
+    var sources by remember(initialSources) { mutableStateOf(initialSources) }
+    var repository by remember { mutableStateOf("") }
+    var branch by remember { mutableStateOf(PayloadSource.DEFAULT_BRANCH) }
+    var duplicate by remember { mutableStateOf(false) }
     val invalidRepository = stringResource(R.string.payload_repository_invalid)
     val invalidBranch = stringResource(R.string.payload_branch_invalid)
-    val repositoryError = remember(repository, invalidRepository) {
-        if (repository.isBlank() || !PAYLOAD_REPOSITORY_PATTERN.matches(repository.trim())) {
-            invalidRepository
-        } else {
-            null
-        }
+    val candidate = remember(repository, branch) { PayloadSource.create(repository, branch) }
+    val repositoryError = when {
+        repository.isBlank() -> null
+        !PayloadSource.isRepositoryValid(repository) -> invalidRepository
+        else -> null
     }
-    val branchError = remember(branch, invalidBranch) {
-        if (branch.isBlank() || !PAYLOAD_BRANCH_PATTERN.matches(branch.trim())) {
-            invalidBranch
-        } else {
-            null
-        }
+    val branchError = when {
+        branch.isBlank() -> null
+        !PayloadSource.isBranchValid(branch) -> invalidBranch
+        else -> null
     }
-    val valid = repositoryError == null && branchError == null
+    val addError = repositoryError ?: branchError ?: if (duplicate) {
+        stringResource(R.string.payload_source_duplicate)
+    } else {
+        null
+    }
+    val enabledCount = sources.count { it.enabled }
     AlertDialog(
         onDismissRequest = onDismiss,
         icon = { Icon(Icons.Rounded.Link, contentDescription = null) },
         title = {
             DialogDimAmount(0.34f)
-            Text(stringResource(R.string.payload_repository_title))
+            Text(stringResource(R.string.payload_sources_title))
         },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 400.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    stringResource(R.string.payload_sources_summary, enabledCount, sources.size),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (sources.isEmpty()) {
+                    Text(
+                        stringResource(R.string.payload_sources_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                sources.forEach { source ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Checkbox(
+                            checked = source.enabled,
+                            onCheckedChange = { checked ->
+                                clickHaptic(view)
+                                sources = sources.withSourceEnabled(source.id, checked)
+                            },
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                source.repository,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                source.branch,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        IconButton(onClick = {
+                            clickHaptic(view)
+                            sources = sources.withSourceRemoved(source.id)
+                        }) {
+                            Icon(
+                                Icons.Rounded.Delete,
+                                contentDescription = stringResource(R.string.payload_source_remove),
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider()
+                Text(
+                    stringResource(R.string.payload_source_add),
+                    style = MaterialTheme.typography.titleMedium,
+                )
                 OutlinedTextField(
                     value = repository,
-                    onValueChange = { repository = it },
+                    onValueChange = {
+                        repository = it
+                        duplicate = false
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    isError = repositoryError != null,
+                    isError = repositoryError != null || duplicate,
                     label = { Text(stringResource(R.string.payload_repository_label)) },
-                    placeholder = { Text(repositoryPlaceholder) },
-                    supportingText = { Text(stringResource(R.string.payload_repository_hint)) },
+                    placeholder = { Text(PayloadSource.DEFAULT_REPOSITORY) },
                 )
-                repositoryError?.let {
+                OutlinedTextField(
+                    value = branch,
+                    onValueChange = {
+                        branch = it
+                        duplicate = false
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    isError = branchError != null,
+                    label = { Text(stringResource(R.string.payload_branch)) },
+                    placeholder = { Text(PayloadSource.DEFAULT_BRANCH) },
+                    supportingText = { Text(stringResource(R.string.payload_branch_hint)) },
+                )
+                addError?.let {
                     Text(
                         it,
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                OutlinedTextField(
-                    value = branch,
-                    onValueChange = { branch = it },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    isError = branchError != null,
-                    label = { Text(stringResource(R.string.payload_branch)) },
-                    placeholder = { Text(branchPlaceholder) },
-                    supportingText = { Text(stringResource(R.string.payload_branch_hint)) },
-                )
-                branchError?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = {
+                            clickHaptic(view)
+                            val source = candidate ?: return@Button
+                            if (sources.any { it.id == source.id }) {
+                                duplicate = true
+                            } else {
+                                sources = sources.withSourceAdded(source)
+                                repository = ""
+                                branch = PayloadSource.DEFAULT_BRANCH
+                                duplicate = false
+                            }
+                        },
+                        enabled = candidate != null,
+                    ) {
+                        Icon(
+                            Icons.Rounded.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(stringResource(R.string.payload_source_add_action))
+                    }
+                    if (sources.none { it.id == PayloadSource.DEFAULT.id }) {
+                        FilledTonalButton(onClick = {
+                            clickHaptic(view)
+                            sources = sources.withSourceAdded(PayloadSource.DEFAULT)
+                        }) {
+                            Text(stringResource(R.string.payload_source_default))
+                        }
+                    }
                 }
             }
         },
@@ -1991,9 +2098,9 @@ private fun PayloadRepositoryDialog(
             FilledTonalButton(
                 onClick = {
                     clickHaptic(view)
-                    onSave(repository.trim(), branch.trim())
+                    onSave(sources)
                 },
-                enabled = valid,
+                enabled = enabledCount > 0,
             ) {
                 Text(stringResource(R.string.action_save))
             }

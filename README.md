@@ -64,15 +64,22 @@ app/build/outputs/apk/release/app-release.apk
 
 ## Payload sources
 
-The built-in feed is the catalog in
-[Root-My-Galaxy-Payloads](https://github.com/BuSung-dev/Root-My-Galaxy-Payloads). Advanced
-mode adds a **Payload repository** entry under Settings that swaps that feed for another
-GitHub `owner/repository` and branch, for testing payloads that are not upstream yet.
+Advanced mode adds a **Payload sources** entry under Settings. It lists the GitHub
+`owner/repository` and branch of every catalog the app may use, with a checkbox per entry to
+enable or disable it and a delete action to drop it. The built-in feed
+([Root-My-Galaxy-Payloads](https://github.com/BuSung-dev/Root-My-Galaxy-Payloads)) is the
+default entry and can be restored with one button, so pointing the list at a testing branch
+for payloads that are not upstream yet does not cost you the official catalog.
 
-One source is active at a time: the field starts at the built-in repository, and pointing it
-back there restores the official feed. Downloads are pinned to the resolved commit of the
-chosen branch, and a source that cannot be reached or does not carry the expected manifest
-leaves the app with nothing to install rather than silently using the built-in feed.
+Each enabled source is fetched on its own: its branch is resolved to a commit, that commit's
+`support/targets-v3.json` is read, and every target is pinned to that commit and tagged with
+the source it came from. Sources therefore do not shadow one another — when two of them offer
+the same payload id, both appear in the selection sheet with their source underneath, and a
+source that is unreachable or malformed is reported there and contributes nothing while the
+others keep working. Installation only fails when no enabled source yields any target.
+
+Payloads are cached per source, so the same payload id from two sources never shares a
+download directory.
 
 ## Signing
 

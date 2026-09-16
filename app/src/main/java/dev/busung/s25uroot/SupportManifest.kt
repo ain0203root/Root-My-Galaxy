@@ -15,6 +15,9 @@ data class TargetProfile(
     val kernelVersions: Set<String>,
     val exploit: RemoteArtifact,
     val kernelSu: RemoteArtifact,
+    /** Source that provided this target, empty when it was not loaded through one. */
+    val sourceId: String = "",
+    val sourceLabel: String = "",
 ) {
     init {
         require(models.isNotEmpty()) { "Payload must support at least one model" }
@@ -29,6 +32,10 @@ data class TargetProfile(
 
     fun matches(snapshot: DeviceSnapshot): Boolean =
         matchesDevice(snapshot) && matchesKernelVersion(snapshot)
+
+    /** Unique across sources, unlike [profileId], which two sources may both offer. */
+    val selectionId: String
+        get() = selectionIdFor(sourceId, profileId)
 
     val supportedModels: String
         get() = models.joinToString()

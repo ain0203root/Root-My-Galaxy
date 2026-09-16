@@ -3,6 +3,8 @@ package dev.busung.s25uroot
 import android.app.LocaleManager
 import android.content.Context
 import android.os.LocaleList
+import org.json.JSONArray
+import org.json.JSONObject
 
 enum class AccentColor(val storedValue: String) {
     Dynamic("dynamic"),
@@ -34,31 +36,64 @@ object AppPreferences {
     private const val THEME_MODE = "theme_mode"
     private const val ADVANCED_MODE = "advanced_mode"
     private const val SHIZUKU_MODE = "shizuku_mode"
-    private const val PAYLOAD_REPOSITORY = "payload_repository"
-    private const val PAYLOAD_BRANCH = "payload_branch"
+    private const val PAYLOAD_SOURCES = "payload_sources"
+    // Superseded by the source list; read once so an existing selection survives the upgrade.
+    private const val LEGACY_PAYLOAD_REPOSITORY = "payload_repository"
+    private const val LEGACY_PAYLOAD_BRANCH = "payload_branch"
     private const val CONSUMED_INSTALL_REQUEST = "consumed_install_request"
 
-    const val DEFAULT_PAYLOAD_REPOSITORY = "BuSung-dev/Root-My-Galaxy-Payloads"
-    const val DEFAULT_PAYLOAD_BRANCH = "main"
+    fun payloadSources(context: Context): List<PayloadSource> {
+        val stored = prefs(context).getString(PAYLOAD_SOURCES, null)
+        if (stored == null) return listOf(legacyPayloadSource(context))
+        return decodePayloadSources(stored).ifEmpty { listOf(PayloadSource.DEFAULT) }
+    }
 
-    fun payloadRepository(context: Context): String =
-        prefs(context).getString(PAYLOAD_REPOSITORY, DEFAULT_PAYLOAD_REPOSITORY)
-            ?: DEFAULT_PAYLOAD_REPOSITORY
-
-    fun setPayloadRepository(context: Context, repository: String) {
+    fun setPayloadSources(context: Context, sources: List<PayloadSource>) {
         prefs(context).edit()
-            .putString(PAYLOAD_REPOSITORY, repository)
+            .putString(PAYLOAD_SOURCES, encodePayloadSources(sources))
+            .remove(LEGACY_PAYLOAD_REPOSITORY)
+            .remove(LEGACY_PAYLOAD_BRANCH)
             .apply()
     }
 
-    fun payloadBranch(context: Context): String =
-        prefs(context).getString(PAYLOAD_BRANCH, DEFAULT_PAYLOAD_BRANCH)
-            ?: DEFAULT_PAYLOAD_BRANCH
+    private fun legacyPayloadSource(context: Context): PayloadSource {
+        val preferences = prefs(context)
+        val repository = preferences.getString(LEGACY_PAYLOAD_REPOSITORY, null)
+        val branch = preferences.getString(LEGACY_PAYLOAD_BRANCH, null)
+        return PayloadSource.create(
+            repository = repository ?: PayloadSource.DEFAULT_REPOSITORY,
+            branch = branch ?: PayloadSource.DEFAULT_BRANCH,
+        ) ?: PayloadSource.DEFAULT
+    }
 
-    fun setPayloadBranch(context: Context, branch: String) {
-        prefs(context).edit()
-            .putString(PAYLOAD_BRANCH, branch)
-            .apply()
+    private fun encodePayloadSources(sources: List<PayloadSource>): String {
+        val array = JSONArray()
+        sources.forEach { source ->
+            array.put(
+                JSONObject()
+                    .put("repository", source.repository)
+                    .put("branch", source.branch)
+                    .put("enabled", source.enabled),
+            )
+        }
+        return array.toString()
+    }
+
+    private fun decodePayloadSources(stored: String): List<PayloadSource> = try {
+        val array = JSONArray(stored)
+        buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val source = PayloadSource.create(
+                    repository = item.optString("repository"),
+                    branch = item.optString("branch"),
+                    enabled = item.optBoolean("enabled", true),
+                ) ?: continue
+                if (none { it.id == source.id }) add(source)
+            }
+        }
+    } catch (error: Throwable) {
+        emptyList()
     }
 
     fun accentColor(context: Context): AccentColor = AccentColor.fromStoredValue(

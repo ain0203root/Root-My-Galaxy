@@ -15,31 +15,80 @@ data class VerifiedPayloads(
     val kernelSu: File,
 )
 
-class PayloadRepository(private val context: Context) {
-    private val repository: String
-        get() = AppPreferences.payloadRepository(context)
-    private val branch: String
-        get() = AppPreferences.payloadBranch(context)
+/**
+ * Targets merged from every enabled source, plus one message per source that could not be
+ * read. A source that fails is left out rather than taking the whole catalog down with it.
+ */
+data class LoadedCatalog(
+    val targets: List<TargetProfile>,
+    val sourceFailures: List<String>,
+)
 
-    fun loadTargets(): List<TargetProfile> {
-        val commit = resolveMainCommit()
-        val manifestBytes = downloadBytes(rawUrl(commit, "support/targets-v3.json"), MAX_MANIFEST_BYTES)
-        return SupportManifest.parse(manifestBytes).targets.map { profile -> profile.copy(
-            exploit = profile.exploit.copy(url = pinArtifactUrl(profile.exploit.url, commit)),
-            kernelSu = profile.kernelSu.copy(url = pinArtifactUrl(profile.kernelSu.url, commit)),
-        ) }
+class PayloadRepository(private val context: Context) {
+    fun loadCatalog(): LoadedCatalog {
+        val sources = AppPreferences.payloadSources(context).enabledSources()
+        require(sources.isNotEmpty()) { context.getString(R.string.repo_no_source_enabled) }
+
+        val targets = mutableListOf<TargetProfile>()
+        val failures = mutableListOf<String>()
+        sources.forEach { source ->
+            try {
+                targets += loadSource(source)
+            } catch (error: Throwable) {
+                failures += context.getString(
+                    R.string.repo_source_failed,
+                    source.label,
+                    error.message ?: error.javaClass.simpleName,
+                )
+            }
+        }
+
+        require(targets.isNotEmpty()) {
+            failures.ifEmpty { listOf(context.getString(R.string.repo_no_profile)) }.joinToString("\n")
+        }
+        return LoadedCatalog(targets, failures)
     }
+
+    fun loadTargets(): List<TargetProfile> = loadCatalog().targets
 
     fun resolveTarget(snapshot: DeviceSnapshot): TargetProfile = loadTargets()
         .firstOrNull { it.matches(snapshot) }
         ?: error(context.getString(R.string.repo_no_profile))
 
-    fun resolveTarget(profileId: String): TargetProfile = loadTargets()
-        .firstOrNull { it.profileId == profileId }
-        ?: error(context.getString(R.string.repo_profile_missing, profileId))
+    /** Resolves a catalog selection, which may name the source it came from. */
+    fun resolveTarget(selectionId: String): TargetProfile {
+        val sourceId = sourceFromSelectionId(selectionId)
+        val profileId = profileFromSelectionId(selectionId)
+        val source = sourceId?.let { id ->
+            AppPreferences.payloadSources(context).firstOrNull { it.id == id }
+        }
+        if (sourceId != null && source == null) {
+            error(context.getString(R.string.repo_source_missing, sourceId))
+        }
+
+        val candidates = if (source != null) loadSource(source) else loadTargets()
+        return candidates.firstOrNull { it.profileId == profileId }
+            ?: error(context.getString(R.string.repo_profile_missing, profileId))
+    }
+
+    private fun loadSource(source: PayloadSource): List<TargetProfile> {
+        val commit = resolveCommit(source)
+        val manifestBytes = downloadBytes(
+            rawUrl(source, commit, "support/targets-v3.json"),
+            MAX_MANIFEST_BYTES,
+        )
+        return SupportManifest.parse(manifestBytes).targets.map { profile ->
+            profile.copy(
+                sourceId = source.id,
+                sourceLabel = source.label,
+                exploit = profile.exploit.copy(url = pinArtifactUrl(source, profile.exploit.url, commit)),
+                kernelSu = profile.kernelSu.copy(url = pinArtifactUrl(source, profile.kernelSu.url, commit)),
+            )
+        }
+    }
 
     fun download(profile: TargetProfile, onProgress: (String) -> Unit): VerifiedPayloads {
-        val directory = File(context.filesDir, "payloads/${profile.profileId}").apply { mkdirs() }
+        val directory = File(context.filesDir, "payloads/${cacheKey(profile)}").apply { mkdirs() }
         val exploit = downloadArtifact(
             profile.exploit,
             File(directory, "cve-2026-43499-app.so"),
@@ -95,8 +144,18 @@ class PayloadRepository(private val context: Context) {
         return destination
     }
 
-    private fun resolveMainCommit(): String {
-        val response = downloadBytes(commitApiUrl(), MAX_COMMIT_RESPONSE_BYTES)
+    /** Keeps two sources offering the same payload id from sharing a download directory. */
+    private fun cacheKey(profile: TargetProfile): String {
+        val profilePart = sanitize(profile.profileId)
+        if (profile.sourceId.isEmpty()) return profilePart
+        return "${sanitize(profile.sourceId)}--$profilePart"
+    }
+
+    private fun sanitize(value: String): String =
+        value.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
+    private fun resolveCommit(source: PayloadSource): String {
+        val response = downloadBytes(commitApiUrl(source), MAX_COMMIT_RESPONSE_BYTES)
         val commit = JSONObject(response.toString(Charsets.UTF_8))
             .getJSONObject("object")
             .getString("sha")
@@ -104,29 +163,33 @@ class PayloadRepository(private val context: Context) {
         return commit
     }
 
-    private fun commitApiUrl() =
-        "https://api.github.com/repos/$repository/git/refs/heads/$branch"
+    private fun commitApiUrl(source: PayloadSource) =
+        "https://api.github.com/repos/${source.repository}/git/refs/heads/${source.branch}"
 
-    private fun rawRepository() =
-        "https://raw.githubusercontent.com/$repository"
+    private fun rawRepository(source: PayloadSource) =
+        "https://raw.githubusercontent.com/${source.repository}"
 
-    private fun rawUrl(commit: String, path: String) = "${rawRepository()}/$commit/$path"
+    private fun rawUrl(source: PayloadSource, commit: String, path: String) =
+        "${rawRepository(source)}/$commit/$path"
 
-    private fun mutableRawPrefix() = "${rawRepository()}/$branch/"
+    private fun mutableRawPrefix(source: PayloadSource) =
+        "${rawRepository(source)}/${source.branch}/"
 
-    private fun legacyMutableRawPrefix() =
-        "https://raw.githubusercontent.com/${AppPreferences.DEFAULT_PAYLOAD_REPOSITORY}/" +
-            "${AppPreferences.DEFAULT_PAYLOAD_BRANCH}/"
+    // Manifests written for the built-in feed reference its mutable branch URLs, so accept
+    // that prefix too and re-pin it to the source the manifest was actually read from.
+    private fun builtInMutableRawPrefix() =
+        "https://raw.githubusercontent.com/${PayloadSource.DEFAULT.repository}/" +
+            "${PayloadSource.DEFAULT.branch}/"
 
-    private fun pinArtifactUrl(url: String, commit: String): String {
-        val prefix = mutableRawPrefix()
-        val legacyPrefix = legacyMutableRawPrefix()
+    private fun pinArtifactUrl(source: PayloadSource, url: String, commit: String): String {
+        val prefix = mutableRawPrefix(source)
+        val builtInPrefix = builtInMutableRawPrefix()
         val relative = when {
             url.startsWith(prefix) -> url.removePrefix(prefix)
-            url.startsWith(legacyPrefix) -> url.removePrefix(legacyPrefix)
+            url.startsWith(builtInPrefix) -> url.removePrefix(builtInPrefix)
             else -> error(context.getString(R.string.repo_url_invalid))
         }
-        return "${rawRepository()}/$commit/$relative"
+        return "${rawRepository(source)}/$commit/$relative"
     }
 
     private fun downloadBytes(url: String, maximum: Int): ByteArray {

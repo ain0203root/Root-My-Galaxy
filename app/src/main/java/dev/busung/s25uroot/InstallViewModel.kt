@@ -47,6 +47,7 @@ data class TargetCatalogUiState(
     val loading: Boolean = false,
     val profiles: List<TargetProfile> = emptyList(),
     val error: String? = null,
+    val sourceFailures: List<String> = emptyList(),
 )
 
 private data class CommandResult(val code: Int, val output: String)
@@ -143,13 +144,16 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch(Dispatchers.IO) {
             mutableTargetCatalog.value = TargetCatalogUiState(loading = true)
             mutableTargetCatalog.value = try {
+                val catalog = repository.loadCatalog()
                 TargetCatalogUiState(
-                    profiles = repository.loadTargets().sortedWith(
+                    profiles = catalog.targets.sortedWith(
                         compareBy(
                             TargetProfile::displayName,
                             TargetProfile::profileId,
+                            TargetProfile::sourceLabel,
                         ),
                     ),
+                    sourceFailures = catalog.sourceFailures,
                 )
             } catch (error: Throwable) {
                 TargetCatalogUiState(error = error.message ?: error.javaClass.simpleName)
@@ -157,7 +161,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun install(profileId: String? = null) {
+    fun install(selectionId: String? = null) {
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
         discoveryJob?.cancel()
         installJob = viewModelScope.launch(Dispatchers.IO) {
@@ -182,12 +186,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     appendLog(app.getString(R.string.log_shizuku_permission))
                 }
                 setPhase(InstallPhase.Checking, app.getString(R.string.status_checking_github))
-                val profile = if (profileId == null) {
+                val profile = if (selectionId == null) {
                     repository.resolveTarget(DeviceSnapshot.current())
                 } else {
-                    repository.resolveTarget(profileId)
+                    repository.resolveTarget(selectionId)
                 }
                 appendLog(app.getString(R.string.log_profile, profile.profileId))
+                if (profile.sourceLabel.isNotEmpty()) {
+                    appendLog(app.getString(R.string.log_payload_source, profile.sourceLabel))
+                }
                 updateHistoryProfile(profile.profileId)
 
                 setPhase(InstallPhase.Downloading, app.getString(R.string.status_downloading_payload))
