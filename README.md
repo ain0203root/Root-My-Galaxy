@@ -70,9 +70,28 @@ app/build/outputs/apk/debug/app-debug.apk
 app/build/outputs/apk/release/app-release.apk
 ```
 
+## Settings
+
+Settings is grouped by what each setting belongs to, so a decision about Shizuku is not filed under
+Appearance and a run option is not filed under Advanced:
+
+| section | what is in it |
+|---|---|
+| Appearance | theme mode, material colour, language |
+| Payloads | payload sources, local payload |
+| Run | advanced mode, disable KSU modules, run plan |
+| Shizuku | use Shizuku, start Shizuku now, Shizuku on boot |
+| Root | root on boot |
+| Recovery | restart Zygote, KernelSU soft reboot, reboot and unroot — hold to run |
+| System | the battery-optimisation exemption a run with the screen off depends on |
+| About | update check, and the app with its version and build label |
+
+The two boot-time settings are filed under their own subsystem rather than together: *Shizuku on boot*
+is a property of Shizuku, and *root on boot* is a property of root.
+
 ## Payload sources
 
-Advanced mode adds a **Payload sources** entry under Settings. It opens a bottom sheet that
+**Settings → Payloads → Payload sources** opens a bottom sheet that
 lists the GitHub `owner/repository` and branch of every catalog the app may use, with a checkbox
 per entry to enable or disable it and a delete action to drop it. The sheet is the right shape
 for this form: it rises with the keyboard, so the repository and branch fields and their Add

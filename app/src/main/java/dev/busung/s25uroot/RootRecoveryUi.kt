@@ -172,11 +172,8 @@ internal fun RootRecoverySection(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            stringResource(R.string.settings_recovery),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(start = 4.dp),
-        )
+        // No heading of its own: this block is a settings section and the section label above it says
+        // what it is. What is left is the one line that has to be read before any card here is held.
         Text(
             stringResource(R.string.settings_recovery_summary),
             style = MaterialTheme.typography.bodyMedium,

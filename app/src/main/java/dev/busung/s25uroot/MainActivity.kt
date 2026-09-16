@@ -1852,18 +1852,98 @@ private fun SettingsPage(
                     title = stringResource(R.string.language),
                     description = stringResource(R.string.language_description),
                     value = languageLabel(currentLanguageTag),
-                    position = SettingsCardPosition.Middle,
+                    position = SettingsCardPosition.Bottom,
                     onClick = {
                         clickHaptic(view)
                         showLanguageDialog = true
                     },
                 )
+            }
+        }
+
+        item { SectionLabel(stringResource(R.string.settings_section_payloads)) }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SettingsCard(
+                    icon = Icons.Rounded.Link,
+                    title = stringResource(R.string.payload_sources),
+                    description = stringResource(R.string.payload_sources_description),
+                    position = SettingsCardPosition.Top,
+                    onClick = {
+                        clickHaptic(view)
+                        showPayloadSourcesSheet = true
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.UploadFile,
+                    title = stringResource(R.string.local_payload),
+                    description = stringResource(
+                        if (localPayloadName == null) {
+                            R.string.local_payload_description
+                        } else {
+                            R.string.local_payload_description_set
+                        },
+                    ),
+                    value = localPayloadName ?: stringResource(R.string.local_payload_none),
+                    position = SettingsCardPosition.Bottom,
+                    onClick = {
+                        clickHaptic(view)
+                        showLocalPayloadDialog = true
+                    },
+                )
+            }
+        }
+
+        item { SectionLabel(stringResource(R.string.settings_section_run)) }
+
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsSwitchCard(
+                    icon = Icons.Rounded.Memory,
+                    title = stringResource(R.string.advanced_mode),
+                    description = stringResource(R.string.advanced_mode_description),
+                    checked = advancedMode,
+                    position = SettingsCardPosition.Top,
+                    onCheckedChange = {
+                        clickHaptic(view)
+                        onAdvancedModeChanged(it)
+                    },
+                )
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.Security,
+                    title = stringResource(R.string.disable_ksu_modules),
+                    description = stringResource(R.string.disable_ksu_modules_description),
+                    checked = disableKsuModules,
+                    position = SettingsCardPosition.Middle,
+                    onCheckedChange = {
+                        clickHaptic(view)
+                        onDisableKsuModulesChanged(it)
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.Schedule,
+                    title = stringResource(R.string.run_plan),
+                    description = stringResource(R.string.run_plan_description),
+                    value = "",
+                    position = SettingsCardPosition.Bottom,
+                    onClick = {
+                        clickHaptic(view)
+                        showRunPlanDialog = true
+                    },
+                )
+            }
+        }
+        item { SectionLabel(stringResource(R.string.settings_section_shizuku)) }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SettingsSwitchCard(
+                    // The transport a run is handed to, which is why it sits with the other two
+                    // Shizuku decisions rather than under appearance.
                     icon = Icons.Rounded.VerifiedUser,
                     title = stringResource(R.string.shizuku_mode),
                     description = stringResource(R.string.shizuku_mode_description),
                     checked = shizukuMode,
-                    position = SettingsCardPosition.Middle,
+                    position = SettingsCardPosition.Top,
                     onCheckedChange = { enabled ->
                         clickHaptic(view)
                         if (!enabled) {
@@ -1896,7 +1976,7 @@ private fun SettingsPage(
                     title = stringResource(R.string.settings_shizuku_boot),
                     description = stringResource(R.string.settings_shizuku_boot_summary),
                     checked = shizukuBootMode,
-                    position = SettingsCardPosition.Middle,
+                    position = SettingsCardPosition.Bottom,
                     onCheckedChange = { enabled ->
                         clickHaptic(view)
                         if (enabled) onRequestNotificationPermission()
@@ -1906,18 +1986,39 @@ private fun SettingsPage(
                         if (enabled) startShizuku()
                     },
                 )
+            }
+        }
+
+        item { SectionLabel(stringResource(R.string.settings_section_root)) }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsSwitchCard(
                     icon = Icons.Rounded.RestartAlt,
                     title = stringResource(R.string.settings_boot_root),
                     description = stringResource(R.string.settings_boot_root_summary),
                     checked = bootRootMode,
-                    position = SettingsCardPosition.Middle,
+                    position = SettingsCardPosition.GroupedSingle,
                     onCheckedChange = { enabled ->
                         clickHaptic(view)
                         if (enabled) onRequestNotificationPermission()
                         onBootRootModeChanged(enabled)
                     },
                 )
+            }
+        }
+
+        item { SectionLabel(stringResource(R.string.settings_recovery)) }
+        item {
+            RootRecoverySection(
+                // Root on boot is what would bring root back, so it is turned off before the reboot
+                // is asked for and this screen has to follow whatever was stored.
+                onBootRootModeChanged = onBootRootModeChanged,
+            )
+        }
+
+        item { SectionLabel(stringResource(R.string.settings_section_system)) }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsCard(
                     icon = Icons.Rounded.BatterySaver,
                     title = stringResource(R.string.settings_battery),
@@ -1935,84 +2036,12 @@ private fun SettingsPage(
                             R.string.settings_battery_allow
                         },
                     ),
-                    position = SettingsCardPosition.Bottom,
+                    position = SettingsCardPosition.GroupedSingle,
                     onClick = onRequestBatteryExemption,
                 )
             }
         }
-        item { SectionLabel(stringResource(R.string.advanced)) }
 
-        item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                SettingsSwitchCard(
-                    icon = Icons.Rounded.Memory,
-                    title = stringResource(R.string.advanced_mode),
-                    description = stringResource(R.string.advanced_mode_description),
-                    checked = advancedMode,
-                    position = SettingsCardPosition.Top,
-                    onCheckedChange = {
-                        clickHaptic(view)
-                        onAdvancedModeChanged(it)
-                    },
-                )
-                SettingsSwitchCard(
-                    icon = Icons.Rounded.Security,
-                    title = stringResource(R.string.disable_ksu_modules),
-                    description = stringResource(R.string.disable_ksu_modules_description),
-                    checked = disableKsuModules,
-                    position = SettingsCardPosition.Middle,
-                    onCheckedChange = {
-                        clickHaptic(view)
-                        onDisableKsuModulesChanged(it)
-                    },
-                )
-                SettingsCard(
-                    icon = Icons.Rounded.Link,
-                    title = stringResource(R.string.payload_sources),
-                    description = stringResource(R.string.payload_sources_description),
-                    position = SettingsCardPosition.Middle,
-                    onClick = {
-                        clickHaptic(view)
-                        showPayloadSourcesSheet = true
-                    },
-                )
-                SettingsCard(
-                    icon = Icons.Rounded.UploadFile,
-                    title = stringResource(R.string.local_payload),
-                    description = stringResource(
-                        if (localPayloadName == null) {
-                            R.string.local_payload_description
-                        } else {
-                            R.string.local_payload_description_set
-                        },
-                    ),
-                    value = localPayloadName ?: stringResource(R.string.local_payload_none),
-                    position = SettingsCardPosition.Middle,
-                    onClick = {
-                        clickHaptic(view)
-                        showLocalPayloadDialog = true
-                    },
-                )
-                SettingsCard(
-                    icon = Icons.Rounded.Schedule,
-                    title = stringResource(R.string.run_plan),
-                    description = stringResource(R.string.run_plan_description),
-                    value = "",
-                    position = SettingsCardPosition.Bottom,
-                    onClick = {
-                        clickHaptic(view)
-                        showRunPlanDialog = true
-                    },
-                )
-            }
-        }
-        item {
-            RootRecoverySection(
-                // Root on boot is what would bring root back, so it is turned off before the reboot
-                // is asked for and this screen has to follow whatever was stored.
-                onBootRootModeChanged = onBootRootModeChanged,
-            )
-        }
         item { SectionLabel(stringResource(R.string.about)) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -2023,9 +2052,11 @@ private fun SettingsPage(
                     onStartDownload = onStartDownload,
                 )
                 SettingsCard(
+                    // Named for the app rather than for the section: the label above it already says
+                    // About, and a card that repeated it would be a title under a title.
                     icon = Icons.Rounded.Info,
-                    title = stringResource(R.string.about),
-                    description = stringResource(R.string.about_description),
+                    title = stringResource(R.string.app_name),
+                    description = stringResource(R.string.settings_about_app),
                     // The build this is, not just the version it is: two installs of the same
                     // version differ only by this label.
                     value = BuildConfig.BUILD_LABEL,
