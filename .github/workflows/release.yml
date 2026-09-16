@@ -53,6 +53,30 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Decode signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${KEYSTORE_BASE64:?Repository secret KEYSTORE_BASE64 is not set}"
+          : "${KEYSTORE_PASSWORD:?Repository secret KEYSTORE_PASSWORD is not set}"
+          : "${KEY_ALIAS:?Repository secret KEY_ALIAS is not set}"
+          : "${KEY_PASSWORD:?Repository secret KEY_PASSWORD is not set}"
+
+          KEYSTORE_PATH="$RUNNER_TEMP/release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+
+          {
+            echo "KEYSTORE_FILE=$KEYSTORE_PATH"
+            echo "KEYSTORE_TYPE=PKCS12"
+            echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
+            echo "KEY_ALIAS=$KEY_ALIAS"
+            echo "KEY_PASSWORD=$KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
       - name: Resolve release tag
         id: release_tag
         shell: bash
@@ -104,8 +128,35 @@ jobs:
           set -euo pipefail
           git checkout --force "$TAG_NAME"
 
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Build APKs
+        run: ./gradlew assembleDebug assembleRelease --no-daemon
+
+      - name: Verify release APK signature
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
+          APK="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
+
+          CERT="$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK")"
+          SIGNED_SHA256="$(echo "$CERT" | grep -m 1 'SHA-256 digest' | awk '{print $NF}' | tr 'A-F' 'a-f')"
+          EXPECTED_SHA256="$(keytool -list -v -keystore "$KEYSTORE_FILE" -storepass "$KEYSTORE_PASSWORD" \
+            -alias "$KEY_ALIAS" | grep -m 1 'SHA256:' | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')"
+
+          if [ "$SIGNED_SHA256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::Release APK is not signed with the repository key (got $SIGNED_SHA256, expected $EXPECTED_SHA256)."
+            exit 1
+          fi
+
+      - name: Stage release APK
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
+          mkdir -p release-assets
+          cp app/build/outputs/apk/release/*.apk "release-assets/RootMyGalaxy-${VERSION_NAME}.apk"
 
       - name: Generate release notes
         shell: bash
@@ -122,6 +173,10 @@ jobs:
             echo
             echo "Version: $VERSION_NAME"
             echo "Commit: $TAG_COMMIT"
+            echo
+            echo "APK signed with the repository release key: installs over older CI builds and"
+            echo "releases of this fork. Uninstall the upstream build once, it has a different"
+            echo "signature."
             echo
             if [ -n "$PREVIOUS_TAG" ]; then
               echo "Changes since $PREVIOUS_TAG:"
@@ -145,9 +200,9 @@ jobs:
               --title "Release $TAG_NAME" \
               --notes-file release-notes.md \
               --latest
-            gh release upload "$TAG_NAME" app/build/outputs/apk/debug/*.apk --clobber
+            gh release upload "$TAG_NAME" release-assets/*.apk --clobber
           else
-            gh release create "$TAG_NAME" app/build/outputs/apk/debug/*.apk \
+            gh release create "$TAG_NAME" release-assets/*.apk \
               --title "Release $TAG_NAME" \
               --notes-file release-notes.md \
               --latest

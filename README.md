@@ -45,4 +45,39 @@ Output:
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## Signing
+
+`assembleRelease` needs the repository release key and fails instead of producing an
+unsigned APK. Locally, create the gitignored `keystore/keystore.properties`:
+
+```properties
+storeFile=keystore/rootmygalaxy-ci.jks
+storeType=PKCS12
+storePassword=...
+keyAlias=rootmygalaxy
+keyPassword=...
+```
+
+CI provides the same values as environment variables from repository secrets:
+`KEYSTORE_BASE64` (the keystore, base64-encoded), `KEYSTORE_PASSWORD`, `KEY_ALIAS` and
+`KEY_PASSWORD`. Both workflows verify the built APK against the key before publishing, so a
+silently mis-signed artifact fails the run.
+
+Output:
+
+```text
+app/build/outputs/apk/debug/app-debug.apk
+app/build/outputs/apk/release/app-release.apk
+```
+
+Because every build shares one key, APKs from the `CI Build` pre-releases and from tagged
+`Release Build` releases update over each other without uninstalling. Upstream's app is
+signed differently, so switching from it needs one uninstall.
+
+## Releases
+
+- `CI Build` publishes a pre-release per run: tag `ci-<version>-<run number>`, marked as a
+  pre-release so it never becomes the repository's "Latest" release.
+- `Release Build` publishes the tagged releases it manages (`v<version>`).
+
 Use only on devices you own or are explicitly authorized to test.
