@@ -312,6 +312,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     profile.routePolicy,
                 )
 
+                // Optional, and before the KernelSU load rather than after: what it protects against
+                // is a write made while bootstrap root is the only root on the device.
+                if (AppPreferences.partitionReadOnlyMode(app)) setPartitionBlocksToRo()
+
                 val modulesSkipped = if (AppPreferences.disableKsuModules(app)) {
                     moveModulesAside()
                 } else {
@@ -688,6 +692,33 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      * therefore tried first and the helper stays as the fallback for a boot where the temporary
      * socket is still the only way in.
      */
+    /**
+     * Marks the image partitions read-only, using the bootstrap root the exploit just produced.
+     *
+     * It goes through the helper directly rather than through [runMaintenance], and deliberately: at
+     * this point KernelSU has not been loaded, so the transport KernelSU's own shell would need does
+     * not exist yet. The helper's temporary socket is the only root here, which is the same reason
+     * this runs now - the window it closes is exactly the window it runs in.
+     */
+    private suspend fun setPartitionBlocksToRo() {
+        val script = runCatching {
+            app.assets.open(PartitionReadOnly.SCRIPT_ASSET).bufferedReader().use { it.readText() }
+        }.getOrNull()
+        if (script == null) {
+            // A build without the asset is a packaging fault, not a device condition, and saying so
+            // is more useful than reporting that the devices could not be set.
+            appendLog(app.getString(R.string.log_ro_blocks_script_missing))
+            return
+        }
+        val result = runHelper("-c", script)
+        val count = PartitionReadOnly.countFrom(result.output)
+        if (count >= 1) {
+            appendLog(app.getString(R.string.log_ro_blocks_successful, count))
+        } else {
+            appendLog(app.getString(R.string.log_ro_blocks_failed))
+        }
+    }
+
     private suspend fun runMaintenance(command: String): CommandResult {
         val viaKernelSu = if (shizukuEnabled()) KernelSuRuntime.rootShell(command) else null
         return viaKernelSu

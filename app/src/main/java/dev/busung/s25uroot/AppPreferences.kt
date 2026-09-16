@@ -42,6 +42,7 @@ object AppPreferences {
     private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
     private const val AUTO_ROOT_SETTLE_SECONDS = "auto_root_settle_seconds"
     private const val SHIZUKU_AUTOMATION_TOKEN = "shizuku_automation_token"
+    private const val PARTITION_READ_ONLY_MODE = "partition_read_only_mode"
     private const val PAYLOAD_MODE = "payload_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
@@ -229,6 +230,21 @@ object AppPreferences {
     fun setShizukuAutomationToken(context: Context, token: String) {
         prefs(context).edit()
             .putString(SHIZUKU_AUTOMATION_TOKEN, token.trim())
+            .apply()
+    }
+
+    /**
+     * Whether a run marks the image partitions read-only once bootstrap root is in hand.
+     *
+     * Off unless asked for: see [PartitionReadOnly] - what it blocks is not only mistakes, so the
+     * person who knows what they intend on their own device decides.
+     */
+    fun partitionReadOnlyMode(context: Context): Boolean =
+        prefs(context).getBoolean(PARTITION_READ_ONLY_MODE, false)
+
+    fun setPartitionReadOnlyMode(context: Context, enabled: Boolean) {
+        prefs(context).edit()
+            .putBoolean(PARTITION_READ_ONLY_MODE, enabled)
             .apply()
     }
 

@@ -200,6 +200,7 @@ class MainActivity : ComponentActivity() {
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
     private var autoRootSettleSeconds by mutableStateOf(BootSettle.AUTO_ROOT_DEFAULT_SECONDS)
     private var shizukuToken by mutableStateOf("")
+    private var partitionReadOnly by mutableStateOf(false)
     private var payloadMode by mutableStateOf(PayloadMode.Online)
     private var notificationPermissionAsked = false
     private var batteryUnrestricted by mutableStateOf(false)
@@ -288,6 +289,7 @@ class MainActivity : ComponentActivity() {
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
         autoRootSettleSeconds = AppPreferences.autoRootSettleSeconds(this)
         shizukuToken = AppPreferences.shizukuAutomationToken(this)
+        partitionReadOnly = AppPreferences.partitionReadOnlyMode(this)
         payloadMode = AppPreferences.payloadMode(this)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
@@ -305,6 +307,7 @@ class MainActivity : ComponentActivity() {
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
                     shizukuToken = shizukuToken,
+                    partitionReadOnly = partitionReadOnly,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
@@ -351,6 +354,10 @@ class MainActivity : ComponentActivity() {
                     onShizukuTokenChanged = { token ->
                         AppPreferences.setShizukuAutomationToken(this, token)
                         shizukuToken = token
+                    },
+                    onPartitionReadOnlyChanged = { enabled ->
+                        AppPreferences.setPartitionReadOnlyMode(this, enabled)
+                        partitionReadOnly = enabled
                     },
                     onPayloadModeChanged = { mode ->
                         AppPreferences.setPayloadMode(this, mode)
@@ -457,6 +464,7 @@ private fun RootApp(
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
     shizukuToken: String,
+    partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     onAccentColorChanged: (AccentColor) -> Unit,
@@ -470,6 +478,7 @@ private fun RootApp(
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
     onShizukuTokenChanged: (String) -> Unit,
+    onPartitionReadOnlyChanged: (Boolean) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
     onForgetCachedPayload: () -> Unit,
     requestNotificationPermission: () -> Unit,
@@ -525,6 +534,7 @@ private fun RootApp(
             freshSession = freshSession,
             shizuku = shizukuMode,
             payloadMode = payloadMode,
+            partitionReadOnly = partitionReadOnly,
             cachedOffset = cachedOffset,
             // The profile's own policy, so the preview shows the environment the run will get.
             plan = InstallViewModel.exploitPlan(
@@ -733,6 +743,7 @@ private fun RootApp(
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
                     shizukuToken = shizukuToken,
+                    partitionReadOnly = partitionReadOnly,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
                     updateStatus = updateStatus,
@@ -749,6 +760,7 @@ private fun RootApp(
                     onBootSettleChanged = onBootSettleChanged,
                     onAutoRootSettleChanged = onAutoRootSettleChanged,
                     onShizukuTokenChanged = onShizukuTokenChanged,
+                    onPartitionReadOnlyChanged = onPartitionReadOnlyChanged,
                     onPayloadModeChanged = onPayloadModeChanged,
                     onForgetCachedPayload = onForgetCachedPayload,
                     onRequestNotificationPermission = requestNotificationPermission,
@@ -1711,6 +1723,7 @@ private fun SettingsPage(
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
     shizukuToken: String,
+    partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
     updateStatus: UpdateStatus,
@@ -1727,6 +1740,7 @@ private fun SettingsPage(
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
     onShizukuTokenChanged: (String) -> Unit,
+    onPartitionReadOnlyChanged: (Boolean) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
     onForgetCachedPayload: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
@@ -2138,6 +2152,17 @@ private fun SettingsPage(
                     onCheckedChange = {
                         clickHaptic(view)
                         onDisableKsuModulesChanged(it)
+                    },
+                )
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.Lock,
+                    title = stringResource(R.string.partition_read_only),
+                    description = stringResource(R.string.partition_read_only_description),
+                    checked = partitionReadOnly,
+                    position = SettingsCardPosition.Middle,
+                    onCheckedChange = {
+                        clickHaptic(view)
+                        onPartitionReadOnlyChanged(it)
                     },
                 )
                 SettingsCard(
@@ -2656,6 +2681,7 @@ private data class RunPlanDisplay(
     val freshSession: Boolean,
     val shizuku: Boolean,
     val payloadMode: PayloadMode,
+    val partitionReadOnly: Boolean,
     val cachedOffset: String?,
     val plan: ExploitPlan,
 )
@@ -2781,6 +2807,13 @@ private fun RunPlanDialog(
                         } else {
                             R.string.settings_payload_mode_online
                         },
+                    ),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_partition_read_only),
+                    stringResource(
+                        if (display.partitionReadOnly) R.string.run_plan_partition_read_only_on
+                        else R.string.run_plan_partition_read_only_off,
                     ),
                 )
                 RunPlanRow(

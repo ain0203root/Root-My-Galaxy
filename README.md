@@ -79,9 +79,9 @@ Appearance and a run option is not filed under Advanced:
 |---|---|
 | Appearance | theme mode, material colour, language |
 | Payloads | payload sources, local payload |
-| Run | advanced mode, disable KSU modules, run plan |
-| Shizuku | use Shizuku, start Shizuku now, Shizuku on boot |
-| Root | root on boot |
+| Run | advanced mode, disable KSU modules, protect image partitions, boot settle, run plan |
+| Shizuku | use Shizuku, start Shizuku now, Shizuku start token, Shizuku on boot |
+| Root | root on boot, and its settle floor |
 | Recovery | restart Zygote, KernelSU soft reboot, reboot and unroot — hold to run |
 | System | the battery-optimisation exemption a run with the screen off depends on |
 | About | update check, and the app with its version and build label |
@@ -287,7 +287,30 @@ run, and one helper command.
 Every value is assembled from the same constants the run itself uses, so the screen cannot drift
 from the behaviour, and it answers "why did the run stop there?" before a boot is spent finding
 out. Where a payload is left to its own pacing the screen says so rather than showing an app
-ceiling that will not be applied.
+ceiling that will not be applied. It also states whether the run will mark the image partitions
+read-only, because that changes what the run does before it starts.
+
+## Protecting the image partitions
+
+**Settings → Run → Protect image partitions**, off by default, marks `boot`, `init_boot`,
+`vendor_boot`, `dtbo`, `super`, `optics`, `prism` and `vbmeta` — with their `_a` and `_b` slots —
+read-only through `blockdev --setro`, immediately after the exploit succeeds and before KernelSU is
+loaded.
+
+What it is for is the shape of this app's own success: bootstrap root is real root, held before
+anything has verified that the kernel running is the one the rest of the firmware belongs to. The
+reported failures are people using that window to write a boot or vbmeta image — the write that
+leaves a phone booting to nothing and reachable only in download mode. Read-only first means that
+write fails instead.
+
+Off by default, and not out of caution for its own sake. What it blocks is not only mistakes:
+flashing a kernel image from the phone, a module that writes a partition directly, and a KernelSU
+install that patches `boot` instead of loading at runtime all stop working while it is on, and
+nothing in the app can tell those apart from the mistake. The flag is also per boot — it affects the
+running kernel — so a reboot, the normal state for flashing, clears it, and download-mode flashing is
+unaffected because that runs in the bootloader rather than in this kernel. The run log says how many
+devices were set, or that the script was missing from the build, rather than reporting protection it
+did not get.
 
 ## When a run fails
 
