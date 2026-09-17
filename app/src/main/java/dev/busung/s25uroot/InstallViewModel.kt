@@ -651,6 +651,20 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // that was chosen and not of the app's setting: a catalog that carries only the other
                 // project's payloads serves that one, and the log is where that becomes visible.
                 appendLog(app.getString(R.string.run_flavor_label, profile.flavor.label))
+                // Which kind of match this run is on, when it is not the exact build. An entry that
+                // lists only the three-part version is not tied to this firmware by the feed, and that
+                // is the first thing to weigh when a run fails - said before the payload runs rather
+                // than left to be found in the sheet afterwards.
+                val matchSnapshot = DeviceSnapshot.current()
+                if (profile.kernelMatch(matchSnapshot) == KernelMatch.Version) {
+                    appendLog(
+                        app.getString(
+                            R.string.run_kernel_version_match,
+                            matchSnapshot.kernelRelease,
+                            profile.supportedKernelVersions,
+                        ),
+                    )
+                }
 
                 // One flavour per boot. Both projects hook the same syscall paths and a loader refuses
                 // a module into a kernel that already carries the other one, so this is a restart

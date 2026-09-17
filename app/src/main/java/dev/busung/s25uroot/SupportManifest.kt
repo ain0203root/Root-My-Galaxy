@@ -75,8 +75,17 @@ data class TargetProfile(
     fun matchesDevice(snapshot: DeviceSnapshot): Boolean =
         models.any { it.equals(snapshot.model, ignoreCase = true) }
 
+    /**
+     * Whether this entry covers the device's kernel, in either form a source may declare it.
+     *
+     * The feed writes the leading three-part `uname -r` value, and an entry may additionally list a
+     * full release to say which exact build it documents. Both are a match here because both are a
+     * match everywhere else: [resolveFor] and [kernelMatch] already read a listed full release as
+     * coverage, so an entry that declared only that used to be selected by neither and refused by
+     * this - a payload a source offers, and a device told nothing covers it.
+     */
     fun matchesKernelVersion(snapshot: DeviceSnapshot): Boolean =
-        snapshot.kernelVersion in kernelVersions
+        snapshot.kernelVersion in kernelVersions || snapshot.kernelRelease in kernelVersions
 
     fun matches(snapshot: DeviceSnapshot): Boolean =
         matchesDevice(snapshot) && matchesKernelVersion(snapshot)

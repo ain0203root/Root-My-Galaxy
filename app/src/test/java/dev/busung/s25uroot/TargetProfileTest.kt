@@ -64,6 +64,21 @@ class TargetProfileTest {
     }
 
     @Test
+    fun aProfileThatDeclaresOnlyTheFullReleaseStillMatches() {
+        // Sources are not limited to the feed's three-part form, and the rest of the app already
+        // reads a listed full release as a match. When only this rule disagreed, an entry a source
+        // offered could never be selected, and the device was told nothing covered it.
+        val exactOnly = profile.copy(
+            profileId = "pa2q-S9360ZHSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf("6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k"),
+        )
+        val device = snapshot("SM-S9360", "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k")
+
+        assertEquals("pa2q-S9360ZHSCCZG1", listOf(exactOnly).resolveFor(device)?.profileId)
+    }
+
+    @Test
     fun kernelMatchSeparatesAnExactReleaseFromAThreePartSibling() {
         val zhs = profile.copy(
             profileId = "pa2q-S9360ZHSCCZG1",

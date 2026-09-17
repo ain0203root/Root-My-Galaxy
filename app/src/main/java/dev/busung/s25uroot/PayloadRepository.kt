@@ -201,9 +201,41 @@ class PayloadRepository(private val context: Context) {
      * enabled sources happen to carry only the other one - leaves a user with no run and nothing that
      * says which entry to add. Which flavour was offered is on the profile, and the run reports it.
      */
-    fun resolveTarget(snapshot: DeviceSnapshot): TargetProfile = loadTargets()
-        .resolveFor(snapshot, AppPreferences.kernelsuFlavor(context))
-        ?: error(context.getString(R.string.repo_no_profile))
+    fun resolveTarget(snapshot: DeviceSnapshot): TargetProfile {
+        val catalog = loadTargets()
+        return catalog.resolveFor(snapshot, AppPreferences.kernelsuFlavor(context))
+            ?: error(noProfileReason(snapshot, catalog))
+    }
+
+    /**
+     * Why nothing covered this device, with the entries that came closest.
+     *
+     * The first line names the identity that was searched for, because that is what the user can
+     * compare against the feed themselves; anything after it names what the enabled sources do carry,
+     * so a gap of one build reads differently from a gap of one whole model. The caller's message is
+     * one line on the screen and the whole of this in the log, which is why the identity is first.
+     */
+    private fun noProfileReason(snapshot: DeviceSnapshot, catalog: List<TargetProfile>): String {
+        val headline = context.getString(R.string.repo_no_profile, TargetGap.describe(snapshot))
+        val closest = TargetGap.closest(snapshot, catalog)
+        if (closest.isEmpty()) {
+            return "$headline\n${context.getString(R.string.repo_no_profile_none)}"
+        }
+        val named = closest.joinToString("; ") { entry ->
+            when (entry.reason) {
+                TargetGap.Reason.SameModel -> context.getString(
+                    R.string.repo_no_profile_other_kernel,
+                    entry.displayName,
+                    entry.kernels,
+                )
+                TargetGap.Reason.SameKernel -> context.getString(
+                    R.string.repo_no_profile_other_model,
+                    entry.displayName,
+                )
+            }
+        }
+        return "$headline\n${context.getString(R.string.repo_no_profile_closest, named)}"
+    }
 
     /** Resolves a catalog selection, which may name the source it came from. */
     fun resolveTarget(selectionId: String): TargetProfile {
