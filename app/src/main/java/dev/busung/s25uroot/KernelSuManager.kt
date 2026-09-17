@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.net.Uri
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -171,9 +172,24 @@ internal object KernelSuManager {
      * Left as a failure rather than flattened to an empty list, because the two mean different things to
      * the screen that asked: no versions at all is a project that has published nothing, and a listing
      * that could not be read is a network or a rate limit, which is what the manual field is for.
+     *
+     * Read once per flavour per run: the answer changes only when upstream publishes, and a listing is
+     * the largest answer this app asks GitHub for - see [MAX_LISTING_BYTES].
      */
-    fun availableVersions(flavor: KernelSuFlavor): Result<List<String>> =
-        runCatching { managerVersionsInReleases(downloadText(releasesApiUrl(flavor))) }
+    fun availableVersions(flavor: KernelSuFlavor): Result<List<String>> {
+        cachedVersions[flavor]?.let { return Result.success(it) }
+        return runCatching {
+            managerVersionsInReleases(downloadText(releasesApiUrl(flavor), MAX_LISTING_BYTES))
+        }.onSuccess { cachedVersions[flavor] = it }
+    }
+
+    /**
+     * The listings already read, kept for the life of the process.
+     *
+     * Re-reading one on every open would spend megabytes, and the unauthenticated request budget that
+     * the payload sources share, to learn something that changes only when upstream publishes.
+     */
+    private val cachedVersions = mutableMapOf<KernelSuFlavor, List<String>>()
 
     /**
      * The APK for one version, resolved through the releases API.
@@ -184,7 +200,7 @@ internal object KernelSuManager {
      * carries a build number (`KernelSU_v3.2.5_32525-release.apk`) that the version does not.
      */
     fun resolve(context: Context, flavor: KernelSuFlavor, version: String): ManagerRelease? {
-        val body = runCatching { downloadText(managerReleaseApiUrl(flavor, version)) }.getOrNull()
+        val body = runCatching { downloadText(managerReleaseApiUrl(flavor, version), MAX_RELEASE_BYTES) }.getOrNull()
             ?: return null
         val apk = managerApkInRelease(body) ?: return null
         return ManagerRelease(flavor = flavor, version = version, url = apk)
@@ -220,7 +236,7 @@ internal object KernelSuManager {
         }
     }
 
-    private fun downloadText(url: String): String {
+    private fun downloadText(url: String, ceiling: Int): String {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 30_000
@@ -228,21 +244,23 @@ internal object KernelSuManager {
             setRequestProperty("User-Agent", "S25URoot/${BuildConfig.VERSION_NAME}")
             setRequestProperty("Accept", "application/vnd.github+json")
             connect()
-            require(responseCode == HttpURLConnection.HTTP_OK) { "HTTP $responseCode" }
+            require(responseCode == HttpURLConnection.HTTP_OK) { refusal(responseCode) }
         }
-        return connection.inputStream.use { input ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            var total = 0
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                total += count
-                require(total <= MAX_RELEASE_BYTES) { "release response too large" }
-                output.write(buffer, 0, count)
-            }
-            output.toString(Charsets.UTF_8.name())
-        }.also { connection.disconnect() }
+        return connection.inputStream.use { input -> readCappedText(input, ceiling) }
+            .also { connection.disconnect() }
+    }
+
+    /**
+     * Why an answer was not read, in words a screen can show.
+     *
+     * Only the shared refusal is spelled out: an unauthenticated listing is allowed sixty requests an
+     * hour per address, which a phone can exhaust on its own, and "could not read the versions" with no
+     * reason reads as a broken app rather than a wait.
+     */
+    private fun refusal(status: Int): String = when (status) {
+        HttpURLConnection.HTTP_FORBIDDEN, TOO_MANY_REQUESTS ->
+            "GitHub refused it (HTTP $status), which is its request limit for this address"
+        else -> "GitHub answered HTTP $status"
     }
 
     /** The release's own page, which is where a human looks when the API cannot answer. */
@@ -260,13 +278,51 @@ internal object KernelSuManager {
      *
      * The API answers newest first, so this is "the versions anyone would pick from" rather than all of
      * them - a project with a hundred releases has a decade of them, and a chooser that long is worse
-     * than the field beside it for anything older.
+     * than the field beside it for anything older. It also decides what a listing may weigh, since the
+     * page size is what the answer's size follows.
      */
-    private const val VERSION_LIST_LIMIT = 30
+    private const val VERSION_LIST_LIMIT = 10
 
     /** The name every manager's embedded daemon has once it is installed. */
     private const val DAEMON_LIBRARY = "libksud.so"
 
-    /** A releases answer is a few KB; the ceiling only bounds memory on a wrong URL. */
-    private const val MAX_RELEASE_BYTES = 1024 * 1024
+    /** An unauthenticated request over the limit, which GitHub also answers with 403. */
+    private const val TOO_MANY_REQUESTS = 429
+}
+
+/** One release's answer is a few hundred KB; the ceiling only bounds memory on a wrong URL. */
+internal const val MAX_RELEASE_BYTES = 1024 * 1024
+
+/**
+ * How much of a *listing* this app will read, which is not one release's worth.
+ *
+ * Every entry in a listing carries its changelog, so ten releases of these two projects measured
+ * 0.7 MB (KernelSU) and 2.1 MB (KernelSU-Next), and thirty measured 5.2 MB. Reading them under the
+ * single-release ceiling refused both projects at once, which is exactly how it reached the screen: two
+ * flavours that could not be read, and no way for the screen to tell that the app had refused its own
+ * answer.
+ */
+internal const val MAX_LISTING_BYTES = 8 * 1024 * 1024
+
+/**
+ * Reads a response body into text, refusing anything longer than [ceiling].
+ *
+ * Kept out of the request so the ceiling can be tested without one: a ceiling is what went wrong here,
+ * not a parser, and the reason it refused has to survive into the message - "not read" with no reason
+ * is what left the screen with nothing to say.
+ */
+internal fun readCappedText(input: InputStream, ceiling: Int): String {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    var total = 0
+    while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        total += count
+        require(total <= ceiling) {
+            "the answer was larger than the ${ceiling / (1024 * 1024)} MB this app reads"
+        }
+        output.write(buffer, 0, count)
+    }
+    return output.toString(Charsets.UTF_8.name())
 }

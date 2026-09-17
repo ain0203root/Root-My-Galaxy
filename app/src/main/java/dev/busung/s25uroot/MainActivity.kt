@@ -2628,7 +2628,14 @@ private fun SettingsPage(
                         }
 
                         published.isFailure -> Text(
-                            stringResource(R.string.settings_manager_versions_failed),
+                            // With the reason: "could not read" alone is the same sentence for a rate
+                            // limit, a refused answer and a wrong URL, and they need different things
+                            // from the person reading it.
+                            stringResource(
+                                R.string.settings_manager_versions_failed,
+                                published.exceptionOrNull()?.message
+                                    ?: published.exceptionOrNull()?.javaClass?.simpleName.orEmpty(),
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
