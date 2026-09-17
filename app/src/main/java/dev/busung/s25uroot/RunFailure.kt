@@ -36,6 +36,14 @@ data class RunFailure(
      * to offer the fix, and this is the one failure whose fix is a switch in this app.
      */
     val readOnlyWall: Boolean = false,
+    /**
+     * True when the payload process could not be confirmed stopped, so it may still be running.
+     *
+     * Carried on the failure because it changes what can be offered next: a retry in this boot would
+     * put a second payload on top of a first, and a phone cannot carry two. It is a fact about the run
+     * rather than about its message, so it belongs here and not in the wording of a reason.
+     */
+    val payloadMayStillRun: Boolean = false,
 ) {
     companion object {
         /**
@@ -49,7 +57,9 @@ data class RunFailure(
             reason: String,
             evidence: List<String> = emptyList(),
             readOnlyWall: Boolean = false,
-        ): RunFailure = RunFailure(stage, failureSummary(reason), evidence, readOnlyWall)
+            payloadMayStillRun: Boolean = false,
+        ): RunFailure =
+            RunFailure(stage, failureSummary(reason), evidence, readOnlyWall, payloadMayStillRun)
     }
 }
 

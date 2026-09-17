@@ -425,6 +425,10 @@ private fun InstallScreen(
     if (showRetryChoice) {
         val scope = rememberCoroutineScope()
         var arming by remember { mutableStateOf(false) }
+        // A retry in this boot is not offered while the last payload may still be running. The restart
+        // is the answer that clears one, so the dialog keeps it alone and says why the other two are
+        // missing rather than hiding that they normally exist.
+        val mayStillRun = installState.failure?.payloadMayStillRun == true
         AlertDialog(
             onDismissRequest = { if (!arming) showRetryChoice = false },
             icon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
@@ -433,7 +437,10 @@ private fun InstallScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.retry_choice_body))
                     Text(
-                        text = stringResource(R.string.retry_wait_hint),
+                        text = stringResource(
+                            if (mayStillRun) R.string.retry_single_payload_hint
+                            else R.string.retry_wait_hint,
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -467,25 +474,27 @@ private fun InstallScreen(
                     ) {
                         Text(stringResource(R.string.action_cancel))
                     }
-                    TextButton(
-                        enabled = !arming,
-                        onClick = {
-                            clickHaptic(view)
-                            showRetryChoice = false
-                            waitRemaining = InBootRetry.remainingSeconds(0)
-                        },
-                    ) {
-                        Text(stringResource(R.string.retry_wait))
-                    }
-                    TextButton(
-                        enabled = !arming,
-                        onClick = {
-                            clickHaptic(view)
-                            showRetryChoice = false
-                            onRetry()
-                        },
-                    ) {
-                        Text(stringResource(R.string.retry_now))
+                    if (!mayStillRun) {
+                        TextButton(
+                            enabled = !arming,
+                            onClick = {
+                                clickHaptic(view)
+                                showRetryChoice = false
+                                waitRemaining = InBootRetry.remainingSeconds(0)
+                            },
+                        ) {
+                            Text(stringResource(R.string.retry_wait))
+                        }
+                        TextButton(
+                            enabled = !arming,
+                            onClick = {
+                                clickHaptic(view)
+                                showRetryChoice = false
+                                onRetry()
+                            },
+                        ) {
+                            Text(stringResource(R.string.retry_now))
+                        }
                     }
                 }
             },
@@ -510,6 +519,38 @@ private fun InstallScreen(
                         Text(stringResource(R.string.action_close))
                     }
                 },
+            )
+        }
+    }
+}
+
+/**
+ * The notice for a payload the app could not confirm it stopped.
+ *
+ * Not a warning for its own sake: everything the screen offers after a failure assumes nothing is
+ * running, and this is the one fact that makes one of those offers wrong.
+ */
+@Composable
+private fun PayloadStillRunningNotice() {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.error,
+        contentColor = MaterialTheme.colorScheme.onError,
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Rounded.Error,
+                contentDescription = null,
+                modifier = Modifier.size(24.dp),
+            )
+            Text(
+                text = stringResource(R.string.install_payload_may_still_run),
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
@@ -634,6 +675,12 @@ private fun InstallerStatusCard(
             installState.failure?.let { failure -> FailureReport(failure) }
             // The one failure whose fix is a switch in this app: it is named here, beside the failure,
             // with the way to it - and only when it is this run's own protection that refused the write.
+            // The other fact that changes what comes next: something may still be running. Beside the
+            // failure rather than only in the log, because it is the reason the retry question below
+            // keeps one answer instead of three.
+            if (installState.failure?.payloadMayStillRun == true) {
+                PayloadStillRunningNotice()
+            }
             if (installState.failure?.readOnlyWall == true) {
                 ReadOnlyWallNotice(onOpenSetting = onOpenReadOnlySetting)
             }

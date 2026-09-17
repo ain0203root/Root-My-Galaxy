@@ -236,6 +236,16 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private var protectedDevices = 0
 
     /**
+     * Set when this run's payload could not be confirmed stopped.
+     *
+     * Read when the failure is built, because it is the one failure fact that changes what the screen
+     * may offer afterwards: a retry in this boot is not on the table while something may still be
+     * running. Reset with each run like the protection above, for the same reason.
+     */
+    @Volatile
+    private var payloadTerminationUnconfirmed = false
+
+    /**
      * What the screen said before a run stopped to ask about Shizuku.
      *
      * Kept so dismissing the question puts the screen back rather than leaving it on a message that only
@@ -589,6 +599,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         // The protection is per boot and per run, so this run starts with no attribution to make.
         protectedFrom = -1
         protectedDevices = 0
+        payloadTerminationUnconfirmed = false
         installJob = viewModelScope.launch(Dispatchers.IO) {
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
@@ -938,6 +949,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         protectedDevices = protectedDevices,
                         reason = reason,
                     ),
+                    payloadMayStillRun = payloadTerminationUnconfirmed,
                 )
                 appendLog("[-] $reason")
                 // Named where the failure is, and only when it is this protection's doing: a wall the
@@ -1168,10 +1180,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 app.getString(R.string.error_success_marker)
             }
         } finally {
-            if (process.isAlive) {
-                process.destroy()
-                delay(500.milliseconds)
-                if (process.isAlive) process.destroyForcibly()
+            // Stopping the payload is a request, not a fact, when the process lives behind Shizuku's
+            // binder: the app can only ask and then look. What it finds is recorded, because a payload
+            // that outlived the run makes a retry a second payload rather than another attempt at the
+            // first - which is the one thing this device cannot take.
+            if (process.stopConfirmed() == Termination.Unconfirmed) {
+                payloadTerminationUnconfirmed = true
+                appendLog(app.getString(R.string.log_payload_may_still_run))
             }
         }
         appendLog(app.getString(R.string.log_bootstrap_root))
