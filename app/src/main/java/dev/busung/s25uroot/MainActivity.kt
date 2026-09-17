@@ -49,6 +49,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -186,6 +187,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.busung.s25uroot.ui.theme.RootMyGalaxyTheme
@@ -4146,24 +4149,39 @@ private fun PayloadSourcesSheet(
         null
     }
     val enabledCount = sources.count { it.enabled }
-    ModalBottomSheet(
-        // A sheet rather than an alert dialog: this form has text fields, and on a short screen an
-        // alert dialog's buttons sit under the keyboard. The sheet rises with the IME instead, and
-        // opens fully expanded because the list and the form together are taller than the peek.
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    // The picker takes the whole dialog rather than sitting above the list, so the one scroll this
+    // content needs moves with it: the picker is taller than the space above a keyboard and scrolls as
+    // a whole, while the list scrolls inside a fixed frame and leaves the form above it alone.
+    val revisionPickerOpen = revisionTarget != null
+    // A dialog, and deliberately not a bottom sheet: the sheet closed the keyboard after every single
+    // character on a real device, which makes a form unusable however well its layout is arranged.
+    // Nothing here re-measures the view that owns the cursor while it is being typed into - the frame
+    // has a fixed height, and only the list inside it scrolls.
+    Dialog(
         onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .imePadding()
-                .verticalScroll(rememberScrollState())
+                .fillMaxHeight(0.9f)
+                .padding(horizontal = 12.dp)
+                .padding(vertical = 24.dp)
+                .clip(MaterialTheme.shapes.extraLarge)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 16.dp),
+                .padding(vertical = 16.dp)
+                .then(
+                    if (revisionPickerOpen) {
+                        Modifier.verticalScroll(rememberScrollState())
+                    } else {
+                        Modifier
+                    },
+                ),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Inside the same sheet rather than a second one: two sheets would fight over the same
-            // dismiss and back handling, and this one already rises with the keyboard.
+            // Inside the same dialog rather than a second one: two of them would fight over the same
+            // dismiss and back handling, and this one is the host the add form above needs anyway.
             revisionTarget?.let { target ->
                 RevisionPicker(
                     source = target,
@@ -4318,9 +4336,12 @@ private fun PayloadSourcesSheet(
                 )
             } else {
                 LazyColumn(
+                    // The only part that scrolls, and it takes the space the form above leaves: the
+                    // dialog's height depends on the screen rather than on what the list holds, so
+                    // adding a source cannot move the fields out from under the cursor.
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = if (showAddSource) 260.dp else 380.dp),
+                        .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(sources, key = { it.id }) { source ->
