@@ -97,9 +97,12 @@ class TargetProfileTest {
         // One community proposal allowed a single 840-second attempt, another 1200 s of page scan
         // plus 2200 s of attempt. The app must not be the thing that cuts such a run off, so the
         // ceiling for a marked profile covers the longest of those, and only marked profiles move.
-        assertTrue(InstallViewModel.exploitTotalMillis(true) >= 3_400_000L)
-        assertTrue(InstallViewModel.exploitTotalMillis(true) > InstallViewModel.exploitTotalMillis(false))
-        assertEquals(900_000L, InstallViewModel.exploitTotalMillis(false))
+        assertTrue(RunLimits.defaultCeilings(freshSession = true).totalMillis >= 3_400_000L)
+        assertTrue(
+            RunLimits.defaultCeilings(freshSession = true).totalMillis >
+                RunLimits.defaultCeilings(freshSession = false).totalMillis,
+        )
+        assertEquals(900_000L, RunLimits.defaultCeilings(freshSession = false).totalMillis)
     }
 
     @Test

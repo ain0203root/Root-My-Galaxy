@@ -41,6 +41,9 @@ object AppPreferences {
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
     private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
+    private const val RUN_STALL_SECONDS = "run_stall_seconds"
+    private const val RUN_TOTAL_SECONDS = "run_total_seconds"
+    private const val RUN_HELPER_SECONDS = "run_helper_seconds"
     private const val AUTO_ROOT_SETTLE_SECONDS = "auto_root_settle_seconds"
     private const val SHIZUKU_AUTOMATION_TOKEN = "shizuku_automation_token"
     private const val PARTITION_READ_ONLY_MODE = "partition_read_only_mode"
@@ -221,6 +224,58 @@ object AppPreferences {
         prefs(context).edit()
             .putInt(BOOT_SETTLE_SECONDS, BootSettle.normalize(seconds))
             .apply()
+    }
+
+    /**
+     * The three ceilings a run is given unless the user chose otherwise.
+     *
+     * Normalized on the way in as well as on the way out, so a value that is not one of the offered ones
+     * is never stored in the first place - the settings only offer the values, and everything downstream
+     * is entitled to assume it.
+     */
+    fun runStallSeconds(context: Context): Int = RunLimits.normalizeStallSeconds(
+        prefs(context).getInt(RUN_STALL_SECONDS, RunLimits.DEFAULT_STALL_SECONDS),
+    )
+
+    fun setRunStallSeconds(context: Context, seconds: Int) {
+        prefs(context).edit()
+            .putInt(RUN_STALL_SECONDS, RunLimits.normalizeStallSeconds(seconds))
+            .apply()
+    }
+
+    fun runTotalSeconds(context: Context): Int = RunLimits.normalizeTotalSeconds(
+        prefs(context).getInt(RUN_TOTAL_SECONDS, RunLimits.DEFAULT_TOTAL_SECONDS),
+    )
+
+    fun setRunTotalSeconds(context: Context, seconds: Int) {
+        prefs(context).edit()
+            .putInt(RUN_TOTAL_SECONDS, RunLimits.normalizeTotalSeconds(seconds))
+            .apply()
+    }
+
+    fun runHelperSeconds(context: Context): Int = RunLimits.normalizeHelperSeconds(
+        prefs(context).getInt(RUN_HELPER_SECONDS, RunLimits.DEFAULT_HELPER_SECONDS),
+    )
+
+    fun setRunHelperSeconds(context: Context, seconds: Int) {
+        prefs(context).edit()
+            .putInt(RUN_HELPER_SECONDS, RunLimits.normalizeHelperSeconds(seconds))
+            .apply()
+    }
+
+    /** The three ceilings as one value, which is how every reader wants them. */
+    internal fun runLimits(context: Context): RunLimitsSettings = RunLimitsSettings(
+        totalSeconds = runTotalSeconds(context),
+        stallSeconds = runStallSeconds(context),
+        helperSeconds = runHelperSeconds(context),
+    )
+
+    internal fun setRunLimit(context: Context, limit: RunLimit, seconds: Int) {
+        when (limit) {
+            RunLimit.Total -> setRunTotalSeconds(context, seconds)
+            RunLimit.Stall -> setRunStallSeconds(context, seconds)
+            RunLimit.Helper -> setRunHelperSeconds(context, seconds)
+        }
     }
 
     /**

@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -90,6 +91,7 @@ import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.HourglassEmpty
+import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Lock
@@ -119,6 +121,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -209,6 +212,13 @@ class MainActivity : ComponentActivity() {
     private var shizukuBootMode by mutableStateOf(false)
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
     private var autoRootSettleSeconds by mutableStateOf(BootSettle.AUTO_ROOT_DEFAULT_SECONDS)
+    private var runLimits by mutableStateOf(
+        RunLimitsSettings(
+            totalSeconds = RunLimits.DEFAULT_TOTAL_SECONDS,
+            stallSeconds = RunLimits.DEFAULT_STALL_SECONDS,
+            helperSeconds = RunLimits.DEFAULT_HELPER_SECONDS,
+        ),
+    )
     private var shizukuToken by mutableStateOf("")
     private var partitionReadOnly by mutableStateOf(false)
     private var payloadMode by mutableStateOf(PayloadMode.Online)
@@ -299,6 +309,7 @@ class MainActivity : ComponentActivity() {
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
         autoRootSettleSeconds = AppPreferences.autoRootSettleSeconds(this)
+        runLimits = AppPreferences.runLimits(this)
         shizukuToken = AppPreferences.shizukuAutomationToken(this)
         partitionReadOnly = AppPreferences.partitionReadOnlyMode(this)
         payloadMode = AppPreferences.payloadMode(this)
@@ -318,6 +329,7 @@ class MainActivity : ComponentActivity() {
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
+                    runLimits = runLimits,
                     shizukuToken = shizukuToken,
                     partitionReadOnly = partitionReadOnly,
                     payloadMode = payloadMode,
@@ -366,6 +378,12 @@ class MainActivity : ComponentActivity() {
                     onAutoRootSettleChanged = { seconds ->
                         AppPreferences.setAutoRootSettleSeconds(this, seconds)
                         autoRootSettleSeconds = seconds
+                    },
+                    onRunLimitChanged = { limit, seconds ->
+                        AppPreferences.setRunLimit(this, limit, seconds)
+                        // Read back rather than patched in place, so a stored value that was normalized
+                        // on the way in is what the row shows.
+                        runLimits = AppPreferences.runLimits(this)
                     },
                     onShizukuTokenChanged = { token ->
                         AppPreferences.setShizukuAutomationToken(this, token)
@@ -480,6 +498,7 @@ private fun RootApp(
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
+    runLimits: RunLimitsSettings,
     shizukuToken: String,
     partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
@@ -495,6 +514,7 @@ private fun RootApp(
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
+    onRunLimitChanged: (RunLimit, Int) -> Unit,
     onShizukuTokenChanged: (String) -> Unit,
     onPartitionReadOnlyChanged: (Boolean) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
@@ -561,6 +581,10 @@ private fun RootApp(
                 shizukuMode,
                 resolved?.routePolicy ?: ExploitRoutePolicy.LEGACY,
                 AppPreferences.bootSettleSeconds(context),
+                // The same resolution a run performs, from the same stored values: a plan that showed
+                // the defaults while the run enforced the user's choices would be a plan about another
+                // app's run.
+                RunLimits.resolve(AppPreferences.runLimits(context), freshSession),
             ),
         )
     }
@@ -762,6 +786,7 @@ private fun RootApp(
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
+                    runLimits = runLimits,
                     shizukuToken = shizukuToken,
                     partitionReadOnly = partitionReadOnly,
                     payloadMode = payloadMode,
@@ -780,6 +805,7 @@ private fun RootApp(
                     onShizukuBootModeChanged = onShizukuBootModeChanged,
                     onBootSettleChanged = onBootSettleChanged,
                     onAutoRootSettleChanged = onAutoRootSettleChanged,
+                    onRunLimitChanged = onRunLimitChanged,
                     onShizukuTokenChanged = onShizukuTokenChanged,
                     onPartitionReadOnlyChanged = onPartitionReadOnlyChanged,
                     onPayloadModeChanged = onPayloadModeChanged,
@@ -1868,6 +1894,7 @@ private fun SettingsPage(
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
+    runLimits: RunLimitsSettings,
     shizukuToken: String,
     partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
@@ -1886,6 +1913,7 @@ private fun SettingsPage(
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
+    onRunLimitChanged: (RunLimit, Int) -> Unit,
     onShizukuTokenChanged: (String) -> Unit,
     onPartitionReadOnlyChanged: (Boolean) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
@@ -1949,6 +1977,7 @@ private fun SettingsPage(
     var colorMenuTop by remember { mutableStateOf(32.dp) }
     var bootSettleMenuTop by remember { mutableStateOf(32.dp) }
     var showBootSettleDialog by remember { mutableStateOf(false) }
+    var showRunLimitsDialog by remember { mutableStateOf(false) }
     var autoRootSettleMenuTop by remember { mutableStateOf(32.dp) }
     var showAutoRootSettleDialog by remember { mutableStateOf(false) }
     var showShizukuTokenDialog by remember { mutableStateOf(false) }
@@ -2072,6 +2101,14 @@ private fun SettingsPage(
 
     if (showRunPlanDialog) {
         RunPlanDialog(display = runPlan(), onDismiss = { showRunPlanDialog = false })
+    }
+
+    if (showRunLimitsDialog) {
+        RunLimitsDialog(
+            limits = runLimits,
+            onChanged = onRunLimitChanged,
+            onDismiss = { showRunLimitsDialog = false },
+        )
     }
 
     if (showLocalPayloadDialog) {
@@ -2405,6 +2442,23 @@ private fun SettingsPage(
                     onClick = {
                         clickHaptic(view)
                         showBootSettleDialog = true
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.Timer,
+                    title = stringResource(R.string.settings_run_limits),
+                    description = stringResource(R.string.settings_run_limits_summary),
+                    // The two a person actually moves, since the third is internal and the helper row
+                    // would be noise on a settings line.
+                    value = stringResource(
+                        R.string.settings_run_limits_value,
+                        RunLimits.label(runLimits.totalSeconds),
+                        RunLimits.label(runLimits.stallSeconds),
+                    ),
+                    position = SettingsCardPosition.Middle,
+                    onClick = {
+                        clickHaptic(view)
+                        showRunLimitsDialog = true
                     },
                 )
                 SettingsCard(
@@ -3203,6 +3257,13 @@ private fun RunPlanDialog(
                     ),
                 )
                 RunPlanSection(stringResource(R.string.run_plan_variables))
+                // Where these come from, said where they are shown: they are the payload profile's own
+                // decisions, which is why none of them has a setting.
+                Text(
+                    stringResource(R.string.run_plan_variables_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (display.plan.environment.isEmpty()) {
                     RunPlanMonospace(stringResource(R.string.run_plan_variables_defaults))
                 } else {
@@ -3222,6 +3283,11 @@ private fun RunPlanDialog(
                         ?: stringResource(R.string.run_plan_cached_offset_none),
                 )
                 RunPlanSection(stringResource(R.string.run_plan_limits))
+                Text(
+                    stringResource(R.string.run_plan_limits_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 RunPlanRow(
                     stringResource(R.string.run_plan_stall),
                     display.plan.stallLimitMillis
@@ -3252,6 +3318,113 @@ private fun RunPlanDialog(
             }
         },
     )
+}
+
+/**
+ * The three ceilings, all in one dialog.
+ *
+ * One dialog rather than a menu per row: they are three answers to one question - how long this app lets
+ * a run go on - and a value only makes sense beside the other two. Each group says what it does and, for
+ * the two that have one, the rule that can override the choice: a fresh session keeps the app's own hour
+ * whatever the whole-run setting says, and a stall limit is never applied to one.
+ */
+@Composable
+private fun RunLimitsDialog(
+    limits: RunLimitsSettings,
+    onChanged: (RunLimit, Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val view = LocalView.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Timer, contentDescription = null) },
+        title = {
+            DialogDimAmount(0.34f)
+            Text(stringResource(R.string.run_limits_title))
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                RunLimitGroup(
+                    title = stringResource(R.string.run_limits_total),
+                    note = stringResource(R.string.run_limits_total_note),
+                    limit = RunLimit.Total,
+                    selected = limits.totalSeconds,
+                    onChanged = onChanged,
+                )
+                RunLimitGroup(
+                    title = stringResource(R.string.run_limits_stall),
+                    note = stringResource(R.string.run_limits_stall_note),
+                    limit = RunLimit.Stall,
+                    selected = limits.stallSeconds,
+                    onChanged = onChanged,
+                )
+                RunLimitGroup(
+                    title = stringResource(R.string.run_limits_helper),
+                    note = stringResource(R.string.run_limits_helper_note),
+                    limit = RunLimit.Helper,
+                    selected = limits.helperSeconds,
+                    onChanged = onChanged,
+                )
+                // The other half of the answer, and the reason three of the run plan's rows cannot be
+                // touched here: they are the payload's numbers, handed over as its own variables.
+                Text(
+                    stringResource(R.string.run_limits_payload_note),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                clickHaptic(view)
+                onDismiss()
+            }) {
+                Text(stringResource(R.string.action_close))
+            }
+        },
+    )
+}
+
+@Composable
+private fun RunLimitGroup(
+    title: String,
+    note: String,
+    limit: RunLimit,
+    selected: Int,
+    onChanged: (RunLimit, Int) -> Unit,
+) {
+    val view = LocalView.current
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
+        Text(
+            note,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        // A wrapped row of choices rather than a menu: three values fit on one line, six do not, and a
+        // scrollable list of six per group would bury the value in use.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            RunLimits.options(limit).forEach { seconds ->
+                FilterChip(
+                    selected = seconds == selected,
+                    onClick = {
+                        clickHaptic(view)
+                        onChanged(limit, seconds)
+                    },
+                    label = { Text(RunLimits.label(seconds)) },
+                )
+            }
+        }
+    }
 }
 
 @Composable

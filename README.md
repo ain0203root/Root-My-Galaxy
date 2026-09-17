@@ -294,6 +294,32 @@ out. Where a payload is left to its own pacing the screen says so rather than sh
 ceiling that will not be applied. It also states whether the run will mark the image partitions
 read-only, because that changes what the run does before it starts.
 
+**A run has two owners, and the plan says which is which.** The *variables set for the payload* — how
+many attempts, how long each gets, which way the exploit looks for the slide — come from the payload
+profile in the feed, and the app hands them over rather than deciding them: a setting that overrode them
+would be this app claiming to know better than the thing doing the work, so there isn't one. The
+*app-side cut-offs* are the app's own, and those are **Settings → Run → Run limits**:
+
+| ceiling | what it decides |
+|---|---|
+| **Whole run** | how long one run may take before the app gives up on it |
+| **Silence before the payload is stalled** | how long the payload may print nothing before it is treated as stalled |
+| **One helper command** | how long a single helper command may run |
+
+They are the ones worth a setting because they are the numbers a device and a boot change — a cold
+device settles late, an overloaded one goes quiet for a while, a slow phone takes longer over every
+step — and because their failure is this app's decision rather than the payload's, so a run that reaches
+one is reported as a ceiling the user set. They are resolved once when the run starts, like the
+transport, so a change mid-run cannot move the point at which that run gets cut off, and the ceilings
+in force are the first thing the log states.
+
+The values are offered rather than typed, as the boot-settle floor is: a number nobody tested is not a
+better one. **A fresh-session profile is never cut below the app's own hour whatever the whole-run
+setting says**, because those profiles hand their pacing to the payload — a single payload-native
+attempt that scans pages — and a ceiling *below* that would cut such a run off between its own decisions
+rather than at one. The setting can raise that ceiling; it cannot lower it. The stall limit is simply not
+applied to one, which the plan says in words rather than showing a value that will not be used.
+
 ## The screen during a run
 
 Two writers publish the whole install state: the lookup that decides what this device supports, and

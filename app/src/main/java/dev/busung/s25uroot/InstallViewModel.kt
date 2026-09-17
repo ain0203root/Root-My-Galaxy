@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import android.app.Application
+import android.content.Context
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -158,6 +159,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     /** Which transport this run's payload goes through, frozen when the run starts. */
     @Volatile
     private var activeRunTransport: RunTransport? = null
+
+    /**
+     * The ceilings this run is being held to, resolved when it started.
+     *
+     * Frozen like the transport and the KernelSU decision, for the same reason: a limit changed in the
+     * settings while a run is in flight must not be able to move the point at which that run is cut off.
+     */
+    @Volatile
+    private var activeCeilings: RunCeilings = RunLimits.defaultCeilings(freshSession = false)
 
     /** Set by the run screen's override while a boot-settle wait is in progress. */
     @Volatile
@@ -380,6 +390,22 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     appendLog(app.getString(R.string.log_payload_source, profile.sourceLabel))
                 }
                 updateHistoryTarget(profile)
+                // Resolved here rather than read where each ceiling is enforced, so the whole run is
+                // held to one reading - and stated in the log, because a run cut off by a ceiling the
+                // user set should say so in the place a user looks for the reason.
+                activeCeilings = runCeilings(app, profile.requiresFreshP0Session)
+                appendLog(
+                    app.getString(
+                        if (profile.requiresFreshP0Session) {
+                            R.string.log_run_ceilings_fresh
+                        } else {
+                            R.string.log_run_ceilings
+                        },
+                        RunLimits.durationLabel(activeCeilings.totalMillis),
+                        RunLimits.durationLabel(activeCeilings.stallMillis),
+                        RunLimits.durationLabel(activeCeilings.helperMillis),
+                    ),
+                )
 
                 // Before the download, so the wait is the first thing the screen reports rather than
                 // something that appears after the payload is already staged.
@@ -658,16 +684,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 }
                 val now = SystemClock.elapsedRealtime()
                 if (!requiresFreshP0Session) {
-                    require(now - lastProgressAt < EXPLOIT_STALL_MILLIS) {
-                        app.getString(R.string.error_exploit_stalled, (EXPLOIT_STALL_MILLIS / 1000L).toInt())
+                    require(now - lastProgressAt < activeCeilings.stallMillis) {
+                        app.getString(
+                            R.string.error_exploit_stalled,
+                            (activeCeilings.stallMillis / 1000L).toInt(),
+                        )
                     }
                 }
-                require(now - startedAt < exploitTotalMillis(requiresFreshP0Session)) {
-                    // Reported in minutes of the ceiling that actually applies, which is an hour for
-                    // a fresh session and fifteen minutes otherwise.
+                require(now - startedAt < activeCeilings.totalMillis) {
+                    // Reported in minutes of the ceiling that actually applies - which is the one from
+                    // the settings, and an hour for a fresh session whatever that says.
                     app.getString(
                         R.string.error_exploit_timeout,
-                        (exploitTotalMillis(requiresFreshP0Session) / 60_000L).toInt(),
+                        (activeCeilings.totalMillis / 60_000L).toInt(),
                     )
                 }
                 delay(if (shizuku) SHIZUKU_LOG_POLL_INTERVAL else LOG_POLL_INTERVAL)
@@ -727,7 +756,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         val helper = nativeHelperFile()
         require(helper.isFile) { app.getString(R.string.error_helper_unavailable) }
 
-        val totalMillis = exploitTotalMillis(requiresFreshP0Session)
+        val totalMillis = activeCeilings.totalMillis
         // A socket handshake and a pushed upload are blocking work, and the run itself is driven from
         // the main dispatcher, so the whole transport lives on the IO dispatcher.
         val output = withContext(Dispatchers.IO) {
@@ -749,7 +778,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     // A fresh session is deliberately allowed to sit silent for as long as its ceiling:
                     // what it is doing is scanning, and a stall limit there would cut off the very run
                     // the ceiling was set for.
-                    stallTimeoutMs = if (requiresFreshP0Session) totalMillis else EXPLOIT_STALL_MILLIS,
+                    stallTimeoutMs = if (requiresFreshP0Session) totalMillis else activeCeilings.stallMillis,
                     shouldStop = { !mutableState.value.busy },
                 ) { raw ->
                     if (!requiresFreshP0Session) cacheP0Offset(bootToken, raw)
@@ -1009,7 +1038,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         try {
             while (process.isAlive) {
                 drainProcessOutput(process, captured)
-                require(SystemClock.elapsedRealtime() - startedAt < HELPER_TIMEOUT_MILLIS) {
+                require(SystemClock.elapsedRealtime() - startedAt < activeCeilings.helperMillis) {
                     app.getString(
                         R.string.error_helper_timeout,
                         captured.toString().trim().takeIf(String::isNotBlank)
@@ -1145,17 +1174,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         /** How often the settle countdown is redrawn; a second would look like it stutters. */
         private const val BOOT_SETTLE_TICK_MILLIS = 500L
 
-        private const val EXPLOIT_STALL_MILLIS = 90_000L
-        private const val EXPLOIT_TOTAL_MILLIS = 900_000L
-        // A profile that needs one fresh P0 session hands the pacing to the payload, and the
-        // payloads that ask for it scan pages for far longer than the cached multi-attempt budget
-        // ever needed: the fresh-session proposal allowed a single 840-second attempt, and the
-        // controlled-page-scan one 1200 s of scan plus 2200 s of attempt. A 15-minute ceiling would
-        // cut exactly those runs off, so for marked profiles the ceiling is the longest envelope
-        // either of those needed. It is a limit, not a schedule - a run still ends when the payload
-        // finishes.
-        private const val EXPLOIT_TOTAL_MILLIS_FRESH = 3_600_000L
-        private const val HELPER_TIMEOUT_MILLIS = 120_000L
+        // The ceilings themselves live in [RunLimits], which is where their defaults, the values the
+        // settings offer and the fresh-session floor are kept together with the rule that resolves them.
+        // A profile that needs one fresh P0 session hands the pacing to the payload, and the payloads
+        // that ask for it scan pages for far longer than the cached multi-attempt budget ever needed:
+        // the fresh-session proposal allowed a single 840-second attempt, and the controlled-page-scan
+        // one 1200 s of scan plus 2200 s of attempt. A fifteen-minute ceiling would cut exactly those
+        // runs off, which is why the settings cannot lower a fresh session below the app's own hour.
+        // It is a limit, not a schedule - a run still ends when the payload finishes.
 
         private const val MODULES_DIRECTORY = "/data/adb/modules"
         private const val MODULES_BACKUP_DIRECTORY = "/data/adb/modules_rmg_backup"
@@ -1225,9 +1251,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             "slide-kaslr-ok[^\\n]*slide=([0-9a-fA-F]{16})",
         )
 
-        /** How long a run may take before the app gives up on it. */
-        internal fun exploitTotalMillis(requiresFreshP0Session: Boolean): Long =
-            if (requiresFreshP0Session) EXPLOIT_TOTAL_MILLIS_FRESH else EXPLOIT_TOTAL_MILLIS
+        /** The ceilings a run would get right now, from the settings. */
+        internal fun runCeilings(context: Context, freshSession: Boolean): RunCeilings = RunLimits.resolve(
+            stallSeconds = AppPreferences.runStallSeconds(context),
+            totalSeconds = AppPreferences.runTotalSeconds(context),
+            helperSeconds = AppPreferences.runHelperSeconds(context),
+            freshSession = freshSession,
+        )
 
         /**
          * The environment and cut-offs a run gets, assembled from the same constants the run uses
@@ -1242,7 +1272,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             shizuku: Boolean,
             routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
             bootSettleSeconds: Int = 0,
+            ceilings: RunCeilings = RunLimits.defaultCeilings(requiresFreshP0Session),
         ): ExploitPlan = ExploitPlan(
+            // The same resolved ceilings the run enforces, so the plan cannot describe a limit the run
+            // will not apply - and so a value chosen in the settings shows up in both.
             bootSettleSeconds = BootSettle.normalize(bootSettleSeconds),
             environment = exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
             shizukuArguments = if (shizuku) {
@@ -1253,9 +1286,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             } else {
                 emptyMap()
             },
-            stallLimitMillis = if (requiresFreshP0Session) null else EXPLOIT_STALL_MILLIS,
-            totalLimitMillis = exploitTotalMillis(requiresFreshP0Session),
-            helperLimitMillis = HELPER_TIMEOUT_MILLIS,
+            stallLimitMillis = if (requiresFreshP0Session) null else ceilings.stallMillis,
+            totalLimitMillis = ceilings.totalMillis,
+            helperLimitMillis = ceilings.helperMillis,
         )
 
         internal fun exploitEnvironment(
