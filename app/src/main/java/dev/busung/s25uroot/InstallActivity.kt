@@ -213,37 +213,43 @@ private fun InstallScreen(
                 scrollState = logScrollState,
             )
 
-            // Offered only while the app is holding the run: the wait is a floor, not a rule, and the
-            // user is the one who knows whether this boot has already settled.
-            if (installState.phase == InstallPhase.Settling) {
-                FilledTonalButton(
-                    onClick = {
-                        clickHaptic(view)
-                        onSkipBootSettle()
-                    },
+            // The run's own controls, as one group rather than two separately padded buttons: a
+            // 20dp trailer on each of them plus the page's own 16dp between items put 36dp between two
+            // buttons and 16dp everywhere else, which reads as a missing panel rather than as spacing.
+            //
+            // Skipping the wait is offered only while the app is holding the run, because the wait is a
+            // floor and not a rule and the user is the one who knows whether this boot has settled.
+            // Stopping is offered for the whole run, since it is the only way out of one that has hung:
+            // back is disabled for the length of a run and nothing else can be pressed.
+            if (installState.phase == InstallPhase.Settling || installState.busy) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text(stringResource(R.string.action_run_now))
-                }
-            }
-
-            // Offered while the run is in flight, which is the only way out of a run that has stopped
-            // making progress: back is disabled for the length of a run, and a payload that is hung has
-            // nothing else that could be pressed. It is a tonal button below the log rather than beside
-            // the run's own controls, because stopping is not part of what the run is doing.
-            if (installState.busy) {
-                FilledTonalButton(
-                    onClick = {
-                        clickHaptic(view)
-                        onStop()
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 20.dp),
-                ) {
-                    Text(stringResource(R.string.action_stop_run))
+                    if (installState.phase == InstallPhase.Settling) {
+                        FilledTonalButton(
+                            onClick = {
+                                clickHaptic(view)
+                                onSkipBootSettle()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.action_run_now))
+                        }
+                    }
+                    if (installState.busy) {
+                        FilledTonalButton(
+                            onClick = {
+                                clickHaptic(view)
+                                onStop()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.action_stop_run))
+                        }
+                    }
                 }
             }
 
