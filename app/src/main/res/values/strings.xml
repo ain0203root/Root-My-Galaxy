@@ -319,7 +319,7 @@
     <!-- The daemon's own label, which differs between the two flavours it can come from. -->
     <string name="artifact_daemon">%1$s daemon</string>
     <string name="flavor_kernelsu_summary">The original KernelSU project installed by this app. Its manager, daemon, and modules come from its own releases.</string>
-    <string name="flavor_kernelsu_next_summary">A separate project with its own manager, daemon, and modules. It requires its own payload and cannot share a boot with the other KernelSU flavor.</string>
+    <string name="flavor_kernelsu_next_summary">A separate project with its own manager, daemon, and modules. It needs its own payload, and it cannot share a boot with KernelSU.</string>
     <string name="repo_no_profile">No compatible payload supports this model and kernel version</string>
     <string name="repo_no_source_enabled">No payload sources are enabled</string>
     <string name="repo_source_failed">%1$s: %2$s</string>
@@ -514,7 +514,7 @@
     <string name="error_no_root_shell">No root shell is available yet</string>
     <string name="settings_ksu_flavor">KernelSU flavour</string>
     <string name="settings_ksu_flavor_dialog_title">KernelSU flavour</string>
-    <string name="settings_ksu_flavor_pending">after a restart</string>
+    <string name="settings_ksu_flavor_pending">This boot already loaded %1$s, so %2$s starts working after you restart the device.</string>
     <string name="settings_manager">Manager app</string>
     <string name="settings_manager_summary">Offered at %1$s. Other versions can be installed manually; the app does not check which version is installed.</string>
     <string name="settings_manager_summary_installed">Offered at %1$s; %2$s is installed and will be opened.</string>

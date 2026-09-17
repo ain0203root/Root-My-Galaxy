@@ -3248,6 +3248,8 @@ private fun SettingsPage(
                 // The flavour is first because everything below it is about this flavour's module:
                 // which daemon a run stages, which manager opens afterwards, and which module root
                 // on boot puts back.
+                // Re-read when the flavour changes, because the marker below is exactly the state a
+                // change produces.
                 val loadedFlavor = remember(kernelsuFlavor) { AppPreferences.loadedFlavor(context) }
                 SettingsCard(
                     modifier = Modifier.onGloballyPositioned { coordinates ->
@@ -3259,12 +3261,22 @@ private fun SettingsPage(
                     // The pending marker is the only warning this screen can give: the two flavours
                     // cannot both be in the kernel, so a switch made in a boot that already carries
                     // one only takes effect after a restart.
-                    value = if (loadedFlavor != null && loadedFlavor != kernelsuFlavor) {
-                        "${kernelsuFlavor.label} \u00b7 " +
-                            stringResource(R.string.settings_ksu_flavor_pending)
-                    } else {
-                        kernelsuFlavor.label
-                    },
+                    //
+                    // It goes below the description rather than in the value band, because a value is
+                    // measured before the text column beside it: a sentence there took its full cap and
+                    // left the description one word per line. [valueBelow] is drawn instead of [value],
+                    // so the line carries the new flavour's own name - the value band is not a place a
+                    // "wait until you restart" can be read out of.
+                    value = kernelsuFlavor.label,
+                    valueBelow = loadedFlavor
+                        ?.takeIf { it != kernelsuFlavor }
+                        ?.let {
+                            stringResource(
+                                R.string.settings_ksu_flavor_pending,
+                                it.label,
+                                kernelsuFlavor.label,
+                            )
+                        },
                     position = SettingsCardPosition.Top,
                     onClick = {
                         clickHaptic(view)
