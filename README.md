@@ -399,6 +399,17 @@ adb — so after a reboot the transport is gone until someone finds a cable. Onc
 device that is unnecessary: KernelSU's own root shell can run Shizuku's starter, which is what
 **Start Shizuku now** and **Shizuku on boot** in Settings do.
 
+That row reports Shizuku's state rather than being a command it hopes still applies. It has three —
+*not running*, *running without this app's permission*, and *ready* — and they are not two, because
+**running and usable are separate facts**. The row used to have neither: its only signal was whether a
+start attempt was in flight, so a running Shizuku looked exactly like a stopped one, and a tap on a
+service that was already up produced a dialog saying so — the row's own missing state, delivered to one
+person, once, instead of shown on the screen. It now reads the state live through Shizuku's own sticky
+binder listener (which fires immediately with the current state, not only on the next change, because a
+snapshot taken while the screen is being built can predate a binder that is already there), re-reads the
+permission before acting since Shizuku offers no callback for a grant this app did not request, and then
+offers the one action still worth taking: start it, ask for the grant, or nothing at all.
+
 - Current Shizuku builds expose their starter as a native library inside their own APK, run with the
   path of the APK it belongs to; older or manually installed builds may have dropped a `start.sh` on
   shared storage. The native route is preferred, the legacy script is a fallback, and a device with

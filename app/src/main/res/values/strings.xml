@@ -399,6 +399,12 @@
     <string name="recovery_reboot_scheduled">Scheduled. The phone will restart without root.</string>
     <string name="settings_shizuku_start">Start Shizuku now</string>
     <string name="settings_shizuku_start_summary">Launch the Shizuku service through KernelSU, so this app keeps working without a computer</string>
+    <string name="settings_shizuku_allow">Allow this app in Shizuku</string>
+    <string name="settings_shizuku_allow_summary">Shizuku is already running; what is missing is permission for this app to use it</string>
+    <string name="settings_shizuku_running">Shizuku is running</string>
+    <string name="settings_shizuku_running_summary">The service is up and this app is allowed to use it; there is nothing left to start</string>
+    <string name="settings_shizuku_state_running">Running</string>
+    <string name="settings_shizuku_state_needs_permission">Needs permission</string>
     <string name="settings_shizuku_boot">Shizuku on boot</string>
     <string name="settings_shizuku_boot_summary">Start Shizuku automatically after a reboot, using root when the device has it or the start token when it does not</string>
     <string name="status_shizuku_starting">Starting\u2026</string>

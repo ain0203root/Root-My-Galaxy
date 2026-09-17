@@ -42,6 +42,17 @@ object ShizukuController {
         false
     }
 
+    /**
+     * What this app can do with Shizuku right now, as one of the three states that need different
+     * words.
+     *
+     * Answered live rather than remembered, because the answer changes without this app doing anything:
+     * Shizuku delivers its binder asynchronously, another starter can bring the service up, and the
+     * user can grant or revoke permission from the Shizuku app itself.
+     */
+    internal fun availability(): ShizukuAvailability =
+        shizukuAvailability(isRunning(), isGranted())
+
     suspend fun requestPermission(): Boolean {
         if (isGranted()) return true
         if (!isRunning()) return false
@@ -208,6 +219,38 @@ private val FILE_MODE = Regex("[0-7]{3,4}")
 
 /** Whether [mode] is an octal permission a remote `chmod` can be given without quoting it. */
 internal fun isFileMode(mode: String): Boolean = FILE_MODE.matches(mode)
+
+/**
+ * The three states a Shizuku-backed app can be in, which are not two.
+ *
+ * **Running** and **usable** are separate facts, and collapsing them is what made the settings row
+offer to "Start Shizuku now" on a device where the service was already up: the row's only signal was
+ * whether a start attempt was in flight, so a running Shizuku looked exactly like a stopped one. Every
+ * start attempt then took the already-running exit and reported it in a dialog - which is true, and is
+ * also the row's own missing state, said once, to one person, instead of on the screen.
+ */
+internal enum class ShizukuAvailability {
+    /** No binder: nothing to use and something to start. */
+    NotRunning,
+
+    /** The service is up and this app is not allowed to use it: the missing piece is a grant. */
+    WithoutPermission,
+
+    /** Up and allowed. There is nothing left for a start button to do. */
+    Ready,
+}
+
+/**
+ * Which of the three, from Shizuku's two independent answers.
+ *
+ * Pure, so the case that was wrong - running without permission - can be pinned by a test rather than
+ * discovered by tapping a row and reading a dialog.
+ */
+internal fun shizukuAvailability(running: Boolean, granted: Boolean): ShizukuAvailability = when {
+    !running -> ShizukuAvailability.NotRunning
+    granted -> ShizukuAvailability.Ready
+    else -> ShizukuAvailability.WithoutPermission
+}
 
 /**
  * Single-quotes [value] for the remote shell, closing and reopening the quote around any quote in

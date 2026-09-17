@@ -141,6 +141,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -156,6 +157,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import rikka.shizuku.Shizuku
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
@@ -1757,6 +1759,26 @@ private fun SettingsPage(
     var showAboutDialog by remember { mutableStateOf(false) }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
     var shizukuStarting by remember { mutableStateOf(false) }
+    // Read live, not once at composition: Shizuku hands out its binder asynchronously after the
+    // service starts, so a snapshot taken while the screen is being built can say "not running" about
+    // a service that is already up - which is how this row came to offer a start that had nothing to
+    // do. The sticky listener below fires immediately with the current state and again whenever the
+    // binder arrives or goes away, so the row follows the service instead of a frame in time.
+    var shizukuAvailability by remember { mutableStateOf(ShizukuController.availability()) }
+    DisposableEffect(Unit) {
+        val received = Shizuku.OnBinderReceivedListener {
+            shizukuAvailability = ShizukuController.availability()
+        }
+        val dead = Shizuku.OnBinderDeadListener {
+            shizukuAvailability = ShizukuController.availability()
+        }
+        Shizuku.addBinderReceivedListenerSticky(received)
+        Shizuku.addBinderDeadListener(dead)
+        onDispose {
+            Shizuku.removeBinderReceivedListener(received)
+            Shizuku.removeBinderDeadListener(dead)
+        }
+    }
     var shizukuStartResult by remember { mutableStateOf<String?>(null) }
     var showPayloadSourcesSheet by remember { mutableStateOf(false) }
     var showLocalPayloadDialog by remember { mutableStateOf(false) }
@@ -2229,13 +2251,52 @@ private fun SettingsPage(
                         }
                     },
                 )
+                // The row says which state Shizuku is in and offers the one action that is still
+                // useful, because a card whose title is a command has to be a command that will do
+                // something: start it when it is not running, ask for the grant when it is running
+                // without one, and nothing at all when it is running and allowed - where a start
+                // attempt would only report, in a dialog, what this row should have said on the
+                // screen.
                 SettingsCard(
                     icon = Icons.Rounded.PowerSettingsNew,
-                    title = stringResource(R.string.settings_shizuku_start),
-                    description = stringResource(R.string.settings_shizuku_start_summary),
-                    value = if (shizukuStarting) stringResource(R.string.status_shizuku_starting) else "",
+                    title = stringResource(
+                        when (shizukuAvailability) {
+                            ShizukuAvailability.NotRunning -> R.string.settings_shizuku_start
+                            ShizukuAvailability.WithoutPermission -> R.string.settings_shizuku_allow
+                            ShizukuAvailability.Ready -> R.string.settings_shizuku_running
+                        },
+                    ),
+                    description = stringResource(
+                        when (shizukuAvailability) {
+                            ShizukuAvailability.NotRunning -> R.string.settings_shizuku_start_summary
+                            ShizukuAvailability.WithoutPermission -> R.string.settings_shizuku_allow_summary
+                            ShizukuAvailability.Ready -> R.string.settings_shizuku_running_summary
+                        },
+                    ),
+                    value = when {
+                        shizukuStarting -> stringResource(R.string.status_shizuku_starting)
+                        shizukuAvailability == ShizukuAvailability.Ready ->
+                            stringResource(R.string.settings_shizuku_state_running)
+                        shizukuAvailability == ShizukuAvailability.WithoutPermission ->
+                            stringResource(R.string.settings_shizuku_state_needs_permission)
+                        else -> ""
+                    },
                     position = SettingsCardPosition.Middle,
-                    onClick = startShizuku,
+                    enabled = shizukuAvailability != ShizukuAvailability.Ready,
+                    onClick = {
+                        // Asked again here rather than trusting what was drawn: permission can be
+                        // granted from the Shizuku app while this screen sits in the background, and
+                        // Shizuku offers no callback for a grant this app did not request.
+                        shizukuAvailability = ShizukuController.availability()
+                        when (shizukuAvailability) {
+                            ShizukuAvailability.NotRunning -> startShizuku()
+                            ShizukuAvailability.WithoutPermission -> scope.launch {
+                                ShizukuController.requestPermission()
+                                shizukuAvailability = ShizukuController.availability()
+                            }
+                            ShizukuAvailability.Ready -> Unit
+                        }
+                    },
                 )
                 SettingsCard(                        icon = Icons.Rounded.LockOpen,
                     title = stringResource(R.string.settings_shizuku_token),
@@ -3966,12 +4027,20 @@ internal fun SettingsCard(
     valueBelow: String? = null,
     position: SettingsCardPosition = SettingsCardPosition.Single,
     busy: Boolean = false,
+    /**
+     * False when the row's action cannot do anything right now, so the card dims and takes no tap.
+     *
+     * It is for actions that are *already done* rather than merely likely to fail: a row whose only
+     * remaining outcome is a dialog saying "this was already the case" reads as a button that does
+     * not work, where a dimmed row reads as a state.
+     */
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val view = LocalView.current
     Card(
-        enabled = !busy,
+        enabled = enabled && !busy,
         onClick = {
             clickHaptic(view)
             onClick()
