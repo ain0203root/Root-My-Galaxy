@@ -78,8 +78,12 @@ internal object ShizukuStarter {
         binderTimeoutMillis: Long = DEFAULT_BINDER_TIMEOUT_MILLIS,
         onLog: (String) -> Unit = {},
     ): ShizukuStartOutcome = ShizukuStartCoordinator.withStartLock(context) {
+        // Every route reports through this one callback, so this is the one place that also feeds the
+        // app log: a start is a sequence of decisions rather than a single result, and the tab is where
+        // that sequence is read afterwards.
+        val log = appLogged(onLog)
         if (ShizukuController.pingUntilRunning(BINDER_RACE_PROBE_MILLIS)) {
-            onLog("[+] Shizuku is already running; no starter needed")
+            log("[+] Shizuku is already running; no starter needed")
             return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
         }
 
@@ -94,17 +98,32 @@ internal object ShizukuStarter {
             // Shizuku's own starter, in the shell this app was handed - KernelSU's - which is the route
             // whose result the app can watch for itself.
             ShizukuStartRoute.NativeStarter ->
-                startWithStarter(context, shell, binderTimeoutMillis, onLog)
+                startWithStarter(context, shell, binderTimeoutMillis, log)
 
             // No root, but this app has an adb identity of its own on the device: the same starter in
             // the shell adbd hands out, over loopback, with no network in the way.
             ShizukuStartRoute.LocalAdb ->
-                startThroughDeviceAdb(context, tokenConfigured, binderTimeoutMillis, onLog)
+                startThroughDeviceAdb(context, tokenConfigured, binderTimeoutMillis, log)
 
             ShizukuStartRoute.AuthenticatedIntent,
             ShizukuStartRoute.Unavailable,
-            -> startWithoutRoot(context, tokenConfigured, binderTimeoutMillis, onLog)
+            -> startWithoutRoot(context, tokenConfigured, binderTimeoutMillis, log)
         }
+    }
+
+    /**
+     * Files a start attempt's own commentary in the app log, and passes it on.
+     *
+     * `[!]` is a warning rather than news: those are the lines that say an attempt did not work, and on
+     * a device with no ADB they are the only account of why.
+     */
+    private fun appLogged(onLog: (String) -> Unit): (String) -> Unit = { line ->
+        AppLog.record(
+            level = if (line.startsWith("[!]")) AppLogLevel.Warn else AppLogLevel.Info,
+            tag = AppLogTags.SHIZUKU,
+            message = line,
+        )
+        onLog(line)
     }
 
     /**

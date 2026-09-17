@@ -3,7 +3,6 @@ package dev.busung.s25uroot
 import android.content.Context
 import android.content.pm.PackageManager
 import android.provider.Settings
-import android.util.Log
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -125,7 +124,6 @@ internal fun wirelessAdbUsable(
  */
 object AdbPairing {
 
-    private const val TAG = "RootMyGalaxyAdb"
     private const val ADB_WIFI_ENABLED_SETTING = "adb_wifi_enabled"
 
     /** The command that grants this app the setting, shown when nothing else can turn it on. */
@@ -214,7 +212,10 @@ object AdbPairing {
         val command = if (enabled) ENABLE_SETTING_COMMAND else DISABLE_SETTING_COMMAND
         val result = runCatching { KernelSuRuntime.rootShell(command) }.getOrNull() ?: return false
         if (result.exitCode != 0) {
-            Log.w(TAG, "Wireless debugging could not be changed through root: ${result.output.take(120)}")
+            AppLog.warn(
+                AppLogTags.WIRELESS_ADB,
+                "Wireless debugging could not be changed through root: ${result.output.take(120)}",
+            )
             return false
         }
         return readWirelessAdbState() == enabled
@@ -299,7 +300,7 @@ object AdbPairing {
      */
     fun discoverConnectPort(context: Context, timeoutMs: Long = 15_000): Int {
         readTlsPortProperty()?.let { port ->
-            Log.i(TAG, "Local ADB port from $ADB_TLS_PORT_PROPERTY: $port")
+            AppLog.info(AppLogTags.WIRELESS_ADB, "Port from $ADB_TLS_PORT_PROPERTY: $port")
             return port
         }
 
@@ -314,7 +315,7 @@ object AdbPairing {
             while (discoveredPort.get() <= 0) {
                 readTlsPortProperty()?.let { port ->
                     discoveredPort.compareAndSet(-1, port)
-                    Log.i(TAG, "Local ADB port found without mDNS: $port")
+                    AppLog.info(AppLogTags.WIRELESS_ADB, "Port found without mDNS: $port")
                     break
                 }
                 val remaining = deadline - System.nanoTime()
@@ -330,7 +331,12 @@ object AdbPairing {
         }
 
         val port = discoveredPort.get().takeIf { it > 0 } ?: readTlsPortProperty() ?: -1
-        if (port <= 0) Log.w(TAG, "No local ADB port was found, by property or by mDNS")
+        if (port <= 0) {
+            AppLog.warn(
+                AppLogTags.WIRELESS_ADB,
+                "No local ADB port was found, by property or by mDNS",
+            )
+        }
         return port
     }
 
@@ -348,7 +354,10 @@ object AdbPairing {
                 .output
                 .contains("uid=")
         }.getOrElse { error ->
-            Log.w(TAG, "Local ADB connection test failed: ${error.message}")
+            AppLog.warn(
+                AppLogTags.WIRELESS_ADB,
+                "Connection test failed: ${error.message}",
+            )
             false
         }
     }

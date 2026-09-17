@@ -154,9 +154,17 @@ internal object KernelSuManager {
         onMessage(context.getString(R.string.settings_manager_version_looking, flavor.label, named))
         val resolved = resolve(context, flavor, named)
         if (resolved == null) {
+            AppLog.warn(
+                AppLogTags.KERNEL_SU,
+                "No ${flavor.label} $named release could be resolved; opening the releases page",
+            )
             onMessage(context.getString(R.string.settings_manager_version_missing, flavor.label, named))
             return
         }
+        AppLog.info(
+            AppLogTags.KERNEL_SU,
+            "Downloading the ${flavor.label} ${resolved.version} manager",
+        )
         view(context, resolved.url)
     }
 
@@ -180,6 +188,14 @@ internal object KernelSuManager {
         cachedVersions[flavor]?.let { return Result.success(it) }
         return runCatching {
             managerVersionsInReleases(downloadText(releasesApiUrl(flavor), MAX_LISTING_BYTES))
+        }.onFailure { error ->
+            // The screen already says this; the tab says it next to everything else that was happening,
+            // which is what makes a rate limit look like a rate limit rather than a broken project.
+            AppLog.warn(
+                AppLogTags.KERNEL_SU,
+                "Could not list ${flavor.label} versions: " +
+                    (error.message ?: error.javaClass.simpleName),
+            )
         }.onSuccess { cachedVersions[flavor] = it }
     }
 
@@ -200,9 +216,19 @@ internal object KernelSuManager {
      * carries a build number (`KernelSU_v3.3.0_32601-release.apk`) that the version does not.
      */
     fun resolve(context: Context, flavor: KernelSuFlavor, version: String): ManagerRelease? {
-        val body = runCatching { downloadText(managerReleaseApiUrl(flavor, version), MAX_RELEASE_BYTES) }.getOrNull()
-            ?: return null
-        val apk = managerApkInRelease(body) ?: return null
+        val body = runCatching { downloadText(managerReleaseApiUrl(flavor, version), MAX_RELEASE_BYTES) }
+            .onFailure { error ->
+                AppLog.warn(
+                    AppLogTags.KERNEL_SU,
+                    "Could not read the ${flavor.label} $version release: " +
+                        (error.message ?: error.javaClass.simpleName),
+                )
+            }
+            .getOrNull() ?: return null
+        val apk = managerApkInRelease(body) ?: run {
+            AppLog.warn(AppLogTags.KERNEL_SU, "The ${flavor.label} $version release carries no APK")
+            return null
+        }
         return ManagerRelease(flavor = flavor, version = version, url = apk)
     }
 

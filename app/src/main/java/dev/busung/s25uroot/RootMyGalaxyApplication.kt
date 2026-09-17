@@ -30,6 +30,10 @@ class RootMyGalaxyApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // Every process, including the two services: the Logs tab is where a boot install explains
+        // itself, and a boot install has no screen to be explained on at the time.
+        AppLog.install(this)
+
         if (!isShizukuProviderProcess) {
             ShizukuProvider.requestBinderForNonProviderProcess(this)
         }

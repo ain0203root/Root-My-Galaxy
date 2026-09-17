@@ -1,6 +1,5 @@
 package dev.busung.s25uroot
 
-import android.util.Log
 import java.io.Closeable
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -121,7 +120,7 @@ class LocalAdbClient(
         if (message.command != A_CNXN) {
             error("ADB connection failed: 0x${message.command.toString(16)}")
         }
-        Log.i(TAG, "Connected: ${String(message.data ?: ByteArray(0))}")
+        AppLog.info(AppLogTags.WIRELESS_ADB, "Connected: ${String(message.data ?: ByteArray(0))}")
 
         // Up: reads may now block indefinitely, because a shell can go quiet for minutes without
         // being dead.
@@ -176,7 +175,10 @@ class LocalAdbClient(
             drained++
         }
         if (drained > 0) {
-            Log.w(TAG, "[$context] drained $drained stale message(s) before opening a new stream")
+            AppLog.warn(
+                AppLogTags.WIRELESS_ADB,
+                "[$context] drained $drained stale message(s) before opening a new stream",
+            )
         }
     }
 
@@ -222,7 +224,7 @@ class LocalAdbClient(
                         write(A_CLSE, localId, remoteId)
                         break
                     }
-                    A_OKAY -> Log.d(TAG, "shell: stray OKAY ignored")
+                    A_OKAY -> AppLog.debug(AppLogTags.WIRELESS_ADB, "shell: stray OKAY ignored")
                     else -> error(
                         "Unexpected message in shell: ${commandName(message.command)} arg0=${message.arg0}",
                     )
@@ -261,11 +263,11 @@ class LocalAdbClient(
             A_OKAY -> while (true) {
                 val now = System.currentTimeMillis()
                 if (now > deadline) {
-                    Log.w(TAG, "shellStreaming: overall timeout reached")
+                    AppLog.warn(AppLogTags.WIRELESS_ADB, "shellStreaming: overall timeout reached")
                     break
                 }
                 if (now - lastOutputAt > stallTimeoutMs) {
-                    Log.w(TAG, "shellStreaming: stall timeout reached")
+                    AppLog.warn(AppLogTags.WIRELESS_ADB, "shellStreaming: stall timeout reached")
                     break
                 }
                 if (shouldStop()) {
@@ -294,7 +296,7 @@ class LocalAdbClient(
                         write(A_CLSE, localId, remoteId)
                         break
                     }
-                    A_OKAY -> Log.d(TAG, "shellStreaming: stray OKAY ignored")
+                    A_OKAY -> AppLog.debug(AppLogTags.WIRELESS_ADB, "shellStreaming: stray OKAY ignored")
                     else -> error(
                         "Unexpected message in shellStreaming: " +
                             "${commandName(message.command)} arg0=${message.arg0}",
@@ -373,7 +375,7 @@ class LocalAdbClient(
             }
         }
         write(A_CLSE, localId, remoteId)
-        Log.i(TAG, "push: done $remotePath")
+        AppLog.info(AppLogTags.WIRELESS_ADB, "push: done $remotePath")
     }
 
     private fun writeSync(localId: Int, remoteId: Int, payload: ByteArray) {
@@ -488,7 +490,6 @@ class LocalAdbClient(
     data class ShellResult(val exitCode: Int, val output: String)
 
     companion object {
-        private const val TAG = "RootMyGalaxyAdb"
         private const val CONNECT_TIMEOUT_MS = 10_000
         private const val READ_TIMEOUT_MS = 120_000
         private const val HEADER_SIZE = 24

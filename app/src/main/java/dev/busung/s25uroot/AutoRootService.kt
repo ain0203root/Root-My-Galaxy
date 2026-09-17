@@ -9,7 +9,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineScope
@@ -97,7 +96,7 @@ class AutoRootService : Service() {
                 // claiming the attempt - can throw too, and an uncaught throw here takes the process
                 // down. On this path that is a crash dialog after a reboot and no notification at all,
                 // which reads as the app being broken rather than the automatic install not happening.
-                Log.e(TAG, "Root on boot aborted before it could report", error)
+                AppLog.error(AppLogTags.BOOT, "Root on boot aborted before it could report", error)
                 runCatching {
                     finish(
                         getString(
@@ -124,7 +123,7 @@ class AutoRootService : Service() {
     private suspend fun runGate() {
         val initialBootToken = AutoRootSupport.currentBootToken()
         if (initialBootToken == null) {
-            Log.i(TAG, "Root on boot skipped: the kernel boot id could not be read")
+            AppLog.warn(AppLogTags.BOOT, "Root on boot skipped: the kernel boot id could not be read")
             stopWithoutResult()
             return
         }
@@ -132,7 +131,14 @@ class AutoRootService : Service() {
         // single install attempt, and on this hardware the native paths can be denied by policy while
         // root is live. Asking twice costs a process; asking wrongly costs a doomed install.
         val kernelSuActive = RootStatusProbe.isActive()
-        when (AutoRootSupport.decision(this, initialBootToken, kernelSuActive)) {
+        // Bound to a name so the line below can say *which* rule stood down: "skipped before starting"
+        // is four different situations, and only one of them is worth doing anything about.
+        val decision = AutoRootSupport.decision(this, initialBootToken, kernelSuActive)
+        AppLog.info(
+            AppLogTags.BOOT,
+            "Gate decision ${decision.name} (KernelSU active=$kernelSuActive)",
+        )
+        when (decision) {
             // Root already active means this boot needs nothing, recorded against the boot id so the
             // rest of the boot does not ask again either.
             AutoRootDecision.SkipAlreadyRooted -> {
@@ -145,11 +151,11 @@ class AutoRootService : Service() {
             AutoRootDecision.SkipAlreadyVerified,
             AutoRootDecision.SkipAttempted,
             -> {
-                Log.i(TAG, "Root on boot skipped before starting")
                 stopWithoutResult()
                 return
             }
             AutoRootDecision.NeedsPriorInstall -> {
+                AppLog.warn(AppLogTags.BOOT, "Root on boot needs one online install first")
                 finish(getString(R.string.autoroot_prior_install_required))
                 return
             }
@@ -158,7 +164,7 @@ class AutoRootService : Service() {
         // The attempt is claimed before the run rather than after, so two components racing the same
         // boot cannot both spend it.
         if (!AutoRootSupport.claimAttempt(this, initialBootToken)) {
-            Log.i(TAG, "Root on boot skipped: this kernel boot's attempt is already spent")
+            AppLog.warn(AppLogTags.BOOT, "Root on boot skipped: this boot's attempt is already spent")
             stopWithoutResult()
             return
         }
@@ -179,7 +185,7 @@ class AutoRootService : Service() {
                 require(bootToken == initialBootToken) { getString(R.string.autoroot_boot_changed) }
                 if (RootStatusProbe.isActive()) {
                     AutoRootSupport.markVerifiedForBoot(this@AutoRootService, bootToken)
-                    Log.i(TAG, "Root on boot skipped after the wait: KernelSU is already active")
+                    AppLog.info(AppLogTags.BOOT, "Root on boot skipped after the wait: KernelSU is active")
                     return@withTimeout
                 }
                 // Shizuku first, and before the run rather than inside it: this is the one caller that
@@ -193,10 +199,14 @@ class AutoRootService : Service() {
                 runInstall(bootToken)
             }
         } catch (timeout: TimeoutCancellationException) {
+            AppLog.error(
+                AppLogTags.BOOT,
+                "Root on boot gave up after ${GATE_LIMIT_MILLIS / 1000} s without finishing",
+            )
             finish(getString(R.string.autoroot_failed, getString(R.string.autoroot_timed_out)))
         } catch (error: Throwable) {
             val detail = error.message ?: error.javaClass.simpleName
-            Log.e(TAG, "Root on boot failed", error)
+            AppLog.error(AppLogTags.BOOT, "Root on boot failed: $detail", error)
             finish(getString(R.string.autoroot_failed, detail))
         } finally {
             releaseQuietly(wakeLock)
@@ -217,7 +227,10 @@ class AutoRootService : Service() {
             .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:AutoRootGate")
             .also { it.acquire(GATE_LIMIT_MILLIS) }
     }.onFailure {
-        Log.w(TAG, "Root on boot: no wake lock for the gate, continuing without one", it)
+        AppLog.warn(
+            AppLogTags.BOOT,
+            "No wake lock for the gate (${it.javaClass.simpleName}: ${it.message}); carrying on without one",
+        )
     }.getOrNull()
 
     private fun releaseQuietly(wakeLock: PowerManager.WakeLock?) {
@@ -319,7 +332,10 @@ class AutoRootService : Service() {
             if (shizukuUsable()) return true
             val left = SHIZUKU_WAIT_MILLIS - (BootSettle.elapsedMillis() - startedAt)
             if (left <= 0L) {
-                Log.w(TAG, "Root on boot: Shizuku did not arrive within the wait")
+                AppLog.warn(
+                    AppLogTags.BOOT,
+                    "Shizuku did not arrive within ${SHIZUKU_WAIT_MILLIS / 1000} s; the install cannot go through it",
+                )
                 return false
             }
             if (attempts < SHIZUKU_START_ATTEMPTS &&
@@ -327,9 +343,15 @@ class AutoRootService : Service() {
             ) {
                 attempts++
                 lastAttemptAt = BootSettle.elapsedMillis()
-                Log.i(TAG, "Root on boot: starting Shizuku, attempt $attempts")
+                AppLog.info(AppLogTags.BOOT, "Starting Shizuku for the gate, attempt $attempts")
                 runCatching { ShizukuStarter.start(context = this, shell = kernelSuRootShell(this)) }
-                    .onFailure { Log.w(TAG, "Root on boot: a Shizuku start attempt failed", it) }
+                    .onFailure {
+                        AppLog.warn(
+                            AppLogTags.BOOT,
+                            "A Shizuku start attempt for the gate failed: " +
+                                "${it.javaClass.simpleName}: ${it.message}",
+                        )
+                    }
             }
             notifyOngoing(getString(R.string.autoroot_shizuku_waiting, BootSettle.formatRemaining(left)))
             delay(SETTLE_TICK_MILLIS)
@@ -508,7 +530,6 @@ class AutoRootService : Service() {
     companion object {
         const val ACTION_CANCEL = "dev.busung.s25uroot.action.CANCEL_AUTO_ROOT"
 
-        private const val TAG = "RootMyGalaxyAutoRoot"
         private const val CHANNEL_ID = "auto_root"
         /** Also read by the notification's own action, so the offer can clear the result it acted on. */
         internal const val NOTIFICATION_ID = 0x42554f55

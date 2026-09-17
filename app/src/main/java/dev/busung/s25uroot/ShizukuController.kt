@@ -61,13 +61,22 @@ object ShizukuController {
             listener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
                 if (requestCode == PERMISSION_REQUEST_CODE) {
                     Shizuku.removeRequestPermissionResultListener(listener)
-                    continuation.resume(grantResult == PackageManager.PERMISSION_GRANTED)
+                    val granted = grantResult == PackageManager.PERMISSION_GRANTED
+                    // Refused is a warning rather than news: it is the answer that stops a run, and the
+                    // dialog is the only other place it appears.
+                    AppLog.record(
+                        level = if (granted) AppLogLevel.Info else AppLogLevel.Warn,
+                        tag = AppLogTags.SHIZUKU,
+                        message = if (granted) "Permission granted" else "Permission refused",
+                    )
+                    continuation.resume(granted)
                 }
             }
             Shizuku.addRequestPermissionResultListener(listener)
             continuation.invokeOnCancellation {
                 Shizuku.removeRequestPermissionResultListener(listener)
             }
+            AppLog.info(AppLogTags.SHIZUKU, "Asking Shizuku for permission")
             try {
                 Shizuku.requestPermission(PERMISSION_REQUEST_CODE)
             } catch (error: Throwable) {

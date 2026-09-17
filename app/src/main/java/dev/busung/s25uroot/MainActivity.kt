@@ -93,6 +93,7 @@ import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Terminal
 import androidx.compose.material.icons.rounded.HourglassEmpty
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Info
@@ -186,6 +187,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -541,6 +543,7 @@ class MainActivity : ComponentActivity() {
 private enum class AppPage(@StringRes val label: Int, val icon: ImageVector) {
     Overview(R.string.nav_overview, Icons.Rounded.Home),
     History(R.string.nav_history, Icons.Rounded.History),
+    Logs(R.string.nav_logs, Icons.Rounded.Terminal),
     Settings(R.string.nav_settings, Icons.Rounded.Settings),
 }
 
@@ -951,6 +954,7 @@ private fun RootApp(
                     history,
                     onDeleteEntries = installViewModel::deleteHistoryEntries,
                 )
+                AppPage.Logs -> LogsPage(padding)
                 AppPage.Settings -> SettingsPage(
                     padding = padding,
                     device = device,
@@ -2308,6 +2312,303 @@ private fun formatHistoryTime(timestamp: Long): String {
     return remember(timestamp, locale) {
         DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.MEDIUM, locale)
             .format(Date(timestamp))
+    }
+}
+
+/**
+ * The app's own log, as a tab.
+ *
+ * Separate from History on purpose, because the two answer different questions. History is what a run
+ * did - one entry per run, with the payload's whole output, kept because a result is worth keeping.
+ * This is what the app did, line by line and in order, across runs and between them: which transport
+ * was chosen, why a boot install stood down, what a download was refused for. It is the thing to read
+ * first when something did not work, which is why it is a tab rather than a file.
+ */
+@Composable
+private fun LogsPage(padding: PaddingValues) {
+    val view = LocalView.current
+    val context = LocalContext.current
+    val entries by AppLog.log.collectAsStateWithLifecycle()
+    var minLevel by remember { mutableStateOf(AppLogLevel.Debug) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var confirmClear by remember { mutableStateOf(false) }
+
+    // The file is the record and this process is not the only one that writes to it: a boot install,
+    // and everything logged before this screen existed, is in there and nowhere else. Read on opening
+    // the tab and off the main thread, since it can be half a megabyte.
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) { AppLog.reload() }
+    }
+
+    val shown = remember(entries, minLevel, query) {
+        entries
+            .filter { AppLogFormat.matches(it, minLevel, query) }
+            .takeLast(MAX_LOG_ROWS)
+    }
+    val hiddenRows = remember(entries, minLevel, query) {
+        (entries.count { AppLogFormat.matches(it, minLevel, query) } - shown.size).coerceAtLeast(0)
+    }
+
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.34f)
+                Text(stringResource(R.string.logs_clear_title))
+            },
+            text = { Text(stringResource(R.string.logs_clear_body)) },
+            confirmButton = {
+                FilledTonalButton(onClick = {
+                    clickHaptic(view)
+                    AppLog.clear()
+                    query = ""
+                    minLevel = AppLogLevel.Debug
+                    confirmClear = false
+                }) {
+                    Text(stringResource(R.string.logs_clear))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    confirmClear = false
+                }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.logs_title),
+                        style = MaterialTheme.typography.headlineLarge,
+                    )
+                    Text(
+                        text = if (hiddenRows > 0) {
+                            stringResource(R.string.logs_count_window, shown.size, hiddenRows)
+                        } else {
+                            pluralStringResource(R.plurals.logs_count, shown.size, shown.size)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                IconButton(
+                    enabled = shown.isNotEmpty(),
+                    onClick = {
+                        clickHaptic(view)
+                        copyLogToClipboard(context, AppLog.asText(shown))
+                    },
+                ) {
+                    Icon(
+                        Icons.Rounded.ContentCopy,
+                        contentDescription = stringResource(R.string.logs_copy),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                IconButton(
+                    enabled = entries.isNotEmpty(),
+                    onClick = {
+                        clickHaptic(view)
+                        confirmClear = true
+                    },
+                ) {
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = stringResource(R.string.logs_clear),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        }
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                // A floor rather than a match: a warning is what makes someone open this tab, and the
+                // reason for it is in the lines below it.
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    LogLevelChip(AppLogLevel.Debug, R.string.logs_filter_all, minLevel) {
+                        minLevel = it
+                    }
+                    LogLevelChip(AppLogLevel.Info, R.string.logs_filter_info, minLevel) {
+                        minLevel = it
+                    }
+                    LogLevelChip(AppLogLevel.Warn, R.string.logs_filter_warn, minLevel) {
+                        minLevel = it
+                    }
+                    LogLevelChip(AppLogLevel.Error, R.string.logs_filter_error, minLevel) {
+                        minLevel = it
+                    }
+                }
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.logs_search)) },
+                    leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                    trailingIcon = if (query.isEmpty()) {
+                        null
+                    } else {
+                        {
+                            IconButton(onClick = {
+                                clickHaptic(view)
+                                query = ""
+                            }) {
+                                Icon(Icons.Rounded.Close, contentDescription = null)
+                            }
+                        }
+                    },
+                )
+            }
+        }
+        if (shown.isEmpty()) {
+            item { EmptyLogsCard(filtered = entries.isNotEmpty()) }
+        } else {
+            // Newest first: the line someone is looking for is almost always the last thing that
+            // happened, and a log that opens at the top of a scroll is a log nobody reads to the end.
+            item { LogSectionLabel(stringResource(R.string.logs_newest_first)) }
+            items(shown.asReversed()) { entry -> LogEntryRow(entry) }
+        }
+    }
+}
+
+/**
+ * How many lines the tab keeps for the screen.
+ *
+ * The log itself holds more; what this bounds is what one filter pass and one list have to carry while
+ * a run is printing. The count beside the title says when it is hiding some, so a missing line is
+ * stated rather than silent.
+ */
+private const val MAX_LOG_ROWS = 1000
+
+@Composable
+private fun LogLevelChip(
+    level: AppLogLevel,
+    label: Int,
+    selected: AppLogLevel,
+    onSelected: (AppLogLevel) -> Unit,
+) {
+    val view = LocalView.current
+    FilterChip(
+        selected = level == selected,
+        onClick = {
+            clickHaptic(view)
+            onSelected(level)
+        },
+        label = { Text(stringResource(label)) },
+    )
+}
+
+@Composable
+private fun LogSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 6.dp),
+    )
+}
+
+/**
+ * One line of the log: when, how loud, who - then what.
+ *
+ * Two rows rather than one, because a message is the thing being read and a tag is only how it is
+ * found; side by side, the tag's width would decide how much of the message fits. Monospace for the
+ * same reason a terminal uses it: a stack trace or a path lines up with the one above it.
+ */
+@Composable
+private fun LogEntryRow(entry: AppLogEntry) {
+    val color = logLevelColor(entry.level)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = AppLogFormat.stamp(entry.atMillis),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = entry.level.mark.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = color,
+            )
+            Text(
+                text = entry.tag,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Text(
+            text = entry.message,
+            style = MaterialTheme.typography.bodySmall,
+            fontFamily = FontFamily.Monospace,
+            color = if (entry.level == AppLogLevel.Warn || entry.level == AppLogLevel.Error) {
+                color
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
+    }
+}
+
+@Composable
+private fun logLevelColor(level: AppLogLevel): Color = when (level) {
+    AppLogLevel.Debug -> MaterialTheme.colorScheme.onSurfaceVariant
+    AppLogLevel.Info -> MaterialTheme.colorScheme.primary
+    AppLogLevel.Warn -> MaterialTheme.colorScheme.tertiary
+    AppLogLevel.Error -> MaterialTheme.colorScheme.error
+}
+
+@Composable
+private fun EmptyLogsCard(filtered: Boolean) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = stringResource(
+                    if (filtered) R.string.logs_empty_filtered_title else R.string.logs_empty_title,
+                ),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = stringResource(
+                    if (filtered) R.string.logs_empty_filtered_body else R.string.logs_empty_body,
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

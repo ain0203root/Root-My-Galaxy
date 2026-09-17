@@ -158,6 +158,9 @@ internal class PublishClaim {
  * or a different target padded to the same size -- has exactly the length of
  * whatever is already staged, and would keep running in its place.
  */
+/** The tag runs are filed under in the app log; see [AppLogTags]. */
+internal const val RUN_LOG_TAG = AppLogTags.RUN
+
 internal fun stagedFileIsCurrent(staged: File, source: File): Boolean {
     if (!staged.exists()) return false
     val stagedDigest = sha256OrNull(staged) ?: return false
@@ -392,9 +395,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             // Running, not merely started: the outcome says a binder was seen, and this asks the same
             // question the next run will ask, so a start that only almost worked is still a question.
             if (outcome.started && ShizukuController.isRunning()) {
+                AppLog.info(
+                    RUN_LOG_TAG,
+                    "Shizuku started from the run screen via ${outcome.method ?: "an unnamed route"}; resuming",
+                )
                 mutableState.value = mutableState.value.copy(transportPrompt = null)
                 install(selectionId)
             } else {
+                AppLog.warn(
+                    RUN_LOG_TAG,
+                    "Shizuku was not started from the run screen: " +
+                        outcome.detail.ifBlank { "no route reported why" },
+                )
                 mutableState.value = mutableState.value.copy(
                     transportPrompt = TransportPrompt(
                         starting = false,
@@ -414,6 +426,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      * without a pairing to carry it is refused by the run itself, in its own words, rather than here.
      */
     fun runHeldRunWithoutShizuku(selectionId: String?) {
+        AppLog.warn(RUN_LOG_TAG, "Running without Shizuku, on the user's word at the hold")
         install(selectionId = selectionId, withoutShizuku = true)
     }
 
@@ -443,6 +456,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     fun stopRun() {
         if (installJob?.isActive != true) return
         stopRequested = true
+        // Said before the cancel, because what it is cancelling is a payload on the device.
+        AppLog.warn(RUN_LOG_TAG, "Stop requested; cancelling the run")
         installJob?.cancel()
     }
 
@@ -459,7 +474,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      */
     suspend fun armRetryAfterReboot(): Boolean {
         AppPreferences.setRetryAfterReboot(app, currentBootToken())
-        return requestReboot()
+        val requested = requestReboot()
+        // The arming is what matters and it has already happened, so a reboot that could not be
+        // requested is worth a line rather than a failure: the user can still restart by hand.
+        AppLog.warn(
+            RUN_LOG_TAG,
+            if (requested) {
+                "Retry armed for the next boot, restart requested"
+            } else {
+                "Retry armed for the next boot, but the restart was refused"
+            },
+        )
+        return requested
     }
 
     fun install(
@@ -500,7 +526,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
          */
         withoutShizuku: Boolean = false,
     ) {
-        if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
+        if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) {
+            AppLog.debug(RUN_LOG_TAG, "Run not started: this screen is already on a run")
+            return
+        }
         // Asked before anything is taken or written, so a run that is going to be a question leaves no
         // trace of one that ran: no claim, no history entry, no log, and a screen that can still say
         // what the question is.
@@ -518,8 +547,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 probeOutput = mutableState.value.probeOutput,
                 transportPrompt = TransportPrompt(),
             )
+            AppLog.warn(RUN_LOG_TAG, "Run held: Use Shizuku is on and Shizuku is not running")
             return
         }
+        AppLog.info(
+            RUN_LOG_TAG,
+            "Run started: unattended=$unattended, offline=$payloadOffline, " +
+                "retry=$preferAttemptedPayload, withoutShizuku=$withoutShizuku",
+        )
         discoveryJob?.cancel()
         // The claim is taken here, on the caller's thread, rather than inside the run: what it has to
         // outrun is a discovery job that is already past its last suspension point.
@@ -622,6 +657,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 ) ?: error(app.getString(shellTransportRefusalStringId(shizukuRequested)))
                 activeRunTransport = transport
                 activeRunShizuku = transport == RunTransport.Shizuku
+                // Requested and used, side by side: the one outcome that used to be invisible from
+                // anywhere was a run that was set to go through Shizuku and went another way.
+                AppLog.info(
+                    RUN_LOG_TAG,
+                    "Transport ${transport.name} (shell required=" +
+                        "${profile.routePolicy.prefersShellTransport}, Shizuku requested=$shizukuRequested, " +
+                        "usable=$shizukuUsable, pairing saved=$localAdbPaired)",
+                )
 
                 if (transport == RunTransport.Shizuku) {
                     activeStage = RunStage.Transport
@@ -635,6 +678,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         error(app.getString(R.string.error_shizuku_permission))
                     }
                     appendLog(app.getString(R.string.log_shizuku_permission))
+                    AppLog.info(RUN_LOG_TAG, "Shizuku ready: running and granted")
                 }
                 appendLog(
                     app.getString(
@@ -798,6 +842,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                             )
                         }
                 }
+                AppLog.info(
+                    RUN_LOG_TAG,
+                    if (loadKernelSu) {
+                        "Run finished: ${profile.flavor.label} loaded"
+                    } else {
+                        "Run finished: root only, nothing loaded"
+                    },
+                )
                 finishHistory(
                     if (loadKernelSu) InstallRunResult.Succeeded else InstallRunResult.RootOnly,
                 )
@@ -836,6 +888,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     setPhase(InstallPhase.Stopped, app.getString(R.string.status_run_stopped))
                     mutableState.value = mutableState.value.copy(stoppedAt = stage)
                 }
+                AppLog.warn(
+                    RUN_LOG_TAG,
+                    if (stopRequested) {
+                        "Run stopped at ${app.getString(stage.label)}"
+                    } else {
+                        "Run interrupted at ${app.getString(stage.label)}"
+                    },
+                )
                 throw cancelled
             } catch (error: Throwable) {
                 // The stage and the last payload output travel with the failure: the message alone
@@ -866,6 +926,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 mutableState.value = mutableState.value.copy(failure = failure)
                 updateHistory { entry ->
                     entry.copy(failureStage = stage, failureReason = reason)
+                }
+                AppLog.error(
+                    RUN_LOG_TAG,
+                    "Run failed at ${app.getString(stage.label)}: $reason",
+                )
+                if (failure.readOnlyWall) {
+                    AppLog.warn(RUN_LOG_TAG, app.getString(R.string.log_read_only_wall))
                 }
                 finishHistory(InstallRunResult.Failed)
             } finally {
@@ -1376,6 +1443,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             appendLog(app.getString(R.string.log_ro_blocks_failed))
         }
         protectedDevices = count
+        AppLog.info(
+            RUN_LOG_TAG,
+            if (count >= 1) {
+                "Set $count partitions read-only for this boot"
+            } else {
+                "Partition protection was on, but no block device could be set read-only"
+            },
+        )
         // Marked after the line above, so the scan that attributes a later failure to the protection
         // starts below the line that reports it rather than reading it back as evidence.
         protectedFrom = mutableState.value.log.length
@@ -1461,12 +1536,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         val remaining = BootSettle.remainingMillis(required, BootSettle.elapsedMillis())
         if (remaining <= 0L) {
             appendLog(app.getString(R.string.log_boot_settled, BootSettle.label(required)))
+            AppLog.info(RUN_LOG_TAG, "Boot settle already met (${BootSettle.label(required)})")
             return
         }
         appendLog(app.getString(R.string.log_boot_settle, BootSettle.formatRemaining(remaining)))
+        AppLog.info(RUN_LOG_TAG, "Waiting ${BootSettle.formatRemaining(remaining)} for the boot to settle")
         while (true) {
             if (bootSettleOverridden) {
                 appendLog(app.getString(R.string.log_boot_settle_skipped))
+                AppLog.warn(RUN_LOG_TAG, "Boot settle skipped on the user's word")
                 return
             }
             val left = BootSettle.remainingMillis(required, BootSettle.elapsedMillis())

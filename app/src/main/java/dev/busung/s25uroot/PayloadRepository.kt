@@ -168,13 +168,23 @@ class PayloadRepository(private val context: Context) {
             try {
                 targets += loadSource(source)
             } catch (error: Throwable) {
-                failures += context.getString(
+                val detail = context.getString(
                     R.string.repo_source_failed,
                     source.label,
                     error.message ?: error.javaClass.simpleName,
                 )
+                failures += detail
+                // Per source and with the source's own words, because this is the failure that used to
+                // be visible only as a run that would not start: "a source did not load" says nothing
+                // about which one, and a rate limit reads nothing like a missing manifest.
+                AppLog.warn(AppLogTags.CATALOG, detail)
             }
         }
+        AppLog.info(
+            AppLogTags.CATALOG,
+            "Catalog loaded from ${sources.size - failures.size}/${sources.size} enabled sources, " +
+                "${targets.size} targets",
+        )
 
         require(targets.isNotEmpty()) {
             failures.ifEmpty { listOf(context.getString(R.string.repo_no_profile)) }.joinToString("\n")

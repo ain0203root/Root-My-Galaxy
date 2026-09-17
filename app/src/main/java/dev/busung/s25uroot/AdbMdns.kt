@@ -3,7 +3,6 @@ package dev.busung.s25uroot
 import android.content.Context
 import android.net.nsd.NsdManager
 import android.net.nsd.NsdServiceInfo
-import android.util.Log
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
@@ -33,7 +32,7 @@ class AdbMdns(
         }
 
         override fun onStartDiscoveryFailed(serviceType: String, errorCode: Int) {
-            Log.w(TAG, "mDNS discovery could not start: $errorCode")
+            AppLog.warn(AppLogTags.WIRELESS_ADB, "mDNS discovery could not start: $errorCode")
         }
 
         override fun onDiscoveryStopped(serviceType: String) {
@@ -100,7 +99,6 @@ class AdbMdns(
     }
 
     companion object {
-        private const val TAG = "RootMyGalaxyAdb"
 
         /** The pairing service, offered only while the pairing dialog is open. */
         const val TLS_PAIRING = "_adb-tls-pairing._tcp"

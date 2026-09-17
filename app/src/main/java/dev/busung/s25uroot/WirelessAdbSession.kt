@@ -2,7 +2,6 @@ package dev.busung.s25uroot
 
 import android.content.Context
 import android.os.SystemClock
-import android.util.Log
 import java.io.Closeable
 import java.io.File
 
@@ -126,7 +125,10 @@ class WirelessAdbSession private constructor(
 
             val client = LocalAdbClient("127.0.0.1", port, AdbKeyManager(context))
             client.connect()
-            Log.i(TAG, "Connected to the device's own adbd on port $port")
+            AppLog.info(
+                AppLogTags.WIRELESS_ADB,
+                "Connected to the device's own adbd on port $port",
+            )
             return WirelessAdbSession(client)
         }
 
@@ -147,7 +149,6 @@ class WirelessAdbSession private constructor(
             return -1
         }
 
-        private const val TAG = "RootMyGalaxyAdb"
         private const val PORT_LOOKUP_MILLIS = 10_000L
         private const val RETRY_INTERVAL_MILLIS = 2_000L
     }

@@ -10,7 +10,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import java.net.ConnectException
@@ -130,7 +129,7 @@ class AdbPairingService : Service() {
                 is AdbInvalidPairingCodeException -> getString(R.string.adb_pair_wrong_code)
                 else -> error?.message ?: getString(R.string.adb_pair_unknown_error)
             }
-            Log.w(TAG, "Pairing failed: ${error?.message}")
+            AppLog.warn(AppLogTags.WIRELESS_ADB, "Pairing failed: ${error?.message}")
         }
 
         getSystemService(NotificationManager::class.java).notify(
@@ -259,7 +258,10 @@ class AdbPairingService : Service() {
         }.onFailure { error ->
             // A pairing that cannot show its notification can still be posted as an ordinary one;
             // failing here would mean the code field never appears at all.
-            Log.w(TAG, "Could not start in the foreground: ${error.message}")
+            AppLog.warn(
+                AppLogTags.WIRELESS_ADB,
+                "Could not start in the foreground: ${error.message}",
+            )
             getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
         }
     }
@@ -272,7 +274,6 @@ class AdbPairingService : Service() {
     }
 
     companion object {
-        private const val TAG = "RootMyGalaxyAdb"
         private const val CHANNEL_ID = "adb_pairing"
         private const val NOTIFICATION_ID = 0x504149
         private const val REMOTE_INPUT_KEY = "pairing_code"

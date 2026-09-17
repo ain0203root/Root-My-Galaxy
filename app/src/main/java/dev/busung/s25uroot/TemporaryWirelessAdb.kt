@@ -8,7 +8,6 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
-import android.util.Log
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -142,7 +141,9 @@ internal object TemporaryWirelessAdb {
             AppPreferences.setWirelessAdbOwnedByApp(context, false)
             onLog("[+] Wireless debugging disabled")
         } else {
-            Log.e(TAG, "Wireless debugging could not be turned off")
+            // A warning and not an error: the window this opened failed to close, which is worth
+            // knowing on a device left with a shell port open.
+            AppLog.warn(AppLogTags.WIRELESS_ADB, "Wireless debugging could not be turned back off")
             onLog("[!] Wireless debugging could not be turned off")
         }
     }
@@ -189,7 +190,6 @@ internal object TemporaryWirelessAdb {
 
     const val ACTION_FORCE_DISABLE = "dev.busung.s25uroot.action.FORCE_DISABLE_WIRELESS_ADB"
 
-    private const val TAG = "RootMyGalaxyAdb"
     private const val CLEANUP_REQUEST_CODE = 0x57414442
     private const val HANDOFF_GRACE_MILLIS = 5_000L
 

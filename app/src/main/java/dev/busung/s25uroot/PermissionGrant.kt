@@ -49,20 +49,28 @@ internal object PermissionGrant {
      * Never throws: a transport that is missing, or that dies mid-command, is the next one's turn.
      */
     suspend fun writeSecureSettings(context: Context): GrantOutcome = withContext(Dispatchers.IO) {
-        if (hasPermission(context)) return@withContext GrantOutcome.AlreadyGranted
+        if (hasPermission(context)) {
+            return@withContext recorded(context, GrantOutcome.AlreadyGranted)
+        }
 
         val command = grantCommand(context.packageName)
 
         KernelSuRuntime.rootShell(command)?.let { result ->
-            return@withContext settle(context, GrantTransport.RootShell, result.exitCode, result.output)
+            return@withContext recorded(
+                context,
+                settle(context, GrantTransport.RootShell, result.exitCode, result.output),
+            )
         }
 
         KernelSuRuntime.unprivilegedShell(command)?.let { result ->
-            return@withContext settle(
+            return@withContext recorded(
                 context,
-                GrantTransport.ShizukuShell,
-                result.exitCode,
-                result.output,
+                settle(
+                    context,
+                    GrantTransport.ShizukuShell,
+                    result.exitCode,
+                    result.output,
+                ),
             )
         }
 
@@ -73,7 +81,33 @@ internal object PermissionGrant {
                     settle(context, GrantTransport.LocalAdb, result.exitCode, result.output)
                 }
             }
-        }.getOrElse { return@withContext GrantOutcome.NoTransport }
+        }.fold(
+            onSuccess = { outcome -> recorded(context, outcome) },
+            onFailure = { error ->
+                AppLog.warn(
+                    AppLogTags.PERMISSIONS,
+                    "WRITE_SECURE_SETTINGS: no transport answered " +
+                        "(${error.javaClass.simpleName}: ${error.message})",
+                )
+                GrantOutcome.NoTransport
+            },
+        )
+    }
+
+    /**
+     * Files what a grant attempt came to, and passes the outcome on.
+     *
+     * The outcome is the interesting part in the tab because of where it comes from: it is read back
+     * from the platform rather than taken from the command's exit code, so a refusal here is a refusal
+     * by the device and not by the shell that asked.
+     */
+    private fun recorded(context: Context, outcome: GrantOutcome): GrantOutcome {
+        AppLog.record(
+            level = if (outcome.granted) AppLogLevel.Info else AppLogLevel.Warn,
+            tag = AppLogTags.PERMISSIONS,
+            message = outcome.logLine(context),
+        )
+        return outcome
     }
 
     /**

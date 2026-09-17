@@ -4,7 +4,6 @@ import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,35 +35,75 @@ class AutoRootBootReceiver : BroadcastReceiver() {
         // their own, and a boot with one of those and no root is exactly the boot where starting
         // Shizuku matters most. A boot with none of them is left alone instead of being told once per
         // reboot that nothing can be done.
-        if (AppPreferences.shizukuBootMode(context) &&
-            shizukuBootStartWorthAttempting(
-                rootAlreadyActive = rootActive,
-                localAdbPaired = AdbCredentialStore.hasStoredKey(context) &&
-                    AppPreferences.adbPaired(context),
-                tokenConfigured = AppPreferences.shizukuAutomationToken(context).isNotBlank(),
-            )
-        ) {
-            ShizukuBootService.start(context)
+        if (AppPreferences.shizukuBootMode(context)) {
+            val paired = AdbCredentialStore.hasStoredKey(context) && AppPreferences.adbPaired(context)
+            val token = AppPreferences.shizukuAutomationToken(context).isNotBlank()
+            if (shizukuBootStartWorthAttempting(
+                    rootAlreadyActive = rootActive,
+                    localAdbPaired = paired,
+                    tokenConfigured = token,
+                )
+            ) {
+                AppLog.info(AppLogTags.BOOT, "Starting Shizuku at boot (root=$rootActive, paired=$paired)")
+                ShizukuBootService.start(context)
+            } else {
+                // Said rather than skipped in silence: on a device with none of the three routes this
+                // is the answer to "why is Shizuku never up after a reboot".
+                AppLog.info(
+                    AppLogTags.BOOT,
+                    "Shizuku not started at boot: no root, no saved pairing and no start token",
+                )
+            }
         }
 
-        if (rootActive) return
+        if (rootActive) {
+            AppLog.info(AppLogTags.BOOT, "Root is already active, so no install is started")
+            return
+        }
         // A one-shot retry armed from the run screen counts here too: those two are the only ways this
         // boot can have been asked for an install, and the gate is where either one is carried out.
-        if (!AppPreferences.bootRootMode(context) && !AppPreferences.retryArmed(context)) return
+        val bootRootMode = AppPreferences.bootRootMode(context)
+        val retryArmed = AppPreferences.retryArmed(context)
+        if (!bootRootMode && !retryArmed) {
+            AppLog.debug(
+                AppLogTags.BOOT,
+                "No install this boot: root on boot is off and no retry is armed",
+            )
+            return
+        }
+        AppLog.info(
+            AppLogTags.BOOT,
+            "A boot install was asked for (root on boot=$bootRootMode, retry armed=$retryArmed)",
+        )
 
         // The boot id is the only thing that tells a real reboot from a userspace restart that
         // re-emits BOOT_COMPLETED, and claiming it has to happen before anything is started.
-        val bootToken = AutoRootSupport.currentBootToken() ?: return
+        val bootToken = AutoRootSupport.currentBootToken()
+        if (bootToken == null) {
+            AppLog.warn(
+                AppLogTags.BOOT,
+                "A boot install was asked for but no boot id could be read; standing down",
+            )
+            return
+        }
         if (!AutoRootSupport.claimBootCompletedForKernel(context, bootToken)) {
-            Log.i(TAG, "Ignoring a repeated BOOT_COMPLETED within one kernel boot")
+            AppLog.info(
+                AppLogTags.BOOT,
+                "Ignoring a repeated BOOT_COMPLETED within one kernel boot",
+            )
             AutoRootService.stop(context)
             return
         }
         if (AutoRootSupport.hasAttemptedBoot(context, bootToken)) {
+            AppLog.warn(AppLogTags.BOOT, "This boot has already had an attempt; standing down")
             AutoRootService.stop(context)
             return
         }
         if (!AutoRootSupport.shouldRunForBoot(context, bootToken)) {
+            AppLog.warn(
+                AppLogTags.BOOT,
+                "The boot gate refused the install before the service was started",
+            )
             AutoRootService.stop(context)
             return
         }
@@ -84,6 +123,10 @@ class AutoRootActionReceiver : BroadcastReceiver() {
                 // Turning the setting off first is what makes the decision stick: the service stops
                 // for this boot, and the next boot's receiver sees the setting before anything else.
                 AppPreferences.setBootRootMode(context, false)
+                AppLog.info(
+                    AppLogTags.BOOT,
+                    "Root on boot turned off from the notification",
+                )
                 AutoRootService.stop(context)
             }
 
@@ -107,12 +150,22 @@ class AutoRootActionReceiver : BroadcastReceiver() {
                 if (outcome.accepted) {
                     context.getSystemService(NotificationManager::class.java)
                         .cancel(AutoRootService.NOTIFICATION_ID)
-                    Log.i(TAG, "KernelSU soft reboot accepted from the root on boot notification")
+                    AppLog.info(
+                        AppLogTags.KERNEL_SU,
+                        "KernelSU soft reboot accepted from the root on boot notification",
+                    )
                 } else {
-                    Log.w(TAG, "Applying modules from the notification failed: ${outcome.detail}")
+                    AppLog.warn(
+                        AppLogTags.KERNEL_SU,
+                        "Applying modules from the notification was refused: ${outcome.detail}",
+                    )
                 }
             } catch (error: Throwable) {
-                Log.e(TAG, "Applying modules from the notification failed", error)
+                AppLog.error(
+                    AppLogTags.KERNEL_SU,
+                    "Applying modules from the notification failed",
+                    error,
+                )
             } finally {
                 pending.finish()
             }
