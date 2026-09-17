@@ -953,10 +953,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // of those is worth retrying straight away.
                 val stage = activeStage
                 val reason = error.message ?: error.javaClass.simpleName
+                val log = mutableState.value.log
+                // An exploit failure has a cause the payload can name that the app's own ceilings
+                // cannot: the kernel refusing it the pipe pages its race needs. When that is what the
+                // output says, it is the answer - the ceiling only says where the run was cut off, and
+                // a further attempt in this boot fails the same way for the same spent budget.
+                val pipeEvidence = if (stage == RunStage.Exploit) PipeBudget.evidenceIn(log) else null
+                if (pipeEvidence != null) {
+                    appendLog(app.getString(R.string.log_pipe_budget, pipeEvidence))
+                }
                 val failure = RunFailure.of(
                     stage = stage,
-                    reason = reason,
-                    evidence = failureEvidence(mutableState.value.log),
+                    reason = if (pipeEvidence != null) app.getString(R.string.failure_pipe_budget) else reason,
+                    evidence = failureEvidence(log),
                     readOnlyWall = refusedByProtection(
                         log = mutableState.value.log,
                         protectedFrom = protectedFrom,

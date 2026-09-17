@@ -54,6 +54,8 @@
     <string name="retry_waiting_body">The payload runs again in %1$d s. The state left by the last attempt needs about a minute to clear.</string>
     <string name="retry_waiting_start">Retry now</string>
     <string name="retry_waiting_cancel">Stop waiting</string>
+    <string name="log_pipe_budget">[!] The payload was refused the pipe pages its race needs (%1$s). That budget is per boot and this one has spent it, so restart before another attempt.</string>
+    <string name="failure_pipe_budget">The kernel refused the payload the pipe pages it needs. That budget is spent for this boot, so every attempt from here fails the same way until the phone restarts.</string>
     <string name="log_manager_refreshed">[*] Stopped %1$s, which was open across the load, so it reads the module that was just loaded</string>
     <string name="log_payload_may_still_run">[!] The payload could not be confirmed stopped and may still be running. Restart the phone before another attempt.</string>
     <string name="install_payload_may_still_run">The payload could not be confirmed stopped, so it may still be running. Restart the phone before trying again — a second payload on top of a live one can lock the phone up.</string>
