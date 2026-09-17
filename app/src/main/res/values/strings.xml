@@ -260,6 +260,13 @@
     <string name="settings_restart_after_root">Apply modules when a run finishes</string>
     <string name="settings_restart_after_root_summary">Restart the userspace when a run finishes, so KernelSU applies your modules right away. Everything open closes</string>
     <string name="autoroot_apply_modules">Apply modules</string>
+    <string name="autoroot_retry_title">Retry install</string>
+    <string name="retry_armed_pending_title">Restart and retry is armed</string>
+    <string name="retry_armed_pending_body">The install you asked for before the restart has not run. Start it now, or cancel it.</string>
+    <string name="retry_armed_next_boot_title">Retry armed for the next restart</string>
+    <string name="retry_armed_next_boot_body">The next restart runs the install once, even with root on boot off, because you asked for it. Cancel it if you have changed your mind.</string>
+    <string name="retry_armed_start">Start now</string>
+    <string name="retry_armed_cancel">Cancel retry</string>
     <string name="log_ksu_staged_late_only">[*] No shell transport to stage KernelSU before the exploit; the payload has no daemon to load, so it is staged afterwards instead</string>
     <string name="log_ksu_control_verified">[+] KernelSU control channel verified (%1$s)</string>
     <string name="log_ksu_control_readings">[*] Control channel readings: %1$s</string>

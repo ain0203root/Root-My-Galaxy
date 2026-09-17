@@ -211,6 +211,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuMode by mutableStateOf(false)
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
+    private var armedRetry by mutableStateOf<ArmedRetry?>(null)
     private var restartAfterRoot by mutableStateOf(false)
     private var shizukuBootMode by mutableStateOf(false)
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
@@ -310,6 +311,7 @@ class MainActivity : ComponentActivity() {
         shizukuMode = AppPreferences.shizukuMode(this)
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
+        armedRetry = readArmedRetry()
         restartAfterRoot = AppPreferences.restartAfterRoot(this)
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
@@ -332,6 +334,7 @@ class MainActivity : ComponentActivity() {
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
+                    armedRetry = armedRetry,
                     restartAfterRoot = restartAfterRoot,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
@@ -341,6 +344,8 @@ class MainActivity : ComponentActivity() {
                     partitionReadOnly = partitionReadOnly,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
+                    onStartArmedRetry = ::startArmedRetry,
+                    onCancelArmedRetry = ::cancelArmedRetry,
                     requestNotificationPermission = ::maybeRequestNotificationPermission,
                     onRequestBatteryExemption = ::requestBatteryExemption,
                     onAccentColorChanged = { color ->
@@ -431,7 +436,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         maybeRequestBatteryExemption()
-        maybeResumeArmedRetry()
     }
 
     private fun openInstaller(selectionId: String? = null) {
@@ -443,32 +447,40 @@ class MainActivity : ComponentActivity() {
         startActivity(installer)
     }
 
+    /** The retry this device has armed, read together with the boot it would run in. */
+    private fun readArmedRetry(): ArmedRetry? =
+        ArmedRetry.of(AppPreferences.retryArmedInBoot(this), kernelBootToken())
+
     /**
-     * Starts the install a user asked for before the last reboot, when nothing else has.
+     * Starts the install a retry was armed for.
      *
-     * The boot gate runs it on its own only for a device that already has a cache to run from - its
-     * runs are offline by design, because at boot there is no network to rely on and nobody to wait for
-     * one. A device whose last install never succeeded has no cache, which is exactly the device whose
-     * user was told "restart and retry" - so for that one the retry is taken here, the first time the
-     * app is opened after the boot it was armed for.
+     * Offered on Home rather than taken on the way in, which is what it used to be: the app started the
+     * run itself the first time it was opened after the boot the retry was armed for, so a phone could
+     * begin installing because its owner opened the app to look at something else. The retry is still
+     * theirs to take - it is just a tap now, and the screen says what it is for.
      *
-     * The armed boot is the test, not a timestamp: a retry armed in the boot the phone is still running
-     * is one the user armed and then did not reboot for, and starting it would be the attempt they
-     * turned down when they chose to reboot instead.
+     * Consumed before the install starts, so a process death mid-run cannot leave an armed retry that
+     * would start another one on the next launch.
      */
-    private fun maybeResumeArmedRetry() {
-        val current = kernelBootToken() ?: return
-        if (!AppPreferences.retryPendingForBoot(this, current)) return
-        // Consumed before the install starts, so a process death mid-run cannot leave an armed retry
-        // that would start another one on the next launch.
+    private fun startArmedRetry() {
         AppPreferences.setRetryAfterReboot(this, null)
+        armedRetry = null
         openInstaller()
+    }
+
+    /** Takes the retry back, which is the only way to stop it running at the next boot. */
+    private fun cancelArmedRetry() {
+        AppPreferences.setRetryAfterReboot(this, null)
+        armedRetry = null
     }
 
     override fun onResume() {
         super.onResume()
         // Battery optimisation is a system setting, so it can change while the app is backgrounded.
         batteryUnrestricted = isBatteryUnrestricted()
+        // A retry is armed on the run screen and consumed by a boot, so coming back from either is
+        // exactly when this screen can be wrong about it.
+        armedRetry = readArmedRetry()
         if (resumedOnce) installViewModel.refresh() else resumedOnce = true
     }
 }
@@ -532,6 +544,7 @@ private fun RootApp(
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
+    armedRetry: ArmedRetry?,
     restartAfterRoot: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
@@ -541,6 +554,8 @@ private fun RootApp(
     partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
+    onStartArmedRetry: () -> Unit,
+    onCancelArmedRetry: () -> Unit,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
@@ -828,10 +843,13 @@ private fun RootApp(
                     padding = padding,
                     device = device,
                     installState = installState,
+                    armedRetry = armedRetry,
                     updateStatus = updateStatus,
                     updateCardDismissed = updateCardDismissed,
                     onDismissUpdateCard = { updateCardDismissed = true },
                     onStartDownload = startDownload,
+                    onStartArmedRetry = onStartArmedRetry,
+                    onCancelArmedRetry = onCancelArmedRetry,
                     onOpenSettings = { selectedPage = AppPage.Settings },
                     onInstall = {
                         selectedProfile = null
@@ -937,10 +955,13 @@ private fun OverviewPage(
     padding: PaddingValues,
     device: DeviceSnapshot,
     installState: InstallUiState,
+    armedRetry: ArmedRetry?,
     updateStatus: UpdateStatus,
     updateCardDismissed: Boolean,
     onDismissUpdateCard: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
+    onStartArmedRetry: () -> Unit,
+    onCancelArmedRetry: () -> Unit,
     onInstall: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -1042,6 +1063,17 @@ private fun OverviewPage(
             }
         }
         item { InstallStatusCard(installState, onInstall) }
+        // Above the readiness card, and above everything else that is only information: this one is
+        // waiting on a decision, and it changes what the next boot does.
+        if (armedRetry != null && !installState.busy) {
+            item {
+                ArmedRetryCard(
+                    retry = armedRetry,
+                    onStart = onStartArmedRetry,
+                    onCancel = onCancelArmedRetry,
+                )
+            }
+        }
         item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
         item { HowItWorksCard() }
@@ -1184,6 +1216,99 @@ private fun HowItWorksCard() {
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The one-shot retry, on screen from the moment it is armed until it is used or cancelled.
+ *
+ * This card is the whole answer to "root on boot was off, and the phone installed anyway". An armed
+ * retry overrides that setting by design - the gate's rule is that either way of asking gets the boot's
+ * single attempt - and while it was invisible the only conclusion left was that the setting had been
+ * ignored. It is not a new promise: the retry ran before and runs now. It can just be seen, taken, and
+ * taken back.
+ *
+ * The two states differ in what it is honest to offer. Before the reboot, only cancelling: the run was
+ * armed *because* the user chose a restart over an immediate retry, so offering to start it now would
+ * be offering the attempt they turned down. After the reboot, starting it is the one thing left - the
+ * boot gate runs it by itself only where a cached payload exists to run from, and the device whose last
+ * run failed is the device with no cache.
+ */
+@Composable
+private fun ArmedRetryCard(
+    retry: ArmedRetry,
+    onStart: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    val view = LocalView.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Icon(
+                    Icons.Rounded.History,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        stringResource(
+                            if (retry.afterReboot) {
+                                R.string.retry_armed_pending_title
+                            } else {
+                                R.string.retry_armed_next_boot_title
+                            },
+                        ),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Text(
+                        stringResource(
+                            if (retry.afterReboot) {
+                                R.string.retry_armed_pending_body
+                            } else {
+                                R.string.retry_armed_next_boot_body
+                            },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+            ) {
+                TextButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onCancel()
+                    },
+                ) {
+                    Text(stringResource(R.string.retry_armed_cancel))
+                }
+                if (retry.afterReboot) {
+                    Button(
+                        onClick = {
+                            clickHaptic(view)
+                            onStart()
+                        },
+                    ) {
+                        Text(stringResource(R.string.retry_armed_start))
                     }
                 }
             }

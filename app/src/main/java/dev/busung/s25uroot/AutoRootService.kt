@@ -45,6 +45,17 @@ class AutoRootService : Service() {
     private var stopping = false
     private var viewModel: InstallViewModel? = null
 
+    /**
+     * Whether this boot's attempt comes from a one-shot retry rather than from root on boot.
+     *
+     * Read once, before the gate runs, because running it is what consumes the retry: by the time
+     * anything is reported there is no retry left to ask about. It matters because the two are
+     * different promises - one is a setting the user can see and one is a request they made once - and a
+     * notification headed "Root on boot" for a boot that had it switched off reads as the setting being
+     * ignored rather than as the request being honoured.
+     */
+    private var retryTriggeredThisBoot = false
+
     override fun onCreate() {
         super.onCreate()
         createChannel()
@@ -56,6 +67,8 @@ class AutoRootService : Service() {
             return START_NOT_STICKY
         }
         if (gateJob?.isActive == true) return START_NOT_STICKY
+        retryTriggeredThisBoot =
+            AppPreferences.retryArmed(this) && !AppPreferences.bootRootMode(this)
         startForeground(
             NOTIFICATION_ID,
             buildNotification(getString(R.string.autoroot_stabilizing), ongoing = true),
@@ -304,7 +317,12 @@ class AutoRootService : Service() {
     ) = NotificationCompat
         .Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_warning)
-        .setContentTitle(getString(R.string.settings_boot_root))
+        .setContentTitle(
+            getString(
+                if (retryTriggeredThisBoot) R.string.autoroot_retry_title
+                else R.string.settings_boot_root,
+            ),
+        )
         .setContentText(message)
         .setStyle(NotificationCompat.BigTextStyle().bigText(message))
         .setContentIntent(launcherPendingIntent())
