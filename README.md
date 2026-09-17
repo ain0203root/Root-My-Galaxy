@@ -407,6 +407,21 @@ it ended, and the full log stays attached to the run for export. An unattended r
 stage in its notification title, since that notification is the whole of the explanation available
 when nobody is looking at the screen.
 
+Two things on that screen are placed by the failure rather than by the phase:
+
+- **The steps card marks the step that failed, and the ones before it as done.** It used to put the
+  *first* step in progress for every failure, so a run that died in the kernel exploit showed "Support
+  check" as the step in flight and no mark at all on the exploit — the two questions the card exists to
+  answer, both wrong. When the stage is not known, nothing is claimed rather than guessed at, because a
+  card with no marks is better than one pointing at a step that may not be the one that stopped.
+- **The progress bar stops where the run reached** instead of resetting to empty with the failure, since
+  how far it got is still true and still useful.
+
+The log panel has a height of its own rather than the space left over. As the remainder it was measured
+at zero text height on a run that failed in the exploit: the panel showed its title and its copy button
+over empty space, with the run's actual output sitting unread in the state behind it. The page scrolls
+instead, and the log keeps enough room for the tail that says why the run stopped.
+
 ## KernelSU readiness
 
 **Home → Status** puts the two facts a run depends on on the screen the app opens on — *is KernelSU

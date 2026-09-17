@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -146,12 +147,18 @@ private fun InstallScreen(
         logScrollState.scrollTo(logScrollState.maxValue)
     }
 
+    // The page scrolls, and the log panel has a height of its own rather than a share of what is left.
+    // It used to be the weighted remainder, which is fine until the failure card grows: a run that died
+    // in the exploit left the log a title, a copy button and no text at all, because the card above had
+    // already taken the height the log was supposed to live in. A log that can vanish is worse than a
+    // page that has to be scrolled - and the log is the only continuous account of a run.
     Scaffold { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 20.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Column(
@@ -173,16 +180,16 @@ private fun InstallScreen(
             }
 
             InstallerStatusCard(installState)
-            InstallerSteps(installState.phase)
+            InstallerSteps(installState.phase, installState.failure)
             InstallerLog(
                 output = installState.log,
-                // A floor, because this panel is the only continuous account of a run: with the
-                // failure card above and the steps below it, a short window left the log a clipped
-                // strip and the whole run invisible. The status card is capped for the same reason -
-                // the two bounds together are what make the log's floor reachable.
+                // A height of its own, because this panel is the only continuous account of a run: as a
+                // weighted remainder it collapsed to nothing the moment a failure card had something to
+                // say. The status card is still capped, so the two together cannot push the buttons out
+                // of reach; the page scroll handles the rest.
                 modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 96.dp),
+                    .fillMaxWidth()
+                    .height(LOG_PANEL_HEIGHT),
                 scrollState = logScrollState,
             )
 
@@ -323,7 +330,7 @@ private fun InstallerStatusCard(installState: InstallUiState) {
             }
             installState.failure?.let { failure -> FailureReport(failure) }
             LinearProgressIndicator(
-                progress = { installProgress(installState.phase) },
+                progress = { installProgress(installState.phase, installState.failure?.stage) },
                 modifier = Modifier.fillMaxWidth(),
                 color = LocalContentColor.current,
                 trackColor = LocalContentColor.current.copy(alpha = 0.2f),
@@ -334,7 +341,7 @@ private fun InstallerStatusCard(installState: InstallUiState) {
 }
 
 @Composable
-private fun InstallerSteps(phase: InstallPhase) {
+private fun InstallerSteps(phase: InstallPhase, failure: RunFailure?) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -347,7 +354,7 @@ private fun InstallerSteps(phase: InstallPhase) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             installerSteps.forEachIndexed { index, step ->
-                val stepState = stepState(phase, index)
+                val stepState = installerStepState(phase, index, failure?.stage)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -355,20 +362,29 @@ private fun InstallerSteps(phase: InstallPhase) {
                     Surface(
                         modifier = Modifier.size(38.dp),
                         shape = CircleShape,
-                        color = if (stepState >= 1) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surfaceContainerHighest
+                        color = when (stepState) {
+                            InstallerStepState.Done, InstallerStepState.Active ->
+                                MaterialTheme.colorScheme.primary
+                            // Where the run stopped, in the same colour the failure card uses: the two
+                            // are the same fact, and a step marker in the ordinary accent colour would
+                            // read as one that is still working.
+                            InstallerStepState.Failed -> MaterialTheme.colorScheme.error
+                            InstallerStepState.Pending -> MaterialTheme.colorScheme.surfaceContainerHighest
                         },
-                        contentColor = if (stepState >= 1) {
-                            MaterialTheme.colorScheme.onPrimary
-                        } else {
-                            MaterialTheme.colorScheme.onSurface
+                        contentColor = when (stepState) {
+                            InstallerStepState.Done, InstallerStepState.Active ->
+                                MaterialTheme.colorScheme.onPrimary
+                            InstallerStepState.Failed -> MaterialTheme.colorScheme.onError
+                            InstallerStepState.Pending -> MaterialTheme.colorScheme.onSurface
                         },
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = if (stepState == 2) Icons.Rounded.Check else step.icon,
+                                imageVector = when (stepState) {
+                                    InstallerStepState.Done -> Icons.Rounded.Check
+                                    InstallerStepState.Failed -> Icons.Rounded.Close
+                                    else -> step.icon
+                                },
                                 contentDescription = null,
                                 modifier = Modifier.size(21.dp),
                             )
@@ -385,7 +401,9 @@ private fun InstallerSteps(phase: InstallPhase) {
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f),
                         )
                     }
-                    if (stepState == 1 && phase !in setOf(InstallPhase.Failed, InstallPhase.Ready)) {
+                    if (stepState == InstallerStepState.Active &&
+                        phase !in setOf(InstallPhase.Failed, InstallPhase.Ready)
+                    ) {
                         LoadingIndicator(
                             modifier = Modifier.size(24.dp),
                             color = MaterialTheme.colorScheme.onSurface,
@@ -517,7 +535,23 @@ private fun FailureReport(failure: RunFailure) {
  */
 private val STATUS_CARD_MAX_HEIGHT = 216.dp
 
-private fun installProgress(phase: InstallPhase): Float = when (phase) {
+/**
+ * How tall the run log is, whatever else is on the screen.
+ *
+ * Fixed rather than a share of what is left, because what is left is exactly what a long failure report
+ * takes: the panel was measured at zero text height on a run that died in the exploit, showing its title
+ * and its copy button over empty space while the run's actual output sat unread in the state. Roughly a
+ * screen third, which is enough for the tail of a payload's output - the part that says why it stopped.
+ */
+private val LOG_PANEL_HEIGHT = 280.dp
+
+/**
+ * How far the bar has come.
+ *
+ * A failure stops at the step it died in rather than dropping back to nothing: an empty bar on a run
+ * that reached the kernel exploit threw away the one thing the card could still say about it.
+ */
+internal fun installProgress(phase: InstallPhase, failureStage: RunStage?): Float = when (phase) {
     InstallPhase.Checking -> 0.1f
     InstallPhase.Ready -> 0f
     InstallPhase.Settling -> 0.15f
@@ -528,27 +562,85 @@ private fun installProgress(phase: InstallPhase): Float = when (phase) {
     // Everything that was going to happen happened, and the load was not part of it, so the bar
     // stops short of claiming a step the run was told to skip.
     InstallPhase.RootOnly -> 0.9f
-    InstallPhase.Failed -> 0f
+    InstallPhase.Failed -> failureStage
+        ?.let { reached -> (installerStepForStage(reached) + 1) / installerSteps.size.toFloat() }
+        ?: 0f
 }
 
-private fun stepState(phase: InstallPhase, stepIndex: Int): Int {
-    if (phase == InstallPhase.Installed) return 2
-    // A run that was told not to load KernelSU ended at the exploit, so the steps it never reached
-    // stay empty: the screen should not tick a load that was deliberately not asked for.
-    if (phase == InstallPhase.RootOnly) return if (stepIndex <= 2) 2 else 0
-    val activeIndex = when (phase) {
-        InstallPhase.Checking, InstallPhase.Ready, InstallPhase.Settling, InstallPhase.Failed -> 0
-        InstallPhase.Downloading -> 1
-        InstallPhase.Exploiting -> 2
-        InstallPhase.LoadingKernelSu -> 3
-        // Unreachable: the early return above takes this phase. Listed so the branch is not the one
-        // thing a new phase could fall through.
-        InstallPhase.RootOnly -> 2
-        InstallPhase.Installed -> 4
+/** What a step in the install card is doing, or what it turned out to be. */
+internal enum class InstallerStepState {
+    /** Not reached. */
+    Pending,
+
+    /** Running now, or where a run that was stopped in its tracks was working. */
+    Active,
+
+    /** Finished. */
+    Done,
+
+    /** This is the step the run stopped in. */
+    Failed,
+}
+
+/**
+ * Which step a run that stopped had reached.
+ *
+ * Several stages share a step - the target lookup and the transport are both part of the support check,
+ * and verifying the control channel is part of loading KernelSU - so the mapping is by step and not by
+ * stage.
+ */
+internal fun installerStepForStage(stage: RunStage): Int = when (stage) {
+    RunStage.Transport, RunStage.Target -> 0
+    RunStage.Download -> 1
+    RunStage.Exploit -> 2
+    RunStage.KernelSu, RunStage.Verify -> 3
+}
+
+/**
+ * The state of one step.
+ *
+ * The failure is placed at the step it happened in. The card used to put the first step in progress for
+ * every failure, so a run that died in the kernel exploit showed "Support check" as the step in flight
+ * and no mark at all on the step that failed - both things the card exists to answer, both wrong.
+ */
+internal fun installerStepState(
+    phase: InstallPhase,
+    stepIndex: Int,
+    failureStage: RunStage? = null,
+): InstallerStepState = when (phase) {
+    InstallPhase.Installed -> InstallerStepState.Done
+
+    // A run that was told not to load KernelSU ended at the exploit, so the step it never reached stays
+    // empty: the screen should not tick a load that was deliberately not asked for.
+    InstallPhase.RootOnly ->
+        if (stepIndex <= 2) InstallerStepState.Done else InstallerStepState.Pending
+
+    InstallPhase.Failed -> {
+        val failedAt = failureStage?.let(::installerStepForStage)
+        when {
+            // Nothing is claimed when the stage is not known: a card with no marks is better than one
+            // pointing at a step that may not be the one that stopped.
+            failedAt == null -> InstallerStepState.Pending
+            stepIndex < failedAt -> InstallerStepState.Done
+            stepIndex == failedAt -> InstallerStepState.Failed
+            else -> InstallerStepState.Pending
+        }
     }
-    return when {
-        stepIndex < activeIndex -> 2
-        stepIndex == activeIndex -> 1
-        else -> 0
+
+    else -> {
+        val activeIndex = when (phase) {
+            InstallPhase.Checking, InstallPhase.Ready, InstallPhase.Settling -> 0
+            InstallPhase.Downloading -> 1
+            InstallPhase.Exploiting -> 2
+            InstallPhase.LoadingKernelSu -> 3
+            // Unreachable: the branches above take these phases. Listed so a new phase cannot fall
+            // through to the first step and look like a support check in progress.
+            InstallPhase.Installed, InstallPhase.RootOnly, InstallPhase.Failed -> 0
+        }
+        when {
+            stepIndex < activeIndex -> InstallerStepState.Done
+            stepIndex == activeIndex -> InstallerStepState.Active
+            else -> InstallerStepState.Pending
+        }
     }
 }
