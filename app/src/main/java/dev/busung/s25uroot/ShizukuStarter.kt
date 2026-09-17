@@ -178,6 +178,12 @@ internal object ShizukuStarter {
             TemporaryWirelessAdb.use(context, onLog = onLog) {
                 WirelessAdbSession.open(context, portDiscoveryTimeoutMs = LOCAL_ADB_PORT_TIMEOUT_MILLIS)
                     .use { session ->
+                        // Shizuku's starter needs the same domain a payload does, and a shell that is not
+                        // in it answers every command with a refusal that reads like Shizuku refusing.
+                        localAdbShellIdentityFailure(session.shell("id"))?.let { reason ->
+                            error(context.getString(R.string.error_local_adb_shell, reason))
+                        }
+                        onLog(context.getString(R.string.log_local_adb_shell_ready))
                         startWithStarter(
                             context = context,
                             shell = { command ->

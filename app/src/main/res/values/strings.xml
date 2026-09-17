@@ -253,6 +253,7 @@
     <string name="log_ksu_modules_restore_failed">[!] KernelSU modules are still at %1$s, move them back to %2$s (%3$s)</string>
     <string name="log_ksu_staged">[+] KernelSU staging complete</string>
     <string name="log_ksu_staged_early">[+] KernelSU daemon staged ahead of the payload: the load that follows bootstrap root needs it already in place</string>
+    <string name="log_local_adb_shell_ready">[+] Local ADB shell transport ready: u:r:shell:s0</string>
     <string name="log_ksu_staged_late_only">[*] No shell transport to stage KernelSU before the exploit; the payload has no daemon to load, so it is staged afterwards instead</string>
     <string name="log_ksu_control_verified">[+] KernelSU control channel verified (%1$s)</string>
     <string name="log_ksu_control_readings">[*] Control channel readings: %1$s</string>
@@ -273,6 +274,7 @@
     <string name="history_failure">Failed at: %1$s - %2$s</string>
     <string name="error_payload_exit">Payload execution failed: %1$d%2$s</string>
     <string name="error_success_marker">Exploit success markers were not found</string>
+    <string name="error_local_adb_shell">The device\'s own adb shell is not usable: %1$s</string>
     <string name="error_ksu_stage">KernelSU staging failed: %1$s</string>
     <string name="error_ksu_verify">KernelSU late-load or control verification failed (rc=%1$d): %2$s</string>
     <string name="error_helper_timeout">KernelSU helper did not exit within 120 seconds%1$s</string>

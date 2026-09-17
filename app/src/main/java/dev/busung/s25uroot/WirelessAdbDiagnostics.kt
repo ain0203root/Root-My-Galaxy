@@ -139,12 +139,11 @@ internal object WirelessAdbDiagnostics {
                     keyManager = AdbKeyManager(context),
                     command = "id",
                 )
-                // A shell that answered without an identity is not an authenticated session, whatever
-                // its exit code said.
-                if (result.exitCode != 0 || !result.output.contains("uid=")) {
-                    throw IOException(
-                        "The ADB shell gave no identity: ${result.output.trim().takeLast(180)}",
-                    )
+                // The identity the run itself requires, so this screen cannot call a transport good
+                // that a run would refuse: a shell that answers is not necessarily the shell a run
+                // needs, and reporting the weaker "it answered" would set the paired flag on one.
+                localAdbShellIdentityFailure(result)?.let { reason ->
+                    throw IOException("The device's own adb shell is not usable: $reason")
                 }
             }
 

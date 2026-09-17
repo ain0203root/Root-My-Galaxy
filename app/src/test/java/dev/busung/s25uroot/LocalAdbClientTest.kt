@@ -61,6 +61,42 @@ class LocalAdbClientTest {
     }
 
     @Test
+    fun `a shell in the shell domain is usable`() {
+        val shell = "uid=2000(shell) gid=2000(shell) groups=2000(shell),1004(input)" +
+            " context=u:r:shell:s0"
+
+        assertEquals(null, localAdbShellIdentityFailure(LocalAdbClient.ShellResult(0, shell)))
+    }
+
+    @Test
+    fun `the right user in the wrong domain is refused`() {
+        // The failure this prevents: adbd authenticates, the push succeeds, and the payload then fails
+        // on the first thing that needs tracefs - reported as the exploit's fault, not the shell's.
+        val shell = "uid=2000(shell) gid=2000(shell) context=u:r:untrusted_app:s0:c512,c768"
+
+        val reason = localAdbShellIdentityFailure(LocalAdbClient.ShellResult(0, shell))
+
+        assertNotEquals(null, reason)
+        assertTrue(reason!!.contains("u:r:shell:s0"))
+    }
+
+    @Test
+    fun `root is not a shell this transport may run a payload through`() {
+        val shell = "uid=0(root) gid=0(root) context=u:r:shell:s0"
+
+        assertNotEquals(null, localAdbShellIdentityFailure(LocalAdbClient.ShellResult(0, shell)))
+    }
+
+    @Test
+    fun `a shell that did not answer is refused before its output is read`() {
+        val reason = localAdbShellIdentityFailure(
+            LocalAdbClient.ShellResult(LocalAdbClient.UNKNOWN_SHELL_EXIT_CODE, ""),
+        )
+
+        assertEquals("the shell did not answer (exit -1)", reason)
+    }
+
+    @Test
     fun `the public key is sent in adb's own wire format`() {
         val generator = KeyPairGenerator.getInstance("RSA")
         generator.initialize(2048)

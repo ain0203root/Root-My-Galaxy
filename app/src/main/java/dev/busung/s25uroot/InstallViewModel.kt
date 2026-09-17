@@ -862,6 +862,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         val output = withContext(Dispatchers.IO) {
             TemporaryWirelessAdb.use(app) {
             WirelessAdbSession.open(app).use { session ->
+                // Asked before anything is pushed, and required. Being authenticated is not the same as
+                // being in the shell domain, and a payload started from the wrong one fails on the first
+                // thing it reaches for - which reads like the exploit's fault rather than the shell's.
+                localAdbShellIdentityFailure(session.shell("id"))?.let { reason ->
+                    throw IllegalStateException(app.getString(R.string.error_local_adb_shell, reason))
+                }
+                appendLog(app.getString(R.string.log_local_adb_shell_ready))
                 session.push(helper, ADB_HELPER_PATH, executable = true)
                 session.push(payload, ADB_PAYLOAD_PATH)
                 // Ahead of the payload for the same reason as the Shizuku route: the load happens

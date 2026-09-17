@@ -609,3 +609,31 @@ internal fun adbShellResult(raw: String): LocalAdbClient.ShellResult {
     }
     return LocalAdbClient.ShellResult(code, raw.substring(0, markerIndex).trim())
 }
+
+/** The user a usable wireless-debugging shell runs as: `shell`, not `root` and not the app's own uid. */
+private const val SHELL_UID = "uid=2000"
+
+/** The domain SELinux has to report for the route that needs a shell: tracefs is denied outside it. */
+private const val SHELL_CONTEXT = "u:r:shell:s0"
+
+/**
+ * Why this local ADB shell cannot be used for a run, or null when it can.
+ *
+ * A session this app is authenticated for is not the same thing as a session in the shell domain, and
+ * the difference is invisible from the connection: adbd answers, the push succeeds, and the payload
+ * then fails on the first thing it reaches for - which reads like the exploit's fault rather than the
+ * transport's. So the identity is asked for and required *before* anything is staged, and the answer is
+ * named rather than logged as a code.
+ *
+ * Both halves are required. Running as shell in the wrong domain cannot reach the places a payload
+ * stages and runs from, and the right domain as the wrong user is not a shell this app should be
+ * running a privileged payload through. This is the one check the transport can make about itself.
+ */
+internal fun localAdbShellIdentityFailure(result: LocalAdbClient.ShellResult): String? = when {
+    result.exitCode != 0 -> "the shell did not answer (exit ${result.exitCode})"
+    !result.output.contains(SHELL_UID) ->
+        "it is not running as $SHELL_UID: ${result.output.trim().takeLast(180)}"
+    !result.output.contains(SHELL_CONTEXT) ->
+        "it is not running in $SHELL_CONTEXT: ${result.output.trim().takeLast(180)}"
+    else -> null
+}
