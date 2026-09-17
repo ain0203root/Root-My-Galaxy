@@ -207,6 +207,7 @@ class MainActivity : ComponentActivity() {
     private var advancedMode by mutableStateOf(false)
 	private var disableKsuModules by mutableStateOf(false)
     private var loadKernelSu by mutableStateOf(true)
+    private var kernelsuFlavor by mutableStateOf(KernelSuFlavor.Default)
     private var shizukuMode by mutableStateOf(false)
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
@@ -304,6 +305,7 @@ class MainActivity : ComponentActivity() {
         advancedMode = AppPreferences.advancedMode(this)
 		disableKsuModules = AppPreferences.disableKsuModules(this)
         loadKernelSu = AppPreferences.loadKernelSu(this)
+        kernelsuFlavor = AppPreferences.kernelsuFlavor(this)
         shizukuMode = AppPreferences.shizukuMode(this)
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
@@ -324,6 +326,7 @@ class MainActivity : ComponentActivity() {
                     advancedMode = advancedMode,
 					disableKsuModules = disableKsuModules,
                     loadKernelSu = loadKernelSu,
+                    kernelsuFlavor = kernelsuFlavor,
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
@@ -356,6 +359,15 @@ class MainActivity : ComponentActivity() {
                     onLoadKernelSuChanged = { enabled ->
                         AppPreferences.setLoadKernelSu(this, enabled)
                         loadKernelSu = enabled
+                    },
+                    onKernelsuFlavorChanged = { flavor ->
+                        AppPreferences.setKernelsuFlavor(this, flavor)
+                        kernelsuFlavor = flavor
+                    },
+                    // Stored per flavour, so naming one for KernelSU does not name one for
+                    // KernelSU-Next as well - they are different projects with different versions.
+                    onManagerVersionChanged = { version ->
+                        AppPreferences.setManagerVersion(this, kernelsuFlavor, version)
                     },
                     onShizukuModeChanged = { enabled ->
                         AppPreferences.setShizukuMode(this, enabled)
@@ -509,6 +521,7 @@ private fun RootApp(
     advancedMode: Boolean,
 	disableKsuModules: Boolean,
     loadKernelSu: Boolean,
+    kernelsuFlavor: KernelSuFlavor,
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
@@ -525,6 +538,8 @@ private fun RootApp(
     onAdvancedModeChanged: (Boolean) -> Unit,
 	onDisableKsuModulesChanged: (Boolean) -> Unit,
     onLoadKernelSuChanged: (Boolean) -> Unit,
+    onKernelsuFlavorChanged: (KernelSuFlavor) -> Unit,
+    onManagerVersionChanged: (String) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
@@ -832,6 +847,7 @@ private fun RootApp(
                     advancedMode = advancedMode,
 					disableKsuModules = disableKsuModules,
                     loadKernelSu = loadKernelSu,
+                    kernelsuFlavor = kernelsuFlavor,
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
@@ -851,6 +867,8 @@ private fun RootApp(
                     onAdvancedModeChanged = onAdvancedModeChanged,
 					onDisableKsuModulesChanged = onDisableKsuModulesChanged,
                     onLoadKernelSuChanged = onLoadKernelSuChanged,
+                    onKernelsuFlavorChanged = onKernelsuFlavorChanged,
+                    onManagerVersionChanged = onManagerVersionChanged,
                     onShizukuModeChanged = onShizukuModeChanged,
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                     onBootRootModeChanged = onBootRootModeChanged,
@@ -1955,6 +1973,7 @@ private fun SettingsPage(
     advancedMode: Boolean,
 	disableKsuModules: Boolean,
     loadKernelSu: Boolean,
+    kernelsuFlavor: KernelSuFlavor,
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
@@ -1974,6 +1993,8 @@ private fun SettingsPage(
     onAdvancedModeChanged: (Boolean) -> Unit,
 	onDisableKsuModulesChanged: (Boolean) -> Unit,
     onLoadKernelSuChanged: (Boolean) -> Unit,
+    onKernelsuFlavorChanged: (KernelSuFlavor) -> Unit,
+    onManagerVersionChanged: (String) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
@@ -1993,6 +2014,10 @@ private fun SettingsPage(
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     var showLanguageDialog by remember { mutableStateOf(false) }
+    var showFlavorDialog by remember { mutableStateOf(false) }
+    var showManagerVersionDialog by remember { mutableStateOf(false) }
+    var managerVersionDraft by remember { mutableStateOf("") }
+    var flavorMenuTop by remember { mutableStateOf(0.dp) }
     var showColorDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
@@ -2245,6 +2270,72 @@ private fun SettingsPage(
                 onPayloadModeChanged(if (index == 1) PayloadMode.Offline else PayloadMode.Online)
             },
             onDismiss = { showPayloadModeDialog = false },
+        )
+    }
+
+    if (showFlavorDialog) {
+        SideChoiceMenu(
+            choices = KernelSuFlavor.entries.map { it.label },
+            selectedIndex = KernelSuFlavor.entries.indexOf(kernelsuFlavor).coerceAtLeast(0),
+            topOffset = flavorMenuTop,
+            onSelected = { index ->
+                showFlavorDialog = false
+                onKernelsuFlavorChanged(KernelSuFlavor.entries[index])
+            },
+            onDismiss = { showFlavorDialog = false },
+        )
+    }
+
+    if (showManagerVersionDialog) {
+        AlertDialog(
+            onDismissRequest = { showManagerVersionDialog = false },
+            title = { Text(stringResource(R.string.settings_manager_dialog_title)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = stringResource(
+                            R.string.settings_manager_dialog_help,
+                            kernelsuFlavor.label,
+                            kernelsuFlavor.defaultManagerVersion,
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    OutlinedTextField(
+                        value = managerVersionDraft,
+                        onValueChange = { managerVersionDraft = it },
+                        label = { Text(stringResource(R.string.settings_manager_version_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            },
+            // Both actions in one slot, for the same reason the token dialog puts them there: split
+            // across the two slots the button beside Save ends up orphaned on its own line.
+            confirmButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (managerVersionDraft.isNotBlank()) {
+                        TextButton(
+                            onClick = {
+                                showManagerVersionDialog = false
+                                onManagerVersionChanged("")
+                            },
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.settings_manager_version_reset,
+                                    kernelsuFlavor.defaultManagerVersion,
+                                ),
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = {
+                            showManagerVersionDialog = false
+                            onManagerVersionChanged(managerVersionDraft)
+                        },
+                    ) { Text(stringResource(R.string.action_save)) }
+                }
+            },
         )
     }
 
@@ -2757,15 +2848,82 @@ private fun SettingsPage(
         item { SectionLabel(stringResource(R.string.settings_section_root)) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // The load decision sits at the top of this group because the rest of it depends on
-                // it: root on boot exists to put KernelSU back after a reboot, and a boot run with
+                // The flavour is first because everything below it is about this flavour's module:
+                // which daemon a run stages, which manager opens afterwards, and which module root
+                // on boot puts back.
+                val loadedFlavor = remember(kernelsuFlavor) { AppPreferences.loadedFlavor(context) }
+                SettingsCard(
+                    modifier = Modifier.onGloballyPositioned { coordinates ->
+                        flavorMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
+                    },
+                    icon = Icons.Rounded.Security,
+                    title = stringResource(R.string.settings_ksu_flavor),
+                    description = stringResource(kernelsuFlavor.summaryRes),
+                    // The pending marker is the only warning this screen can give: the two flavours
+                    // cannot both be in the kernel, so a switch made in a boot that already carries
+                    // one only takes effect after a restart.
+                    value = if (loadedFlavor != null && loadedFlavor != kernelsuFlavor) {
+                        "${kernelsuFlavor.label} \u00b7 " +
+                            stringResource(R.string.settings_ksu_flavor_pending)
+                    } else {
+                        kernelsuFlavor.label
+                    },
+                    position = SettingsCardPosition.Top,
+                    onClick = {
+                        clickHaptic(view)
+                        showFlavorDialog = true
+                    },
+                )
+                val offeredManagerVersion = AppPreferences.managerVersion(context, kernelsuFlavor)
+                    ?: kernelsuFlavor.defaultManagerVersion
+                val installedManager = remember(kernelsuFlavor, offeredManagerVersion) {
+                    KernelSuManager.installedFor(context, kernelsuFlavor)
+                }
+                SettingsCard(
+                    icon = Icons.Rounded.VerifiedUser,
+                    title = stringResource(R.string.settings_manager),
+                    description = if (installedManager != null) {
+                        stringResource(
+                            R.string.settings_manager_summary_installed,
+                            offeredManagerVersion,
+                            installedManager.label,
+                        )
+                    } else {
+                        stringResource(R.string.settings_manager_summary, offeredManagerVersion)
+                    },
+                    value = installedManager?.label ?: offeredManagerVersion,
+                    position = SettingsCardPosition.Middle,
+                    // Opens whatever manager is on the phone, of whatever version; the download is
+                    // only offered when there is none. Nothing here rejects a version the user
+                    // installed themselves, which is the point of not pinning this.
+                    onClick = {
+                        clickHaptic(view)
+                        KernelSuManager.open(context, kernelsuFlavor) { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.SystemUpdate,
+                    title = stringResource(R.string.settings_manager_version),
+                    description = stringResource(R.string.settings_manager_version_summary),
+                    value = offeredManagerVersion,
+                    position = SettingsCardPosition.Middle,
+                    onClick = {
+                        clickHaptic(view)
+                        managerVersionDraft = AppPreferences.managerVersion(context, kernelsuFlavor).orEmpty()
+                        showManagerVersionDialog = true
+                    },
+                )
+                // The load decision follows the flavour because the rest of the group depends on it:
+                // root on boot exists to put KernelSU back after a reboot, and a boot run with
                 // nothing to load is not a boot run at all.
                 SettingsSwitchCard(
                     icon = Icons.Rounded.Memory,
                     title = stringResource(R.string.settings_ksu_load),
                     description = stringResource(R.string.settings_ksu_load_summary),
                     checked = loadKernelSu,
-                    position = SettingsCardPosition.Top,
+                    position = SettingsCardPosition.Middle,
                     onCheckedChange = { enabled ->
                         clickHaptic(view)
                         onLoadKernelSuChanged(enabled)
