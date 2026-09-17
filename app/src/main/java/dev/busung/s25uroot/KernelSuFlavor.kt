@@ -28,9 +28,12 @@ enum class KernelSuFlavor(
     /**
      * The manager version offered when nothing overrides it.
      *
-     * KernelSU's stays 3.2.5 because that is what this project has always installed and what its
-     * payloads were tested against. Nothing checks this against the version on the phone - a newer
-     * manager installs and is used exactly the same - so it is only the one offered unprompted.
+     * Both flavours offer 3.3.0, because that is the KernelSU this project's payloads are built from:
+     * the daemon a run stages and the manager that talks to it come from the same release, and offering
+     * one from an older line is how the app came to hand people a manager its own kernel was never
+     * built against. Nothing checks this against the version on the phone - a newer manager installs and
+     * is used exactly the same, and one picked by hand takes precedence - so it is only the one offered
+     * unprompted.
      */
     val defaultManagerVersion: String,
     /** The file name that version was published under, for when the store cannot be asked. */
@@ -43,8 +46,8 @@ enum class KernelSuFlavor(
         label = "KernelSU",
         managerPackage = "me.weishu.kernelsu",
         repository = "tiann/KernelSU",
-        defaultManagerVersion = "3.2.5",
-        defaultManagerAsset = "KernelSU_v3.2.5_32525-release.apk",
+        defaultManagerVersion = "3.3.0",
+        defaultManagerAsset = "KernelSU_v3.3.0_32601-release.apk",
         summaryRes = R.string.flavor_kernelsu_summary,
     ),
     KernelSuNext(
@@ -105,8 +108,8 @@ internal fun KernelSuFlavor.releaseAssetUrl(version: String, asset: String): Str
 /**
  * The APK inside a GitHub release, as the releases API describes it.
  *
- * A manager's file name carries a build number that its version does not - 3.2.5 publishes
- * `KernelSU_v3.2.5_32525-release.apk` - so a version can only be turned into a download by asking for
+ * A manager's file name carries a build number that its version does not - 3.3.0 publishes
+ * `KernelSU_v3.3.0_32601-release.apk` - so a version can only be turned into a download by asking for
  * the release. That is also what makes a manual upgrade possible: nothing here assumes a version, so
  * a version upstream has not shipped is a failed lookup rather than a wrong file.
  *

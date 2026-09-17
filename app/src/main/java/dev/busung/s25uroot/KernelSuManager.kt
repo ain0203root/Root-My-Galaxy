@@ -197,7 +197,7 @@ internal object KernelSuManager {
      * Null when the version has no release, the release carries no APK, or the network refused - all
      * three are the same answer to the caller, which is that this version could not be turned into a
      * download. Going through the API is what lets a version be named at all: the asset's file name
-     * carries a build number (`KernelSU_v3.2.5_32525-release.apk`) that the version does not.
+     * carries a build number (`KernelSU_v3.3.0_32601-release.apk`) that the version does not.
      */
     fun resolve(context: Context, flavor: KernelSuFlavor, version: String): ManagerRelease? {
         val body = runCatching { downloadText(managerReleaseApiUrl(flavor, version), MAX_RELEASE_BYTES) }.getOrNull()

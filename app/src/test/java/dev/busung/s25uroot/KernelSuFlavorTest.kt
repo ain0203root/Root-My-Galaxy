@@ -65,12 +65,14 @@ class KernelSuFlavorTest {
     fun `each flavour names its own manager package and release`() {
         assertEquals("me.weishu.kernelsu", KernelSuFlavor.KernelSu.managerPackage)
         assertEquals("com.rifsxd.ksunext", KernelSuFlavor.KernelSuNext.managerPackage)
-        // The default that stays: 3.2.5 is what this project's payloads were tested against, and
-        // nothing rejects a manager installed by hand in its place.
-        assertEquals("3.2.5", KernelSuFlavor.KernelSu.defaultManagerVersion)
+        // Both flavours offer the KernelSU this project's payloads are built from: the daemon a run
+        // stages and the manager that talks to it come from the same release, so the two defaults are
+        // the same number on purpose. Nothing rejects a manager installed by hand in their place.
+        assertEquals("3.3.0", KernelSuFlavor.KernelSu.defaultManagerVersion)
+        assertEquals("3.3.0", KernelSuFlavor.KernelSuNext.defaultManagerVersion)
         assertEquals(
-            "https://github.com/tiann/KernelSU/releases/download/v3.2.5/" +
-                "KernelSU_v3.2.5_32525-release.apk",
+            "https://github.com/tiann/KernelSU/releases/download/v3.3.0/" +
+                "KernelSU_v3.3.0_32601-release.apk",
             KernelSuFlavor.KernelSu.defaultManagerRelease.url,
         )
     }
