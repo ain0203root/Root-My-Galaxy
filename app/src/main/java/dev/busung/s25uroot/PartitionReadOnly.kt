@@ -9,12 +9,14 @@ package dev.busung.s25uroot
  * of write that produces a device that boots to nothing and needs download mode to recover. Setting
  * those devices read-only first means the write fails instead.
  *
- * **Off unless asked for**, and the reason is not caution for its own sake. What this blocks is not
- * only mistakes: flashing a kernel image from the phone, a module that writes a partition directly,
- * and a KernelSU install that patches `boot` rather than loading at runtime are all legitimate and all
- * stop working while it is on. Nothing in the app can tell those apart from the mistake, so the person
- * who knows what they are doing on their own device decides. It is also per boot: `blockdev --setro`
- * affects the running kernel, so a reboot - the normal state for flashing - clears it.
+ * **On unless turned off**, and the trade is deliberate: what it blocks is not only mistakes. Flashing a
+ * kernel image from the phone, a module that writes a partition directly, and a KernelSU install that
+ * patches `boot` rather than loading at runtime are all legitimate and all stop working while it is on.
+ * The mistake it blocks is the one with no undo - a boot or vbmeta write that leaves the device needing
+ * download mode - so the protection is what a first run gets, and turning it off is a decision the
+ * person who knows what they intend on their own device makes, per device, in Settings. It is per boot
+ * either way: `blockdev --setro` affects the running kernel, so a reboot - the normal state for
+ * flashing - clears it.
  *
  * The script lives in assets because it runs as a file with bootstrap root, and the only thing the app
  * reads back is how many devices it managed to set.

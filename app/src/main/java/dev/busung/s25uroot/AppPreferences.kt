@@ -450,11 +450,13 @@ object AppPreferences {
     /**
      * Whether a run marks the image partitions read-only once bootstrap root is in hand.
      *
-     * Off unless asked for: see [PartitionReadOnly] - what it blocks is not only mistakes, so the
-     * person who knows what they intend on their own device decides.
+     * On unless turned off: see [PartitionReadOnly] - it guards the window between bootstrap root
+     * and the first verified boot, which is where a mistaken write leaves a device that has to be
+     * recovered from download mode. Turning it off is a decision about the device, so an existing
+     * choice is never overwritten: a stored value wins over this default.
      */
     fun partitionReadOnlyMode(context: Context): Boolean =
-        prefs(context).getBoolean(PARTITION_READ_ONLY_MODE, false)
+        prefs(context).getBoolean(PARTITION_READ_ONLY_MODE, true)
 
     fun setPartitionReadOnlyMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
