@@ -114,6 +114,19 @@ internal fun managerVersionState(managerVersion: String?, kernelVersion: String?
 }
 
 /**
+ * The version the warning's own action should install, or null when there is nothing to act on.
+ *
+ * Only a mismatch, and only when the version to install is a version rather than an empty reading: an
+ * "install" button on a row where nothing could be read would be a control that cannot work, which is
+ * the same as no control. The version offered is the **running KernelSU's**, not the flavour's default:
+ * the default is a decision this app made, and the kernel is the thing actually asking.
+ */
+internal fun managerMismatchTarget(
+    state: ManagerVersionState,
+    kernelVersion: String?,
+): String? = kernelVersion?.takeIf { state == ManagerVersionState.Differing }
+
+/**
  * The KernelSU version, read from the device.
  *
  * One root shell for both readings, because each shell is a process of its own and the two questions

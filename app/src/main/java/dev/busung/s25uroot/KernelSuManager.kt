@@ -168,7 +168,42 @@ internal object KernelSuManager {
                 return
             }
         }
-        val named = AppPreferences.managerVersion(context, flavor)
+        openDownload(context, flavor, AppPreferences.managerVersion(context, flavor), onMessage)
+    }
+
+    /**
+     * Opens the download for one version, whether or not a manager is already installed.
+     *
+     * [open] deliberately prefers the installed manager - a row that opens a manager should open the
+     * one the phone has - which leaves no way to *replace* one from this app: a version picked in the
+     * picker could never take effect once a manager existed. This is that way, and it exists for the
+     * case where replacing it is the whole point: a manager from another line than the KernelSU this
+     * boot is running, which [managerVersionState] is what finds.
+     */
+    fun downloadVersion(
+        context: Context,
+        flavor: KernelSuFlavor,
+        version: String,
+        onMessage: (String) -> Unit,
+    ) = openDownload(context, flavor, version, onMessage)
+
+    /**
+     * The one download path, so a version named by hand, picked from a listing and read off the device
+     * all arrive at the same URL by the same rules.
+     *
+     * Two things it does not do, both of them deliberate. It does not install anything itself - the
+     * release is opened for the phone's own installer, which is the only thing that may replace a
+     * manager. And it does not guess an asset name: a version's file carries a build number its version
+     * does not (`KernelSU_v3.3.0_32601-release.apk`), so anything but a flavour's own default is
+     * resolved through the release it names.
+     */
+    private fun openDownload(
+        context: Context,
+        flavor: KernelSuFlavor,
+        version: String?,
+        onMessage: (String) -> Unit,
+    ) {
+        val named = version?.trim().orEmpty().ifBlank { null }
         if (named == null || named == flavor.defaultManagerVersion) {
             view(context, flavor.defaultManagerRelease.url)
             return

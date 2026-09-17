@@ -558,7 +558,8 @@
     <string name="settings_manager_summary">Offered at %1$s. Nothing is installed on this phone yet.</string>
     <string name="settings_manager_summary_installed">Offered at %1$s; %2$s is installed and will be opened.</string>
     <string name="settings_manager_version">Manager version</string>
-    <string name="settings_manager_version_summary">The version this app installs when you tap the row above.</string>
+    <string name="settings_manager_version_summary">The version this app offers. A manager already on the phone is opened instead.</string>
+    <string name="settings_manager_install_running">Install %1$s</string>
     <string name="settings_manager_running">%1$s %2$s is running</string>
     <string name="settings_manager_mismatch">%1$s is installed · %2$s %3$s is running</string>
     <string name="settings_manager_running_version">This phone runs %1$s %2$s</string>

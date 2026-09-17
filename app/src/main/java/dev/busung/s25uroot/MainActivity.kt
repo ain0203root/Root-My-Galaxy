@@ -3772,6 +3772,26 @@ private fun SettingsPage(
                             ManagerVersionState.Unknown -> null
                         }
                     },
+                    // The fix, under the line that names the problem: the one version that is certainly
+                    // right is the one the kernel is already running. It also becomes the offered
+                    // version, because "install this" is a statement about which one is wanted - so
+                    // the app's own default stops disagreeing with the phone the moment it is asked.
+                    noticeAction = managerMismatchTarget(managerState, runningKernelSu?.daemon)?.let { target ->
+                        NoticeAction(
+                            label = stringResource(R.string.settings_manager_install_running, target),
+                            onClick = {
+                                onManagerVersionChanged(target)
+                                KernelSuManager.downloadVersion(
+                                    context = context,
+                                    flavor = kernelsuFlavor,
+                                    version = target,
+                                    onMessage = { message ->
+                                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                                    },
+                                )
+                            },
+                        )
+                    },
                     position = SettingsCardPosition.Middle,
                     // Opens whatever manager is on the phone, of whatever version; the download is
                     // only offered when there is none. Nothing here rejects a version the user
@@ -5672,6 +5692,9 @@ private val SETTINGS_HIGHLIGHT_WIDTH = 2.dp
 private const val SHIZUKU_START_LOG_LINES = 14
 private val SHIZUKU_START_LOG_MAX_HEIGHT = 220.dp
 
+/** An action offered beside a card's notice: what it says it does, and what it does. */
+internal data class NoticeAction(val label: String, val onClick: () -> Unit)
+
 /**
  * One row of the settings list: an icon, a title, a description, and an optional trailing value.
  *
@@ -5698,6 +5721,16 @@ internal fun SettingsCard(
      */
     notice: String? = null,
     noticeIcon: ImageVector = Icons.Rounded.RestartAlt,
+    /**
+     * The fix for what [notice] just said, offered where the notice is.
+     *
+     * A warning that only says what is wrong makes the reader go and find the control that fixes it,
+     * and on this screen that control may be a sheet, a field and a remembered number away. This puts
+     * the one action that resolves the state directly under the line naming it, and it is deliberately
+     * a *separate* control from the row: the row's own tap does what the row is for, and a warning that
+     * hijacked it would make the card do something different depending on a state nobody can see.
+     */
+    noticeAction: NoticeAction? = null,
     position: SettingsCardPosition = SettingsCardPosition.Single,
     busy: Boolean = false,
     /**
@@ -5777,6 +5810,19 @@ internal fun SettingsCard(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                // Under the notice and centred with it, because it answers that line rather than the
+                // row: it takes its own tap without the card's, so the two do not both fire.
+                noticeAction?.let { action ->
+                    TextButton(
+                        onClick = {
+                            clickHaptic(view)
+                            action.onClick()
+                        },
+                        modifier = Modifier.align(Alignment.CenterHorizontally),
+                    ) {
+                        Text(action.label)
+                    }
                 }
             }
             if (busy) {

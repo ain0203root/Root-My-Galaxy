@@ -124,4 +124,28 @@ class KernelSuVersionTest {
         assertEquals(ManagerVersionState.Unknown, managerVersionState("", null))
         assertEquals(ManagerVersionState.Unknown, managerVersionState("unknown", "3.3.0"))
     }
+
+    // --- the fix offered with the warning -------------------------------------------------------------
+
+    /**
+     * The button under a mismatch installs the version the *kernel* is running.
+     *
+     * Not the flavour's default, which is a decision this app made and may itself be the thing that is
+     * wrong: the phone is the one that knows what the manager has to talk to.
+     */
+    @Test
+    fun `a mismatch offers the running version to install`() {
+        assertEquals(
+            "3.3.0",
+            managerMismatchTarget(ManagerVersionState.Differing, "3.3.0"),
+        )
+    }
+
+    /** A button that installs something on a row with no problem to fix is the thing to avoid. */
+    @Test
+    fun `nothing is offered when there is no mismatch to act on`() {
+        assertNull(managerMismatchTarget(ManagerVersionState.Matching, "3.3.0"))
+        assertNull(managerMismatchTarget(ManagerVersionState.Unknown, "3.3.0"))
+        assertNull(managerMismatchTarget(ManagerVersionState.Differing, null))
+    }
 }
