@@ -82,10 +82,23 @@ internal fun RootRecoverySection(
             // channel open until the child acknowledges them, so none of it may run on the UI thread.
             val outcome = withContext(Dispatchers.IO) {
                 val bootToken = kernelBootToken()
+                // Only worked out if something is refused, and worked out then from what the device
+                // says about itself rather than from the refusal: "no root here" and "no root for
+                // this app" are different problems with different fixes, and the readings that tell
+                // them apart (the module list, the app's own `su`) cost more than the answer is worth
+                // on a run that is going to work.
+                val refusalDetail by lazy {
+                    context.getString(
+                        when (recoveryRefusal(KernelSuRuntime.loadedInThisBoot())) {
+                            RecoveryRefusal.RootMissing -> R.string.recovery_root_required
+                            RecoveryRefusal.ShellMissing -> R.string.recovery_shell_unavailable
+                        },
+                    )
+                }
                 when {
                     KernelSuRuntime.rootShell("id") == null -> RecoveryOutcome(
                         accepted = false,
-                        detail = context.getString(R.string.recovery_root_required),
+                        detail = refusalDetail,
                     )
                     bootToken == null -> RecoveryOutcome(
                         accepted = false,
@@ -95,7 +108,7 @@ internal fun RootRecoverySection(
                         val rootShell: (String) -> ShizukuController.ShellResult = { command ->
                             KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
                                 NO_ROOT_SHELL_EXIT,
-                                context.getString(R.string.recovery_root_required),
+                                refusalDetail,
                             )
                         }
                         when (tool) {

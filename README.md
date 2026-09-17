@@ -568,6 +568,19 @@ name, which is the point.
   first would come back rooted; if the request is refused, the setting is put back and the screen
   follows the stored value rather than the value it hoped for.
 
+Every one of them needs a root shell, and there are two ways to get one: through Shizuku when it is
+running and has granted this app, and otherwise by asking KernelSU's own `su` directly, which needs
+nothing else on the device. The direct route is the fallback — Shizuku first keeps the quiet path the
+common one — and it is what makes these cards usable on a phone that has root but no Shizuku. Because
+the two fail for unrelated reasons, the refusal says which one it was: **KernelSU is not loaded in
+this boot** (nothing to run anything with; run the install), or **KernelSU is running but this app has
+no root shell** (grant it superuser in the KernelSU app, or start Shizuku). Reporting the second as
+the first is how the cards came to tell a rooted phone it had no root.
+
+Under the direct route a `su` that is waiting for the user to answer KernelSU's own grant prompt has
+printed nothing yet, so its output is read on its own thread and the wait is bounded — `su -c` also
+must not be trusted for an exit code alone, since both routes require the `uid=0` as well.
+
 None of it acquires bootstrap root, replays the exploit, or stages a daemon: they consume the root
 the verified load installed. Each action runs its real work in a detached root shell that checks for
 itself that it is root, that the boot id has not changed under it, and — for the restart — that

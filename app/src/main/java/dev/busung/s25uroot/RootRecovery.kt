@@ -9,6 +9,27 @@ internal data class RecoveryOutcome(
 )
 
 /**
+ * Why no recovery action could run, which is two different failures that used to share one message.
+ *
+ * The message was "KernelSU root is not available for this boot" for any refusal, and it was printed
+ * when the app could not get a root shell - which is not the same claim. A phone with KernelSU loaded
+ * and working, where this app simply has not been granted root yet, is not a phone without root, and
+ * telling its owner otherwise sends them looking for a problem in the wrong place: the fix is a grant
+ * in the KernelSU manager or a running Shizuku, not another install.
+ */
+internal enum class RecoveryRefusal {
+    /** Nothing in this boot has KernelSU in the kernel: there is no root for anyone here. */
+    RootMissing,
+
+    /** KernelSU is loaded; what is missing is this app's own way to run a command as root. */
+    ShellMissing,
+}
+
+/** Which of the two refusals applies, from whether KernelSU is loaded in this boot. */
+internal fun recoveryRefusal(rootLoadedInThisBoot: Boolean): RecoveryRefusal =
+    if (rootLoadedInThisBoot) RecoveryRefusal.ShellMissing else RecoveryRefusal.RootMissing
+
+/**
  * What the installed KernelSU daemon can be asked to do, as its own help output states it.
  *
  * This exists because the daemon is not the same across payload feeds. The daemon the feed this app

@@ -197,9 +197,30 @@ internal object KernelSuRuntime {
      * The helper's handoff socket exists only to cross the pre-KernelSU boundary; once KernelSU
      * has loaded, a Samsung kernel may refuse new connects to it while KernelSU is perfectly
      * healthy. A command that has to keep working after root therefore asks KernelSU directly.
-     * Returns null when no root shell can be had, so the caller can fall back instead of failing.
+     *
+     * Two routes, in this order, because they fail for unrelated reasons. **Shizuku** answers when it
+     * is running and has granted this app, and needs no prompt; asking it first keeps the quiet route
+     * the common one. **`su`** ([SuShell]) is KernelSU's own answer for this app and needs nothing else
+     * running, so it is what a device without Shizuku - or one where nobody has granted it - has left.
+     * Returns null only when neither route could run the command, so the caller can refuse instead of
+     * failing.
      */
-    fun rootShell(command: String): ShizukuController.ShellResult? {
+    fun rootShell(command: String): ShizukuController.ShellResult? =
+        shizukuRootShell(command) ?: SuShell.run(command)
+
+    /**
+     * Whether KernelSU is loaded in this boot, by any reading that needs no shell to make.
+     *
+     * This is the question "can anything here expect root", as opposed to "can this app run a command
+     * as root": the answer decides whether a refusal to act is about the phone or about a permission,
+     * and those two need different words and different fixes.
+     */
+    fun loadedInThisBoot(): Boolean {
+        if (runCatching { RootStatusProbe.isActive() }.getOrDefault(false)) return true
+        return moduleLoaded() == true
+    }
+
+    private fun shizukuRootShell(command: String): ShizukuController.ShellResult? {
         if (!ShizukuController.isRunning() || !ShizukuController.isGranted()) return null
         // Shizuku's own process is already the shell uid, so a device that granted the late-load's
         // shell allowance answers `id` as root without a second escalation hop.
