@@ -96,7 +96,11 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
                 },
             )
         }
-        when {
+        // What this boot actually protected, not what the setting says it would: a refusal can only be
+        // the app's doing in a boot where a run set devices read-only, and those are different questions
+        // on a phone whose protection is on and whose last run was before the last reboot.
+        val protectedDevices = AppPreferences.readOnlyProtectedDevices(context, bootToken)
+        val outcome = when {
             !tier.canRun(tool) -> RecoveryOutcome(accepted = false, detail = refusalDetail)
             bootToken == null -> RecoveryOutcome(
                 accepted = false,
@@ -152,6 +156,16 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
                     )
                 }
             }
+        }
+        // The refusal is attributed here rather than by the caller, and only to a wall this boot put
+        // up: an EROFS the device would have answered anyway is somebody else's, and naming this switch
+        // for it would talk someone out of a protection that is doing its job.
+        if (outcome.accepted || protectedDevices <= 0) {
+            outcome
+        } else if (PartitionReadOnly.refusedByReadOnly(outcome.detail)) {
+            outcome.copy(readOnlyWall = true)
+        } else {
+            outcome
         }
     }
 

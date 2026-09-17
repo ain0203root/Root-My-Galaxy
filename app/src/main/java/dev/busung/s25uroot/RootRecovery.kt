@@ -7,6 +7,14 @@ import kotlin.math.ceil
 internal data class RecoveryOutcome(
     val accepted: Boolean,
     val detail: String,
+    /**
+     * True when the read-only protection this app set up in this boot is what refused the action.
+     *
+     * Carried rather than left to the caller to infer from the detail: the caller's next move depends
+     * on it - a switch to offer, straight from the dialog that reported the failure - and two callers
+     * both deciding it from a string would be two places for the rule to drift apart.
+     */
+    val readOnlyWall: Boolean = false,
 )
 
 /**

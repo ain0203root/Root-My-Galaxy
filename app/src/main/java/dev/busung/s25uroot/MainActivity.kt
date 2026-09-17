@@ -158,8 +158,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -214,6 +217,14 @@ class MainActivity : ComponentActivity() {
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
     private var armedRetry by mutableStateOf<ArmedRetry?>(null)
+
+    /**
+     * The settings card another screen asked this one to open on, or null.
+     *
+     * Held here rather than in the composition because it arrives with an intent - the run screen's
+     * failure card hands one over - and an intent outlives the composition it landed in.
+     */
+    private var settingsTarget by mutableStateOf<String?>(null)
 
     /**
      * The payload an armed retry would run, read from the attempt that armed it.
@@ -333,6 +344,7 @@ class MainActivity : ComponentActivity() {
         shizukuToken = AppPreferences.shizukuAutomationToken(this)
         partitionReadOnly = AppPreferences.partitionReadOnlyMode(this)
         payloadMode = AppPreferences.payloadMode(this)
+        settingsTarget = SettingsTarget.named(intent?.getStringExtra(SettingsTarget.EXTRA))
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
@@ -446,10 +458,25 @@ class MainActivity : ComponentActivity() {
                         shizukuBootMode = enabled
                     },
                     openInstaller = ::openInstaller,
+                    settingsTarget = settingsTarget,
+                    onSettingsTargetHandled = { settingsTarget = null },
                 )
             }
         }
         maybeRequestBatteryExemption()
+    }
+
+    /**
+     * A target that arrives while this activity is already open.
+     *
+     * The run screen's failure card is the one caller that does this, and it asks for the existing
+     * window rather than a second one: the settings page it wants is in the activity that is already
+     * in the back stack, and a fresh instance would put the app's own screens on top of each other.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        settingsTarget = SettingsTarget.named(intent.getStringExtra(SettingsTarget.EXTRA))
     }
 
     private fun openInstaller(selectionId: String? = null) {
@@ -605,11 +632,19 @@ private fun RootApp(
     requestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     openInstaller: (String?) -> Unit,
+    /** A settings card another screen asked this one to open on, or null. */
+    settingsTarget: String?,
+    onSettingsTargetHandled: () -> Unit,
 ) {
     val installState by installViewModel.state.collectAsStateWithLifecycle()
     val history by installViewModel.history.collectAsStateWithLifecycle()
     val targetCatalog by installViewModel.targetCatalog.collectAsStateWithLifecycle()
     var selectedPage by remember { mutableStateOf(AppPage.Overview) }
+    // A card to open on is only reachable from the settings page, so the page comes first and the jump
+    // is left to the page itself: it is the only thing that knows where its own rows are.
+    LaunchedEffect(settingsTarget) {
+        if (settingsTarget != null) selectedPage = AppPage.Settings
+    }
     var showInstallConfirmation by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
     var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
@@ -962,6 +997,8 @@ private fun RootApp(
                     onRequestNotificationPermission = requestNotificationPermission,
                     onRequestBatteryExemption = onRequestBatteryExemption,
                     runPlan = runPlan,
+                    openTarget = settingsTarget,
+                    onOpenTargetHandled = onSettingsTargetHandled,
                 )
             }
         }
@@ -2321,6 +2358,10 @@ private fun SettingsPage(
     onRequestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     runPlan: () -> RunPlanDisplay,
+    /** A card to open on, handed over by a screen that was told to open it, or null. */
+    openTarget: String? = null,
+    /** Called once the jump has been started, so nothing replays it. */
+    onOpenTargetHandled: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -2794,6 +2835,24 @@ private fun SettingsPage(
     // to tear down. The list below is skipped while it is open, so its scroll state is remembered out
     // here, where it survives the editor.
     val settingsList = rememberLazyListState()
+    // Where a jump is headed: the link the run screen handed in, or one from this page's own repair
+    // section. One state for both, because to the list they are the same jump.
+    var jumpTarget by remember { mutableStateOf<String?>(null) }
+    var cardHighlighted by remember { mutableStateOf(false) }
+    LaunchedEffect(openTarget) {
+        if (openTarget != null) {
+            jumpTarget = openTarget
+            onOpenTargetHandled()
+        }
+    }
+    LaunchedEffect(jumpTarget) {
+        val wanted = jumpTarget ?: return@LaunchedEffect
+        jumpToSettingCard(settingsList, wanted)
+        cardHighlighted = true
+        delay(SETTINGS_HIGHLIGHT_MILLIS)
+        cardHighlighted = false
+        jumpTarget = null
+    }
     if (showPayloadSourcesSheet) {
         PayloadSourcesEditor(
             padding = padding,
@@ -2959,7 +3018,10 @@ private fun SettingsPage(
 
         item { SectionLabel(stringResource(R.string.settings_section_run)) }
 
-        item {
+        // Keyed by the card something else in the app may ask for: the run screen's read-only failure
+        // names this setting and hands its key over, and a key is what lets the page find the row without
+        // an index that a new card above it would silently invalidate.
+        item(key = SettingsTarget.PartitionReadOnly) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsSwitchCard(
                     icon = Icons.Rounded.Memory,
@@ -2993,17 +3055,40 @@ private fun SettingsPage(
                         onDisableKsuModulesChanged(it)
                     },
                 )
-                SettingsSwitchCard(
-                    icon = Icons.Rounded.Lock,
-                    title = stringResource(R.string.partition_read_only),
-                    description = stringResource(R.string.partition_read_only_description),
-                    checked = partitionReadOnly,
-                    position = SettingsCardPosition.Middle,
-                    onCheckedChange = {
-                        clickHaptic(view)
-                        onPartitionReadOnlyChanged(it)
+                // Outlined, not marked in some other way, because what a jump has to answer is "which
+                // of these rows is it" - and the outline sits exactly on the card's own edge, at its own
+                // corner radius, so it reads as the row being pointed at rather than as a new control.
+                //
+                // Drawn rather than added as a border modifier: a border is laid out with the content it
+                // wraps, so a transparent one held open for the outline to appear in would leave this row
+                // a few pixels narrower than the two cards stacked with it, on every frame. This changes
+                // nothing but the pixels.
+                val highlightColor = MaterialTheme.colorScheme.primary
+                Box(
+                    modifier = Modifier.drawWithContent {
+                        drawContent()
+                        if (cardHighlighted) {
+                            drawOutline(
+                                outline = settingsCardRestingShape(SettingsCardPosition.Middle)
+                                    .createOutline(size, layoutDirection, this),
+                                color = highlightColor,
+                                style = Stroke(width = SETTINGS_HIGHLIGHT_WIDTH.toPx()),
+                            )
+                        }
                     },
-                )
+                ) {
+                    SettingsSwitchCard(
+                        icon = Icons.Rounded.Lock,
+                        title = stringResource(R.string.partition_read_only),
+                        description = stringResource(R.string.partition_read_only_description),
+                        checked = partitionReadOnly,
+                        position = SettingsCardPosition.Middle,
+                        onCheckedChange = {
+                            clickHaptic(view)
+                            onPartitionReadOnlyChanged(it)
+                        },
+                    )
+                }
                 SettingsCard(
                     modifier = Modifier.onGloballyPositioned { coordinates ->
                         bootSettleMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
@@ -3411,6 +3496,9 @@ private fun SettingsPage(
                 // Every action here consumes the root a verified load installed, so with loading
                 // switched off they are not offered as things that will work.
                 kernelSuLoadingEnabled = loadKernelSu,
+                // The card a refusal points at is in this same list, so the jump is a scroll rather than
+                // a new window.
+                onOpenSetting = { target -> jumpTarget = target },
             )
         }
 
@@ -5161,6 +5249,30 @@ internal enum class SettingsCardPosition {
 }
 
 /**
+ * The corner radius a card of this position rests at, given which end of it is being asked about.
+ *
+ * One rule, read by the card's own shape and by anything drawn *on* a card. The outline a settings jump
+ * draws is the reason it is not inlined into the shape: an outline that guessed the radius would sit
+ * off the card's own curve wherever it guessed wrong, and the row would look like it had grown a second
+ * border rather than like it was being pointed at.
+ */
+internal fun settingsCardRestingRadius(position: SettingsCardPosition, top: Boolean): Dp = when {
+    position == SettingsCardPosition.Single -> 16.dp
+    position in setOf(SettingsCardPosition.GroupedSingle, SettingsCardPosition.Top) && top -> 24.dp
+    position in setOf(SettingsCardPosition.GroupedSingle, SettingsCardPosition.Bottom) && !top -> 24.dp
+    else -> 6.dp
+}
+
+/** The shape a card rests at, for something that has to be drawn around one. */
+internal fun settingsCardRestingShape(position: SettingsCardPosition): RoundedCornerShape =
+    RoundedCornerShape(
+        topStart = settingsCardRestingRadius(position, top = true),
+        topEnd = settingsCardRestingRadius(position, top = true),
+        bottomStart = settingsCardRestingRadius(position, top = false),
+        bottomEnd = settingsCardRestingRadius(position, top = false),
+    )
+
+/**
  * How much of a card a trailing value may take.
  *
  * Every band here is short - a state, a count, a mode - so a value that wants more than this is
@@ -5169,6 +5281,9 @@ internal enum class SettingsCardPosition {
  * claimed the row.
  */
 private val SETTINGS_VALUE_MAX_WIDTH = 140.dp
+
+/** How thick the outline a settings jump draws is. Thin enough to read as a pointer, not a control. */
+private val SETTINGS_HIGHLIGHT_WIDTH = 2.dp
 
 /**
  * How much of a failed Shizuku start is worth showing.
@@ -5491,12 +5606,8 @@ private fun expressiveClickableCardShape(
 ): RoundedCornerShape {
     val pressed by interactionSource.collectIsPressedAsState()
     val topRadius by animateDpAsState(
-        targetValue = when {
-            pressed -> 28.dp
-            position == SettingsCardPosition.Single -> 16.dp
-            position in setOf(SettingsCardPosition.GroupedSingle, SettingsCardPosition.Top) -> 24.dp
-            else -> 6.dp
-        },
+        // Pressed is the one radius that is not a resting one: the card swells to show it took the tap.
+        targetValue = if (pressed) 28.dp else settingsCardRestingRadius(position, top = true),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMedium,
@@ -5504,12 +5615,7 @@ private fun expressiveClickableCardShape(
         label = "clickable-card-top-corner",
     )
     val bottomRadius by animateDpAsState(
-        targetValue = when {
-            pressed -> 28.dp
-            position == SettingsCardPosition.Single -> 16.dp
-            position in setOf(SettingsCardPosition.GroupedSingle, SettingsCardPosition.Bottom) -> 24.dp
-            else -> 6.dp
-        },
+        targetValue = if (pressed) 28.dp else settingsCardRestingRadius(position, top = false),
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
             stiffness = Spring.StiffnessMedium,

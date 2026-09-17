@@ -352,6 +352,15 @@
     <string name="disable_ksu_modules_description">Temporarily move modules aside while KernelSU loads</string>
     <string name="disable_ksu_modules_needs_load">Only applies when KernelSU is loaded</string>
     <string name="partition_read_only">Protect image partitions</string>
+    <!--
+        What a failure this protection caused says. The switch is named from its own label rather than
+        from a copy of the words, so a rename can never leave this pointing at a setting that is gone.
+        Says "image partitions", not "read-only file system": the kernel's own wording belongs in the
+        log, and repeating it here would read as the device's complaint rather than as this app's switch.
+    -->
+    <string name="read_only_wall_notice">The image partitions are read-only, so the write was refused — that is the %1$s setting</string>
+    <string name="action_open_setting">Open setting</string>
+    <string name="log_read_only_wall">[!] A write was refused by the read-only image partitions: this is the Protect image partitions setting</string>
     <string name="partition_read_only_description">Marks boot, super, optics, prism, and vbmeta read-only after root is obtained. This prevents accidental writes, but also blocks flashing images from the phone and KernelSU installs that patch boot.</string>
     <string name="run_plan_partition_read_only">Image partitions</string>
     <string name="run_plan_partition_read_only_on">Read-only after bootstrap root; cleared on reboot</string>

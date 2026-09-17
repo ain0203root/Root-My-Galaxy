@@ -1,5 +1,6 @@
 package dev.busung.s25uroot
 
+import androidx.compose.ui.unit.dp
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -80,6 +81,24 @@ class SettingsCardGroupTest {
                 group.count { it == "Top" },
             )
         }
+    }
+
+    @Test
+    fun `the shape a card rests at is the shape anything drawn around it has to use`() {
+        // The outline a settings jump draws reads this, so the values are pinned: an outline on the
+        // wrong curve sits off the card's edge and reads as a second border rather than as a pointer.
+        assertEquals(24.dp, settingsCardRestingRadius(SettingsCardPosition.Top, top = true))
+        assertEquals(6.dp, settingsCardRestingRadius(SettingsCardPosition.Top, top = false))
+        assertEquals(6.dp, settingsCardRestingRadius(SettingsCardPosition.Middle, top = true))
+        assertEquals(6.dp, settingsCardRestingRadius(SettingsCardPosition.Middle, top = false))
+        assertEquals(6.dp, settingsCardRestingRadius(SettingsCardPosition.Bottom, top = true))
+        assertEquals(24.dp, settingsCardRestingRadius(SettingsCardPosition.Bottom, top = false))
+        // A group of one is rounded at both ends.
+        assertEquals(24.dp, settingsCardRestingRadius(SettingsCardPosition.GroupedSingle, top = true))
+        assertEquals(24.dp, settingsCardRestingRadius(SettingsCardPosition.GroupedSingle, top = false))
+        // A card on its own is smaller all round than the ends of a group.
+        assertEquals(16.dp, settingsCardRestingRadius(SettingsCardPosition.Single, top = true))
+        assertEquals(16.dp, settingsCardRestingRadius(SettingsCardPosition.Single, top = false))
     }
 
     /**

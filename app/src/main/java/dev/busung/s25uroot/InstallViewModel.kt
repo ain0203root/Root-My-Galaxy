@@ -200,6 +200,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      */
     @Volatile
     private var stopRequested = false
+
+    /**
+     * Where in this run's log the image partitions were set read-only, and how many devices it covered.
+     *
+     * Kept so a failure can be attributed to the protection rather than blamed on it: only a refusal
+     * recorded *after* this point, on a run where devices were actually set, can be its doing. Reset with
+     * each run, because the protection is per boot and a count from the last one says nothing about this
+     * one's log.
+     */
+    private var protectedFrom = -1
+    private var protectedDevices = 0
     private val publishClaim = PublishClaim()
     val state: StateFlow<InstallUiState> = mutableState.asStateFlow()
     val history: StateFlow<List<InstallHistoryEntry>> = mutableHistory.asStateFlow()
@@ -396,6 +407,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         publishClaim.claim()
         bootSettleOverridden = false
         stopRequested = false
+        // The protection is per boot and per run, so this run starts with no attribution to make.
+        protectedFrom = -1
+        protectedDevices = 0
         installJob = viewModelScope.launch(Dispatchers.IO) {
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
@@ -708,8 +722,22 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // of those is worth retrying straight away.
                 val stage = activeStage
                 val reason = error.message ?: error.javaClass.simpleName
-                val failure = RunFailure.of(stage, reason, failureEvidence(mutableState.value.log))
+                val failure = RunFailure.of(
+                    stage = stage,
+                    reason = reason,
+                    evidence = failureEvidence(mutableState.value.log),
+                    readOnlyWall = refusedByProtection(
+                        log = mutableState.value.log,
+                        protectedFrom = protectedFrom,
+                        protectedDevices = protectedDevices,
+                        reason = reason,
+                    ),
+                )
                 appendLog("[-] $reason")
+                // Named where the failure is, and only when it is this protection's doing: a wall the
+                // run put up itself is the one failure whose fix is a switch in this app, and the log
+                // is where someone looks first.
+                if (failure.readOnlyWall) appendLog(app.getString(R.string.log_read_only_wall))
                 setPhase(
                     InstallPhase.Failed,
                     app.getString(R.string.status_stage_failed, app.getString(stage.label)),
@@ -741,12 +769,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             result.code == MODULES_BACKUP_EXISTS -> appendLog(
                 app.getString(R.string.log_ksu_modules_backup_present, MODULES_BACKUP_DIRECTORY),
             )
-            result.code != 0 -> appendLog(
-                app.getString(
-                    R.string.log_ksu_modules_move_failed,
-                    result.output.ifBlank { "exit ${result.code}" },
-                ),
-            )
+            result.code != 0 -> {
+                appendLog(
+                    app.getString(
+                        R.string.log_ksu_modules_move_failed,
+                        result.output.ifBlank { "exit ${result.code}" },
+                    ),
+                )
+                appendReadOnlyWallIfProtected(result.output)
+            }
             result.output.contains(MODULES_MOVED_MARKER) -> {
                 appendLog(app.getString(R.string.log_ksu_modules_moved, MODULES_BACKUP_DIRECTORY))
                 return true
@@ -756,17 +787,34 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         return false
     }
 
+    /**
+     * Names the protection in the log when a module step's own output says a write was refused.
+     *
+     * A module step that fails behind the wall reports EROFS from wherever the write went, and the two
+     * lines above it name a directory and an exit status - neither of which says that a switch in this
+     * app is what refused it. Gated on this run having set devices, so it cannot be said about a boot
+     * where the protection was on and did nothing.
+     */
+    private fun appendReadOnlyWallIfProtected(output: String) {
+        if (protectedDevices <= 0) return
+        if (!PartitionReadOnly.refusedByReadOnly(output)) return
+        appendLog(app.getString(R.string.log_read_only_wall))
+    }
+
     private suspend fun restoreModules() {
         val result = runMaintenance(MODULES_RESTORE_SCRIPT)
         when {
-            result.code != 0 -> appendLog(
-                app.getString(
-                    R.string.log_ksu_modules_restore_failed,
-                    MODULES_BACKUP_DIRECTORY,
-                    MODULES_DIRECTORY,
-                    result.output.ifBlank { "exit ${result.code}" },
-                ),
-            )
+            result.code != 0 -> {
+                appendLog(
+                    app.getString(
+                        R.string.log_ksu_modules_restore_failed,
+                        MODULES_BACKUP_DIRECTORY,
+                        MODULES_DIRECTORY,
+                        result.output.ifBlank { "exit ${result.code}" },
+                    ),
+                )
+                appendReadOnlyWallIfProtected(result.output)
+            }
             result.output.contains(MODULES_RESTORED_MARKER) ->
                 appendLog(app.getString(R.string.log_ksu_modules_restored))
             else -> appendLog(app.getString(R.string.log_ksu_modules_restore_skipped))
@@ -1206,6 +1254,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         } else {
             appendLog(app.getString(R.string.log_ro_blocks_failed))
         }
+        protectedDevices = count
+        // Marked after the line above, so the scan that attributes a later failure to the protection
+        // starts below the line that reports it rather than reading it back as evidence.
+        protectedFrom = mutableState.value.log.length
+        // Written to the boot as well as kept here: a repair action run from Settings later in this
+        // boot is a different process from this run, and without this it could only guess whether the
+        // wall it just hit was this app's.
+        AppPreferences.setReadOnlyProtectedDevices(app, kernelBootToken(), count)
     }
 
     private suspend fun runMaintenance(command: String): CommandResult {

@@ -54,6 +54,8 @@ object AppPreferences {
     private const val AUTO_ROOT_SETTLE_SECONDS = "auto_root_settle_seconds"
     private const val SHIZUKU_AUTOMATION_TOKEN = "shizuku_automation_token"
     private const val PARTITION_READ_ONLY_MODE = "partition_read_only_mode"
+    private const val READ_ONLY_PROTECTED_BOOT = "partition_read_only_protected_boot"
+    private const val READ_ONLY_PROTECTED_DEVICES = "partition_read_only_protected_devices"
     private const val ADB_PAIRED = "adb_paired"
     private const val WIRELESS_ADB_OURS = "wireless_adb_owned"
     private const val PAYLOAD_MODE = "payload_mode"
@@ -332,6 +334,35 @@ object AppPreferences {
 
     /** Whether a retry is armed at all, whatever boot armed it. */
     fun retryArmed(context: Context): Boolean = retryArmedInBoot(context) != null
+
+    /**
+     * How many image partitions a run set read-only in this boot, and zero when this boot set none.
+     *
+     * The setting says what a *run* would do; this says what one actually did, and the two are not the
+     * same question: `blockdev --setro` is cleared by a reboot, so a read-only refusal in a boot that
+     * never ran anything cannot be this app's doing, and naming the switch for it would send someone to
+     * turn off a protection that is not there. Scoped to the boot it was recorded in for that reason,
+     * the same way an armed retry is.
+     */
+    fun readOnlyProtectedDevices(context: Context, bootToken: String?): Int {
+        val storedBoot = prefs(context).getString(READ_ONLY_PROTECTED_BOOT, null) ?: return 0
+        if (bootToken == null || storedBoot != bootToken) return 0
+        return prefs(context).getInt(READ_ONLY_PROTECTED_DEVICES, 0)
+    }
+
+    fun setReadOnlyProtectedDevices(context: Context, bootToken: String?, devices: Int) {
+        val editor = prefs(context).edit()
+        if (bootToken == null || devices <= 0) {
+            editor.remove(READ_ONLY_PROTECTED_BOOT).remove(READ_ONLY_PROTECTED_DEVICES)
+        } else {
+            editor.putString(READ_ONLY_PROTECTED_BOOT, bootToken)
+                .putInt(READ_ONLY_PROTECTED_DEVICES, devices)
+        }
+        // Committed, not applied: what this records is used to decide whether a failure gets blamed on
+        // the protection, and a write that had not landed would answer "not this boot" about a boot that
+        // did set devices.
+        editor.commit()
+    }
 
     /**
      * Where a run takes its payload from. Online is the default because it is the mode that follows

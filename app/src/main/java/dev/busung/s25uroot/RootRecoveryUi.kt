@@ -36,6 +36,13 @@ private data class RecoveryMessage(
     val title: String,
     val detail: String,
     val failure: Boolean,
+    /**
+     * True when the read-only protection this app set up in this boot is why it failed.
+     *
+     * The one refusal with a fix in this app, so the dialog that reports it also names the switch and
+     * offers the way to it rather than leaving the person to remember where it lives.
+     */
+    val readOnlyWall: Boolean = false,
 )
 
 /**
@@ -57,6 +64,8 @@ internal fun RootRecoverySection(
     onBootRootModeChanged: (Boolean) -> Unit,
     /** False when runs are told not to load KernelSU, which is what these actions consume. */
     kernelSuLoadingEnabled: Boolean = true,
+    /** Opens a settings card by its target: this section lives in the list that holds that card. */
+    onOpenSetting: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -72,6 +81,7 @@ internal fun RootRecoverySection(
             // and one restarts the phone, so the accepted message is the action's own.
             detail = if (outcome.accepted) context.getString(tool.acceptedRes()) else outcome.detail,
             failure = !outcome.accepted,
+            readOnlyWall = outcome.readOnlyWall,
         )
     }
 
@@ -123,7 +133,19 @@ internal fun RootRecoverySection(
                 )
             },
             title = { Text(shown.title) },
-            text = { Text(shown.detail) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(shown.detail)
+                    if (shown.readOnlyWall) {
+                        ReadOnlyWallNotice(
+                            onOpenSetting = {
+                                message = null
+                                onOpenSetting(SettingsTarget.PartitionReadOnly)
+                            },
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
@@ -179,6 +201,13 @@ internal fun RecoveryActionButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     onBootRootModeChanged: (Boolean) -> Unit = {},
+    /**
+     * Opens a settings card by its target, for a refusal this app's own protection caused.
+     *
+     * Passed in rather than assumed: this button is used from the run screen, which is a different
+     * window - so the jump is a fresh intent there and a scroll when it is the settings page itself.
+     */
+    onOpenSetting: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -229,6 +258,7 @@ internal fun RecoveryActionButton(
                                 outcome.detail
                             },
                             failure = !outcome.accepted,
+                            readOnlyWall = outcome.readOnlyWall,
                         )
                         running = false
                     }
@@ -254,7 +284,19 @@ internal fun RecoveryActionButton(
                 )
             },
             title = { Text(shown.title) },
-            text = { Text(shown.detail) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(shown.detail)
+                    if (shown.readOnlyWall) {
+                        ReadOnlyWallNotice(
+                            onOpenSetting = {
+                                message = null
+                                onOpenSetting(SettingsTarget.PartitionReadOnly)
+                            },
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)

@@ -28,6 +28,14 @@ data class RunFailure(
     val stage: RunStage,
     val reason: String,
     val evidence: List<String> = emptyList(),
+    /**
+     * True when the protection this run set up is what refused the write that ended it.
+     *
+     * Carried on the failure rather than worked out where it is shown, because the evidence on the
+     * card is only the last few lines and the rule needs the whole log. The screen also has to be able
+     * to offer the fix, and this is the one failure whose fix is a switch in this app.
+     */
+    val readOnlyWall: Boolean = false,
 ) {
     companion object {
         /**
@@ -40,7 +48,8 @@ data class RunFailure(
             stage: RunStage,
             reason: String,
             evidence: List<String> = emptyList(),
-        ): RunFailure = RunFailure(stage, failureSummary(reason), evidence)
+            readOnlyWall: Boolean = false,
+        ): RunFailure = RunFailure(stage, failureSummary(reason), evidence, readOnlyWall)
     }
 }
 

@@ -3,6 +3,7 @@ package dev.busung.s25uroot
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.HapticFeedbackConstants
@@ -108,9 +109,29 @@ class InstallActivity : ComponentActivity() {
                     onStop = { installViewModel.stopRun() },
                     onRebootAndRetry = { installViewModel.armRetryAfterReboot() },
                     onClose = ::finish,
+                    onOpenSetting = ::openSettingsCard,
                 )
             }
         }
+    }
+
+    /**
+     * Opens one of the app's settings cards, in the window that holds the list.
+     *
+     * Asked of the existing window rather than a new one, because this screen was started *from* that
+     * window: without the flags a jump would stack a second MainActivity on top of the first, and the
+     * back button would walk through two copies of the app before reaching the run.
+     *
+     * This screen is deliberately left where it is. It is showing a failed run, which is the thing the
+     * person may want back: closing it here would take the log with it, and the log is the only account
+     * of what the payload did.
+     */
+    private fun openSettingsCard(target: String) {
+        startActivity(
+            Intent(this, MainActivity::class.java)
+                .putExtra(SettingsTarget.EXTRA, target)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
     }
 
     companion object {
@@ -151,6 +172,8 @@ private fun InstallScreen(
     /** Arms one retry for the next boot and reboots; reports whether the reboot was requested. */
     onRebootAndRetry: suspend () -> Boolean,
     onClose: () -> Unit,
+    /** Opens a settings card by its target, for the one failure whose fix is a switch in this app. */
+    onOpenSetting: (String) -> Unit,
 ) {
     val logScrollState = rememberScrollState()
     val view = LocalView.current
@@ -195,7 +218,7 @@ private fun InstallScreen(
                 )
             }
 
-            InstallerStatusCard(installState)
+            InstallerStatusCard(installState, onOpenReadOnlySetting = { onOpenSetting(SettingsTarget.PartitionReadOnly) })
             InstallerSteps(
                 phase = installState.phase,
                 failure = installState.failure,
@@ -270,6 +293,7 @@ private fun InstallScreen(
                             tool = RecoveryTool.SoftReboot,
                             label = stringResource(R.string.install_load_modules),
                             modifier = Modifier.fillMaxWidth(),
+                            onOpenSetting = onOpenSetting,
                         )
                     }
                     Row(
@@ -393,7 +417,11 @@ private fun InstallScreen(
 }
 
 @Composable
-private fun InstallerStatusCard(installState: InstallUiState) {
+private fun InstallerStatusCard(
+    installState: InstallUiState,
+    /** Where the notice's own button goes: to the switch that refused the write. */
+    onOpenReadOnlySetting: () -> Unit,
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -466,6 +494,11 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                 }
             }
             installState.failure?.let { failure -> FailureReport(failure) }
+            // The one failure whose fix is a switch in this app: it is named here, beside the failure,
+            // with the way to it - and only when it is this run's own protection that refused the write.
+            if (installState.failure?.readOnlyWall == true) {
+                ReadOnlyWallNotice(onOpenSetting = onOpenReadOnlySetting)
+            }
             LinearProgressIndicator(
                 progress = {
                     installProgress(
