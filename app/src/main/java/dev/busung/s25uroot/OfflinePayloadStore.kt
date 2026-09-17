@@ -15,6 +15,15 @@ enum class PayloadOrigin {
 
     /** Read from the known-good cache, with no network involved. */
     Cached,
+
+    /**
+     * The payload an earlier run attempted, run again from the files that attempt left behind.
+     *
+     * Its own value rather than [Cached] because the two are not the same claim: one is "this payload
+     * completed a verified install", the other is "this is what the failed run was", and only the
+     * first may be published back to the cache. The log says which one a run used.
+     */
+    Attempted,
 }
 
 /** What a run is allowed to use as its payload. */
@@ -250,7 +259,14 @@ internal object KnownGoodPayloadStore {
      */
     @Synchronized
     fun publish(context: Context, payloads: VerifiedPayloads): CachedPayload {
-        require(payloads.origin == PayloadOrigin.Downloaded) {
+        // An attempt counts, because it is a payload from a source too - one that was downloaded and
+        // verified by an earlier run, and verified again on the way out of the attempt record. A retry
+        // that succeeds at boot should leave the device in the ordinary state, with the payload that
+        // just worked as the offline fallback; refusing it would leave the cache describing the payload
+        // the device has stopped testing.
+        require(
+            payloads.origin == PayloadOrigin.Downloaded || payloads.origin == PayloadOrigin.Attempted,
+        ) {
             "Only a payload verified from a source can replace the cached one"
         }
         val profile = payloads.profile
@@ -373,8 +389,14 @@ internal object KnownGoodPayloadStore {
 
     private fun directory(context: Context, id: String): File = File(File(context.filesDir, ROOT), id)
 
-    /** The helper the app bundles, as an artifact-like pair of hash and size. */
-    private fun bundledRootHelper(context: Context): RemoteArtifact {
+    /**
+     * The helper the app bundles, as an artifact-like pair of hash and size.
+     *
+     * Internal rather than private because the attempt record is held to the same binding: a payload
+     * only works with the helper it was verified against, so an app update that ships a different one
+     * must not be able to run either an old cache entry or an old attempt.
+     */
+    internal fun bundledRootHelper(context: Context): RemoteArtifact {
         val file = File(context.applicationInfo.nativeLibraryDir, ROOT_HELPER_LIBRARY)
         if (!file.isFile) return RemoteArtifact(url = "", size = 0, verifySize = false)
         return RemoteArtifact(

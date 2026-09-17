@@ -309,8 +309,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         selectionId: String? = null,
         unattended: Boolean = false,
         payloadOffline: Boolean = false,
+        preferAttemptedPayload: Boolean = false,
     ) {
-        install(selectionId, unattended, payloadOffline)
+        install(selectionId, unattended, payloadOffline, preferAttemptedPayload)
         installJob?.join()
     }
 
@@ -378,6 +379,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
          * changing the mode the user chose for their own runs.
          */
         payloadOffline: Boolean = false,
+        /**
+         * Resolves the payload from the last attempt rather than from the cache.
+         *
+         * Set by a retry that survived a reboot. The two are not interchangeable and the difference is
+         * the whole point of the setting: the cache holds the last payload that *worked*, and a retry is
+         * a request to run the one that failed, which on a device somebody is testing on is a different
+         * payload - another source, another commit, or the other KernelSU project.
+         */
+        preferAttemptedPayload: Boolean = false,
     ) {
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
         discoveryJob?.cancel()
@@ -415,7 +425,20 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // nothing: the cached payload already names its target, and asking the catalog would
                 // be the very thing this mode exists to avoid.
                 val offline = payloadOffline || AppPreferences.payloadMode(app) == PayloadMode.Offline
+                // Read once and used twice: resolving an attempt hashes the files it verifies, which is
+                // not work to do again a few lines later.
+                val retriedPayload = if (offline && preferAttemptedPayload) {
+                    AttemptedPayloadStore.resolve(app)
+                } else {
+                    null
+                }
                 val profile = when {
+                    // Attempted and unusable is a refusal, not a fallback. The run the user asked for is
+                    // the one that failed, and quietly running the last payload that worked would install
+                    // something they did not choose - possibly the other KernelSU project.
+                    retriedPayload != null -> retriedPayload.getOrElse { failure ->
+                        error(failure.message ?: failure.javaClass.simpleName)
+                    }.profile
                     offline -> cachedProfileFor(selectionId)
                     selectionId == null -> repository.resolveTarget(DeviceSnapshot.current())
                     else -> repository.resolveTarget(selectionId)
@@ -516,8 +539,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 val payloads = if (offline) {
                     activeStage = RunStage.Download
                     setPhase(InstallPhase.Downloading, app.getString(R.string.status_loading_cached))
-                    KnownGoodPayloadStore.load(app, profile.profileId).also { cached ->
-                        appendLog(app.getString(R.string.log_payload_cached, cached.exploit.name))
+                    if (retriedPayload != null) {
+                        retriedPayload.getOrThrow().also { attempted ->
+                            appendLog(
+                                app.getString(
+                                    R.string.log_retry_attempted,
+                                    attempted.profile.displayName.ifBlank { attempted.profile.profileId },
+                                ),
+                            )
+                        }
+                    } else {
+                        KnownGoodPayloadStore.load(app, profile.profileId).also { cached ->
+                            appendLog(app.getString(R.string.log_payload_cached, cached.exploit.name))
+                        }
                     }
                 } else {
                     activeStage = RunStage.Download
@@ -525,6 +559,22 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     repository.download(profile) { appendLog("[*] $it") }.also {
                         appendLog(app.getString(R.string.log_download_verified))
                     }
+                }
+
+                // Before the exploit, because the record exists for the runs that fail during it: a
+                // record written after would only ever describe runs that did not need one. Best-effort,
+                // but said out loud - a missing record is what makes the next retry fall back to the
+                // cached payload instead of the one that failed.
+                if (payloads.origin == PayloadOrigin.Downloaded) {
+                    runCatching { AttemptedPayloadStore.save(app, payloads) }
+                        .onFailure { error ->
+                            appendLog(
+                                app.getString(
+                                    R.string.log_attempted_record_failed,
+                                    error.message ?: error.javaClass.simpleName,
+                                ),
+                            )
+                        }
                 }
 
                 activeStage = RunStage.Exploit

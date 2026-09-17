@@ -36,6 +36,10 @@ internal enum class AutoRootDecision {
  * root is not a boot that needs an install, a boot whose attempt is spent does not get a second one,
  * and an install that was verified *in this boot* stays verified across the userspace restarts that
  * re-emit BOOT_COMPLETED. Only the last case asks anything of the user.
+ *
+ * [hasVerifiedInstall] means "this boot has something runnable behind it", not "a run once succeeded":
+ * a retry is armed by a run that failed, and on a device testing a payload that has never completed
+ * one, the attempt it repeats is the only thing there is to run from.
  */
 internal fun autoRootDecision(
     enabled: Boolean,
@@ -145,20 +149,26 @@ internal object AutoRootSupport {
      * [kernelSuActive] is passed in rather than probed here so the rule itself has no device in it,
      * and so a caller that has already probed does not have to probe again to ask the question.
      */
-    fun decision(context: Context, bootToken: String, kernelSuActive: Boolean): AutoRootDecision =
-        autoRootDecision(
-            // A retry armed before a reboot is this boot asking for one install, which is what the
-            // rule's first input means - and it only counts in a boot *other* than the one that armed
-            // it, so arming it cannot start the attempt the user declined when they chose to reboot.
-            enabled = AppPreferences.bootRootMode(context) ||
-                AppPreferences.retryPendingForBoot(context, bootToken),
+    fun decision(context: Context, bootToken: String, kernelSuActive: Boolean): AutoRootDecision {
+        // A retry armed before a reboot is this boot asking for one install, which is what the rule's
+        // first input means - and it only counts in a boot *other* than the one that armed it, so arming
+        // it cannot start the attempt the user declined when they chose to reboot.
+        val retryArmed = AppPreferences.retryPendingForBoot(context, bootToken)
+        return autoRootDecision(
+            enabled = AppPreferences.bootRootMode(context) || retryArmed,
             kernelSuLoadEnabled = AppPreferences.loadKernelSu(context),
             kernelSuActive = kernelSuActive,
-            hasVerifiedInstall = hasVerifiedInstall(context),
+            // An install behind it, or an attempt to repeat. Requiring the first for a retry is how a
+            // device testing a payload that has never completed a run was told to "run one online
+            // installation first" about a retry it had asked for by hand - while the payload it was
+            // testing sat on the device, recorded as the attempt that failed.
+            hasVerifiedInstall = hasVerifiedInstall(context) ||
+                (retryArmed && AttemptedPayloadStore.hasRecord(context)),
             verifiedBootToken = verifiedBootToken(context),
             attemptedBootToken = bootToken.takeIf { hasAttemptedBoot(context, bootToken) },
             bootToken = bootToken,
         )
+    }
 
     /** Forgets the boot-scoped bookkeeping, so the next boot is treated as a fresh one. */
     @Synchronized

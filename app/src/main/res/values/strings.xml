@@ -64,6 +64,8 @@
     <string name="cached_payload_forget">Remove cache</string>
     <string name="status_loading_cached">Loading cached payload</string>
     <string name="log_payload_cached">[*] Using the cached payload: %1$s</string>
+    <string name="log_retry_attempted">[*] Retrying the payload the last attempt used: %1$s</string>
+    <string name="log_attempted_record_failed">[!] Could not record this payload for a retry: %1$s</string>
     <string name="log_payload_cached_now">[+] Cached for offline use: %1$s</string>
     <string name="log_payload_cache_failed">[!] Could not cache this payload for offline use: %1$s</string>
     <string name="log_payload_origin">[*] payload origin=%1$s</string>

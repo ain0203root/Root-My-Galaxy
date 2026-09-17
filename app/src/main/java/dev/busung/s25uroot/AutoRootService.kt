@@ -56,6 +56,15 @@ class AutoRootService : Service() {
      */
     private var retryTriggeredThisBoot = false
 
+    /**
+     * Whether this boot's attempt is a one-shot retry, whichever way it also happens to be asked for.
+     *
+     * Distinct from [retryTriggeredThisBoot], which is about what the notification should call itself.
+     * This one decides which payload the run gets: a retry runs the attempt it was armed for, and that is
+     * true whether or not root on boot also wanted this boot's attempt.
+     */
+    private var retryArmedThisBoot = false
+
     override fun onCreate() {
         super.onCreate()
         createChannel()
@@ -67,8 +76,12 @@ class AutoRootService : Service() {
             return START_NOT_STICKY
         }
         if (gateJob?.isActive == true) return START_NOT_STICKY
-        retryTriggeredThisBoot =
-            AppPreferences.retryArmed(this) && !AppPreferences.bootRootMode(this)
+        // Read here rather than in the gate, because running the gate is what consumes the retry: by the
+        // time a run is starting there is none left to ask about.
+        retryArmedThisBoot = AutoRootSupport.currentBootToken()
+            ?.let { bootToken -> AppPreferences.retryPendingForBoot(this, bootToken) }
+            ?: false
+        retryTriggeredThisBoot = retryArmedThisBoot && !AppPreferences.bootRootMode(this)
         startForeground(
             NOTIFICATION_ID,
             buildNotification(getString(R.string.autoroot_stabilizing), ongoing = true),
@@ -335,7 +348,14 @@ class AutoRootService : Service() {
             }
         }
         notifyOngoing(getString(R.string.autoroot_starting))
-        model.runToCompletion(unattended = true, payloadOffline = true)
+        model.runToCompletion(
+            unattended = true,
+            payloadOffline = true,
+            // A retry runs the payload the failed attempt was for, from the files that attempt left on
+            // the device. Root on boot has no attempt to honour by definition - it is not repeating
+            // anything - so it keeps resolving from the cache.
+            preferAttemptedPayload = retryArmedThisBoot,
+        )
         progressJob?.cancel()
         progressJob = null
 
