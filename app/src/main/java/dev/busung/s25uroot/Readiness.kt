@@ -24,11 +24,49 @@ internal enum class KernelSuStatus {
     Unreadable,
 }
 
-/** The two readings, as the Overview card shows them. */
+/** The readings, as the Overview card shows them. */
 internal data class Readiness(
     val kernelSu: KernelSuStatus,
     val shizuku: ShizukuAvailability,
+    val managers: ManagerPresence,
 )
+
+/**
+ * Which manager apps the phone has, per flavour.
+ *
+ * KernelSU being loaded and its manager being installed are separate facts, and neither implies the
+ * other: root can be in the kernel with no app to manage it, and a manager can be installed on a phone
+ * with nothing loaded - which is the state a fresh install leaves, and the one worth seeing before a run
+ * finishes rather than after.
+ *
+ * Both flavours are reported rather than only the configured one. They are different apps that cannot
+ * both be in the kernel, so which of them is actually on the phone is part of the picture, and a manager
+ * installed for the other flavour is exactly what an attempt to open "the manager" then fails to find.
+ */
+internal data class ManagerPresence(
+    val kernelsu: Boolean = false,
+    val kernelsuNext: Boolean = false,
+) {
+
+    fun installed(flavor: KernelSuFlavor): Boolean = when (flavor) {
+        KernelSuFlavor.KernelSu -> kernelsu
+        KernelSuFlavor.KernelSuNext -> kernelsuNext
+    }
+
+    companion object {
+
+        /**
+         * From the managers this app found, which is the scan that also knows about a spoofed package.
+         *
+         * A manager whose package has been renamed per build still identifies itself by what it
+         * carries, so asking by package name would report the phone as having none.
+         */
+        fun of(managers: List<InstalledManager>): ManagerPresence = ManagerPresence(
+            kernelsu = managers.any { it.flavor == KernelSuFlavor.KernelSu },
+            kernelsuNext = managers.any { it.flavor == KernelSuFlavor.KernelSuNext },
+        )
+    }
+}
 
 /**
  * Which of the three, from the two independent KernelSU readings.

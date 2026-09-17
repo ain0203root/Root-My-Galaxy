@@ -978,17 +978,23 @@ private fun OverviewPage(
                     KernelSuStatus.Unreadable
                 },
                 shizuku = ShizukuController.availability(),
+                // The package walk is the one reading that is not cheap, so the card opens saying
+                // "nothing found" and is corrected a moment later rather than holding up the screen.
+                managers = ManagerPresence(),
             ),
         )
     }
     var resumeTick by remember { mutableStateOf(0) }
     LaunchedEffect(installState.phase, resumeTick) {
-        // Off the main thread: the KernelSU reading may start `su`, and a status line is not worth a
-        // frozen frame.
+        // Off the main thread: the KernelSU reading may start `su`, and finding the manager apps walks
+        // the package list - neither is worth a frozen frame.
         readiness = withContext(Dispatchers.IO) {
             Readiness(
                 kernelSu = KernelSuRuntime.status(),
                 shizuku = ShizukuController.availability(),
+                // A run can install a manager's daemon without the manager app being present, and coming
+                // back from one is when that changes - which is why the phase is a key above.
+                managers = ManagerPresence.of(KernelSuManager.installedManagers(context)),
             )
         }
     }
@@ -1482,8 +1488,41 @@ private fun ReadinessCard(readiness: Readiness, onOpenSettings: () -> Unit) {
                     onOpenSettings()
                 },
             )
+            ManagerRow(
+                label = stringResource(R.string.readiness_manager_kernelsu),
+                installed = readiness.managers.kernelsu,
+                onClick = onOpenSettings,
+            )
+            ManagerRow(
+                label = stringResource(R.string.readiness_manager_next),
+                installed = readiness.managers.kernelsuNext,
+                onClick = onOpenSettings,
+            )
         }
     }
+}
+
+/**
+ * Whether a manager app is on the phone, which is not the same question as whether root is loaded.
+ *
+ * Both are worth a line because the states they describe need different things done about them: root
+ * with no manager is a phone that cannot be managed without installing one, and a manager with no root
+ * is a phone whose install has not been run yet - or whose manager is simply the other flavour's.
+ */
+@Composable
+private fun ManagerRow(label: String, installed: Boolean, onClick: () -> Unit) {
+    val view = LocalView.current
+    InfoRow(
+        icon = Icons.Rounded.SystemUpdate,
+        label = label,
+        value = stringResource(
+            if (installed) R.string.readiness_installed else R.string.readiness_not_installed,
+        ),
+        onClick = {
+            clickHaptic(view)
+            onClick()
+        },
+    )
 }
 
 @Composable

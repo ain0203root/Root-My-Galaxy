@@ -1,6 +1,8 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -45,5 +47,52 @@ class ReadinessTest {
         // is in two states. A shell that ran `uid=0` is the stronger evidence, so the precedence is
         // stated here rather than left to the order of the branches.
         assertEquals(KernelSuStatus.Active, kernelSuStatus(active = true, moduleLoaded = false))
+    }
+
+    // --- the manager apps ---------------------------------------------------------------------------
+
+    @Test
+    fun `each manager app is reported under its own flavour`() {
+        val presence = ManagerPresence.of(
+            listOf(
+                InstalledManager("me.weishu.kernelsu", "KernelSU", KernelSuFlavor.KernelSu, false),
+                InstalledManager("com.rifsxd.ksunext", "KernelSU-Next", KernelSuFlavor.KernelSuNext, false),
+            ),
+        )
+
+        assertTrue(presence.installed(KernelSuFlavor.KernelSu))
+        assertTrue(presence.installed(KernelSuFlavor.KernelSuNext))
+    }
+
+    @Test
+    fun `a manager on the phone alone does not vouch for the other one`() {
+        // These are separate apps and only one of them can be in the kernel, so having one says
+        // nothing about the other - and the phone with a manager installed and nothing loaded is the
+        // state a fresh install leaves, which is the one worth seeing before a run rather than after.
+        val presence = ManagerPresence.of(
+            listOf(InstalledManager("me.weishu.kernelsu", "KernelSU", KernelSuFlavor.KernelSu, false)),
+        )
+
+        assertTrue(presence.installed(KernelSuFlavor.KernelSu))
+        assertFalse(presence.installed(KernelSuFlavor.KernelSuNext))
+    }
+
+    @Test
+    fun `a manager whose package and label say neither flavour is filed under neither`() {
+        // KernelSU-Next's spoofed manager build rewrites its package to three random words, so an
+        // unnameable one is a real state rather than a parse failure - and attributing it to a project
+        // would put it in the wrong row.
+        val presence = ManagerPresence.of(
+            listOf(InstalledManager("com.three.random.words", "Settings", null, true)),
+        )
+
+        assertFalse(presence.installed(KernelSuFlavor.KernelSu))
+        assertFalse(presence.installed(KernelSuFlavor.KernelSuNext))
+    }
+
+    @Test
+    fun `nothing installed reads as neither installed`() {
+        assertFalse(ManagerPresence.of(emptyList()).installed(KernelSuFlavor.KernelSu))
+        assertFalse(ManagerPresence().installed(KernelSuFlavor.KernelSuNext))
     }
 }
