@@ -39,6 +39,7 @@ object AppPreferences {
     private const val LOAD_KERNEL_SU = "load_kernel_su"
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
+    private const val RETRY_AFTER_REBOOT = "retry_after_reboot_boot"
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
     private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
     private const val RUN_STALL_SECONDS = "run_stall_seconds"
@@ -196,6 +197,38 @@ object AppPreferences {
             .putBoolean(BOOT_ROOT_MODE, enabled)
             .apply()
     }
+
+    /**
+     * Arms one retry of the install for the *next* boot, or forgets one.
+     *
+     * Stored as the boot it was armed in rather than as a flag, because the whole promise is "after a
+     * reboot": a run that was armed while the phone was up must not be started by the same kernel boot,
+     * or the user would get the same clean-window attempt they declined when they chose to reboot.
+     * Passing null is what consumes it.
+     */
+    fun setRetryAfterReboot(context: Context, armedForBoot: String?) {
+        val editor = prefs(context).edit()
+        if (armedForBoot == null) {
+            editor.remove(RETRY_AFTER_REBOOT)
+        } else {
+            editor.putString(RETRY_AFTER_REBOOT, armedForBoot)
+        }
+        // Committed rather than applied: the retry is armed before a reboot is asked for, and an
+        // asynchronous write that had not landed would lose the whole decision.
+        editor.commit()
+    }
+
+    fun retryArmedInBoot(context: Context): String? =
+        prefs(context).getString(RETRY_AFTER_REBOOT, null)?.takeIf(String::isNotBlank)
+
+    /** Whether a retry is armed and this is not the boot it was armed in. */
+    fun retryPendingForBoot(context: Context, bootToken: String?): Boolean {
+        val armed = retryArmedInBoot(context) ?: return false
+        return armed != bootToken
+    }
+
+    /** Whether a retry is armed at all, whatever boot armed it. */
+    fun retryArmed(context: Context): Boolean = retryArmedInBoot(context) != null
 
     /**
      * Where a run takes its payload from. Online is the default because it is the mode that follows

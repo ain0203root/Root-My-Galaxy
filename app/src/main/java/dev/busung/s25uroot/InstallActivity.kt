@@ -38,7 +38,9 @@ import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -52,10 +54,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -70,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.busung.s25uroot.ui.theme.RootMyGalaxyTheme
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class InstallActivity : ComponentActivity() {
     private val installViewModel by viewModels<InstallViewModel>()
@@ -98,6 +105,8 @@ class InstallActivity : ComponentActivity() {
                     installState = installState,
                     onRetry = { installViewModel.install(selectionId) },
                     onSkipBootSettle = { installViewModel.skipBootSettle() },
+                    onStop = { installViewModel.stopRun() },
+                    onRebootAndRetry = { installViewModel.armRetryAfterReboot() },
                     onClose = ::finish,
                 )
             }
@@ -138,10 +147,17 @@ private fun InstallScreen(
     installState: InstallUiState,
     onRetry: () -> Unit,
     onSkipBootSettle: () -> Unit,
+    onStop: () -> Unit,
+    /** Arms one retry for the next boot and reboots; reports whether the reboot was requested. */
+    onRebootAndRetry: suspend () -> Boolean,
     onClose: () -> Unit,
 ) {
     val logScrollState = rememberScrollState()
     val view = LocalView.current
+    var showRetryChoice by remember { mutableStateOf(false) }
+    // Whether a reboot was *asked for*, which is all the app can know: null while nothing has been
+    // asked, false when the phone would not take the request.
+    var retryNotice by remember { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(installState.log) {
         delay(40)
         logScrollState.scrollTo(logScrollState.maxValue)
@@ -180,7 +196,11 @@ private fun InstallScreen(
             }
 
             InstallerStatusCard(installState)
-            InstallerSteps(installState.phase, installState.failure)
+            InstallerSteps(
+                phase = installState.phase,
+                failure = installState.failure,
+                stoppedAt = installState.stoppedAt,
+            )
             InstallerLog(
                 output = installState.log,
                 // A height of its own, because this panel is the only continuous account of a run: as a
@@ -209,48 +229,159 @@ private fun InstallScreen(
                 }
             }
 
-            if (!installState.busy) {
-                Row(
+            // Offered while the run is in flight, which is the only way out of a run that has stopped
+            // making progress: back is disabled for the length of a run, and a payload that is hung has
+            // nothing else that could be pressed. It is a tonal button below the log rather than beside
+            // the run's own controls, because stopping is not part of what the run is doing.
+            if (installState.busy) {
+                FilledTonalButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onStop()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = 20.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    if (installState.phase == InstallPhase.Failed) {
-                        FilledTonalButton(
-                            onClick = {
-                                clickHaptic(view)
-                                onClose()
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(stringResource(R.string.action_close))
-                        }
-                        Button(
-                            onClick = {
-                                clickHaptic(view)
-                                onRetry()
-                            },
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Text(stringResource(R.string.action_retry))
-                        }
-                    } else if (
-                        installState.phase == InstallPhase.Installed ||
-                        installState.phase == InstallPhase.RootOnly
-                    ) {
-                        Button(
-                            onClick = {
-                                clickHaptic(view)
-                                onClose()
-                            },
+                    Text(stringResource(R.string.action_stop_run))
+                }
+            }
+
+            if (!installState.busy) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    // The step after a successful load, and the reason it is here rather than only in
+                    // Settings: KernelSU has just been loaded into the running kernel, and the modules
+                    // that go with it are mounted but not yet in a Zygote. A userspace restart is what
+                    // puts them there, and asking for it from the screen that just finished is the
+                    // moment the user is thinking about it.
+                    if (installState.phase == InstallPhase.Installed) {
+                        RecoveryActionButton(
+                            tool = RecoveryTool.SoftReboot,
+                            label = stringResource(R.string.install_load_modules),
                             modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(stringResource(R.string.action_done))
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        when (installState.phase) {
+                            InstallPhase.Failed, InstallPhase.Stopped -> {
+                                FilledTonalButton(
+                                    onClick = {
+                                        clickHaptic(view)
+                                        onClose()
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(stringResource(R.string.action_close))
+                                }
+                                Button(
+                                    onClick = {
+                                        clickHaptic(view)
+                                        showRetryChoice = true
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Text(stringResource(R.string.action_retry))
+                                }
+                            }
+                            InstallPhase.Installed, InstallPhase.RootOnly -> Button(
+                                onClick = {
+                                    clickHaptic(view)
+                                    onClose()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(stringResource(R.string.action_done))
+                            }
+                            else -> Unit
                         }
                     }
                 }
             }
+        }
+    }
+
+    // Retrying straight away is offered second and named for what it costs: the exploit is a race
+    // against a boot that is already busy, and the same boot has already had one attempt go through
+    // it. The reboot is first because it is the better odds, and because it is the option that keeps
+    // everything the device has done this boot out of the way of the next attempt.
+    if (showRetryChoice) {
+        val scope = rememberCoroutineScope()
+        var arming by remember { mutableStateOf(false) }
+        AlertDialog(
+            onDismissRequest = { if (!arming) showRetryChoice = false },
+            icon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
+            title = { Text(stringResource(R.string.retry_choice_title)) },
+            text = { Text(stringResource(R.string.retry_choice_body)) },
+            confirmButton = {
+                TextButton(
+                    enabled = !arming,
+                    onClick = {
+                        clickHaptic(view)
+                        arming = true
+                        scope.launch {
+                            val rebooted = onRebootAndRetry()
+                            arming = false
+                            showRetryChoice = false
+                            retryNotice = rebooted
+                        }
+                    },
+                ) {
+                    Text(stringResource(R.string.retry_after_reboot))
+                }
+            },
+            dismissButton = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        enabled = !arming,
+                        onClick = {
+                            clickHaptic(view)
+                            showRetryChoice = false
+                        },
+                    ) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                    TextButton(
+                        enabled = !arming,
+                        onClick = {
+                            clickHaptic(view)
+                            showRetryChoice = false
+                            onRetry()
+                        },
+                    ) {
+                        Text(stringResource(R.string.retry_now))
+                    }
+                }
+            },
+        )
+    }
+
+    // What a reboot that could not be asked for means: the retry is armed either way, so the only
+    // thing the user has to be told is the part the app could not do. A reboot that *was* requested
+    // needs no dialog - the screen is about to go away with the phone.
+    retryNotice?.let { rebooted ->
+        if (!rebooted) {
+            AlertDialog(
+                onDismissRequest = { retryNotice = null },
+                icon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
+                title = { Text(stringResource(R.string.retry_armed_title)) },
+                text = { Text(stringResource(R.string.retry_armed_body)) },
+                confirmButton = {
+                    TextButton(onClick = {
+                        clickHaptic(view)
+                        retryNotice = null
+                    }) {
+                        Text(stringResource(R.string.action_close))
+                    }
+                },
+            )
         }
     }
 }
@@ -330,7 +461,12 @@ private fun InstallerStatusCard(installState: InstallUiState) {
             }
             installState.failure?.let { failure -> FailureReport(failure) }
             LinearProgressIndicator(
-                progress = { installProgress(installState.phase, installState.failure?.stage) },
+                progress = {
+                    installProgress(
+                        phase = installState.phase,
+                        failureStage = installState.failure?.stage ?: installState.stoppedAt,
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
                 color = LocalContentColor.current,
                 trackColor = LocalContentColor.current.copy(alpha = 0.2f),
@@ -341,7 +477,11 @@ private fun InstallerStatusCard(installState: InstallUiState) {
 }
 
 @Composable
-private fun InstallerSteps(phase: InstallPhase, failure: RunFailure?) {
+private fun InstallerSteps(
+    phase: InstallPhase,
+    failure: RunFailure?,
+    stoppedAt: RunStage? = null,
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -354,7 +494,7 @@ private fun InstallerSteps(phase: InstallPhase, failure: RunFailure?) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             installerSteps.forEachIndexed { index, step ->
-                val stepState = installerStepState(phase, index, failure?.stage)
+                val stepState = installerStepState(phase, index, failure?.stage ?: stoppedAt)
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -492,6 +632,9 @@ private fun installPhaseDetail(installState: InstallUiState): String =
                 InstallPhase.Installed -> R.string.phase_installed
                 InstallPhase.RootOnly -> R.string.phase_root_only
                 InstallPhase.Failed -> R.string.phase_failed
+                // The status card's own message is "Stopped by you", so the detail line says what that
+                // means for the device rather than repeating it.
+                InstallPhase.Stopped -> R.string.phase_stopped
             },
         )
     }
@@ -565,6 +708,10 @@ internal fun installProgress(phase: InstallPhase, failureStage: RunStage?): Floa
     InstallPhase.Failed -> failureStage
         ?.let { reached -> (installerStepForStage(reached) + 1) / installerSteps.size.toFloat() }
         ?: 0f
+    // Stopped where it was stopped, for the same reason a failure is: the bar's job is to say how far
+    // the run got, and how far it got is the part with consequences.
+    InstallPhase.Stopped -> installerStepForStage(failureStage ?: RunStage.Target)
+        .let { reached -> (reached + 1) / installerSteps.size.toFloat() }
 }
 
 /** What a step in the install card is doing, or what it turned out to be. */
@@ -627,6 +774,19 @@ internal fun installerStepState(
         }
     }
 
+    // Stopped, not failed: the steps behind it were done, and the one it was stopped in is where work
+    // was happening rather than a step that did something wrong - which is why it gets the running mark
+    // and not the error one.
+    InstallPhase.Stopped -> {
+        val stoppedAt = failureStage?.let(::installerStepForStage)
+        when {
+            stoppedAt == null -> InstallerStepState.Pending
+            stepIndex < stoppedAt -> InstallerStepState.Done
+            stepIndex == stoppedAt -> InstallerStepState.Active
+            else -> InstallerStepState.Pending
+        }
+    }
+
     else -> {
         val activeIndex = when (phase) {
             InstallPhase.Checking, InstallPhase.Ready, InstallPhase.Settling -> 0
@@ -635,7 +795,11 @@ internal fun installerStepState(
             InstallPhase.LoadingKernelSu -> 3
             // Unreachable: the branches above take these phases. Listed so a new phase cannot fall
             // through to the first step and look like a support check in progress.
-            InstallPhase.Installed, InstallPhase.RootOnly, InstallPhase.Failed -> 0
+            InstallPhase.Installed,
+            InstallPhase.RootOnly,
+            InstallPhase.Failed,
+            InstallPhase.Stopped,
+            -> 0
         }
         when {
             stepIndex < activeIndex -> InstallerStepState.Done

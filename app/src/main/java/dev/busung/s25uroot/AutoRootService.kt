@@ -141,8 +141,12 @@ class AutoRootService : Service() {
         try {
             withTimeout(GATE_LIMIT_MILLIS) {
                 awaitSettledFloor()
-                require(AppPreferences.bootRootMode(this@AutoRootService)) {
-                    "Root on boot was turned off while waiting"
+                require(
+                    AppPreferences.bootRootMode(this@AutoRootService) ||
+                        AppPreferences.retryArmed(this@AutoRootService),
+                ) {
+                    // Either way of asking this boot for an install was withdrawn while the gate waited.
+                    "The automatic install was turned off while waiting"
                 }
                 val bootToken = AutoRootSupport.currentBootToken()
                     ?: error(getString(R.string.error_boot_id))

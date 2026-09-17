@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -37,6 +38,16 @@ enum class InstallPhase {
      */
     RootOnly,
     Failed,
+
+    /**
+     * The user stopped the run.
+     *
+     * Its own phase rather than [Failed], because nothing here failed and the difference is what the
+     * screen should say next: a failure is the app's account of what went wrong, and this is the record
+     * of a decision the user made. The log says which stage was interrupted, because "stopped during the
+     * exploit" and "stopped while downloading" leave the device in very different states.
+     */
+    Stopped,
 }
 
 data class InstallUiState(
@@ -46,6 +57,13 @@ data class InstallUiState(
     val log: String = "",
     /** Set when [phase] is [InstallPhase.Failed], so the screen can name the stage and the cause. */
     val failure: RunFailure? = null,
+    /**
+     * The stage a run was stopped in, when it was stopped rather than failed.
+     *
+     * Kept apart from [failure] because the card reads the two differently: a failure marks the step
+     * that went wrong, and a stop marks the step that was in flight when it was abandoned.
+     */
+    val stoppedAt: RunStage? = null,
 ) {
     val busy: Boolean
         get() = phase in setOf(
@@ -172,6 +190,16 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     /** Set by the run screen's override while a boot-settle wait is in progress. */
     @Volatile
     private var bootSettleOverridden = false
+
+    /**
+     * Set when the user stops the run, so its cancellation is not read as a failure.
+     *
+     * A cancellation is delivered as an exception in the run's own coroutine, which is the same shape
+     * a real failure arrives in, so the two are told apart by this rather than by the exception: the
+     * exception type says the job was cancelled, not that a person asked for it.
+     */
+    @Volatile
+    private var stopRequested = false
     private val publishClaim = PublishClaim()
     val state: StateFlow<InstallUiState> = mutableState.asStateFlow()
     val history: StateFlow<List<InstallHistoryEntry>> = mutableHistory.asStateFlow()
@@ -292,6 +320,40 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         bootSettleOverridden = true
     }
 
+    /**
+     * Ends the run on the user's word.
+     *
+     * Cancelling the coroutine is what stops it: every wait in the run is cancellable, and the places
+     * that hold a process of their own release it in a `finally`, so a stop reaches the payload rather
+     * than merely stopping the app from watching it. What it cannot promise is that the payload process
+     * is gone - a process started through a transport is the device's until it exits - so the screen
+     * says so instead of claiming a clean stop.
+     *
+     * The flag is set before the cancel, and the run's cancellation handler reads it: a cancellation
+     * arrives in the same shape as a failure, and only the flag distinguishes "stopped" from "broke".
+     */
+    fun stopRun() {
+        if (installJob?.isActive != true) return
+        stopRequested = true
+        installJob?.cancel()
+    }
+
+    /**
+     * Arms one retry for the next boot and asks the phone to reboot into it.
+     *
+     * Returns whether the reboot was actually requested. The arming happens first and is committed to
+     * disk, because the reboot can beat an asynchronous write and take the decision with it - and
+     * because the armed retry is what makes a failed reboot recoverable: the user reboots by hand and
+     * gets the install they asked for either way.
+     *
+     * The boot it was armed in is recorded with it, so the same boot cannot consume it: an install
+     * started without a reboot would be the attempt the user turned down when they chose to reboot.
+     */
+    suspend fun armRetryAfterReboot(): Boolean {
+        AppPreferences.setRetryAfterReboot(app, currentBootToken())
+        return requestReboot()
+    }
+
     fun install(
         selectionId: String? = null,
         forceStandalone: Boolean = false,
@@ -310,6 +372,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         // outrun is a discovery job that is already past its last suspension point.
         publishClaim.claim()
         bootSettleOverridden = false
+        stopRequested = false
         installJob = viewModelScope.launch(Dispatchers.IO) {
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
@@ -514,6 +577,26 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 finishHistory(
                     if (loadKernelSu) InstallRunResult.Succeeded else InstallRunResult.RootOnly,
                 )
+            } catch (cancelled: CancellationException) {
+                // Stopped, not failed: the run was cancelled, and the flag says whether a person asked
+                // for it. Either way this must be rethrown - swallowing a cancellation would leave the
+                // coroutine machinery believing the work is still running.
+                val stage = activeStage
+                appendLog(
+                    app.getString(
+                        if (stopRequested) R.string.log_run_stopped else R.string.log_run_interrupted,
+                        app.getString(stage.label),
+                    ),
+                )
+                if (stopRequested) {
+                    updateHistory { entry ->
+                        entry.copy(failureStage = stage, failureReason = "Stopped before it finished")
+                    }
+                    finishHistory(InstallRunResult.Stopped)
+                    setPhase(InstallPhase.Stopped, app.getString(R.string.status_run_stopped))
+                    mutableState.value = mutableState.value.copy(stoppedAt = stage)
+                }
+                throw cancelled
             } catch (error: Throwable) {
                 // The stage and the last payload output travel with the failure: the message alone
                 // is the same for a download that failed and an exploit that gave up, and only one

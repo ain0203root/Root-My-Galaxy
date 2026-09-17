@@ -19,6 +19,16 @@ enum class InstallRunResult {
      */
     RootOnly,
     Failed,
+
+    /**
+     * The user stopped the run before it finished.
+     *
+     * Not [Failed]: nothing about the run went wrong, and whoever reads the history later is asking
+     * which runs did not complete rather than which ones broke. The stage it was stopped in is recorded
+     * with it, because that is the part with consequences - a payload stopped mid-exploit may still be
+     * running on the device.
+     */
+    Stopped,
 }
 
 data class InstallHistoryEntry(

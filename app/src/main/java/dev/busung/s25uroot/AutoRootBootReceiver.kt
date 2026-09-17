@@ -43,7 +43,9 @@ class AutoRootBootReceiver : BroadcastReceiver() {
         }
 
         if (rootActive) return
-        if (!AppPreferences.bootRootMode(context)) return
+        // A one-shot retry armed from the run screen counts here too: those two are the only ways this
+        // boot can have been asked for an install, and the gate is where either one is carried out.
+        if (!AppPreferences.bootRootMode(context) && !AppPreferences.retryArmed(context)) return
 
         // The boot id is the only thing that tells a real reboot from a userspace restart that
         // re-emits BOOT_COMPLETED, and claiming it has to happen before anything is started.

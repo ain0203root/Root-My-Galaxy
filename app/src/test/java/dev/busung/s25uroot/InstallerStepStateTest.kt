@@ -30,6 +30,31 @@ class InstallerStepStateTest {
     }
 
     @Test
+    fun `a stop marks the steps behind it done and the one it was in as running`() {
+        // Stopping is not failing, and the card has to say which of the two happened: a ✕ on a step
+        // that did nothing wrong, on a run the user themselves ended, is the app blaming its own work
+        // for a decision that was not its.
+        assertEquals(
+            listOf(
+                InstallerStepState.Done,
+                InstallerStepState.Done,
+                InstallerStepState.Active,
+                InstallerStepState.Pending,
+            ),
+            states(InstallPhase.Stopped, RunStage.Exploit),
+        )
+    }
+
+    @Test
+    fun `a stop leaves the bar where the run had reached`() {
+        assertEquals(
+            (installerStepForStage(RunStage.Exploit) + 1) / installerSteps.size.toFloat(),
+            installProgress(InstallPhase.Stopped, RunStage.Exploit),
+            0.0001f,
+        )
+    }
+
+    @Test
     fun `a failure during the download leaves nothing claimed after it`() {
         assertEquals(
             listOf(

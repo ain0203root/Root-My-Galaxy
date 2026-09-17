@@ -3,13 +3,18 @@ package dev.busung.s25uroot
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -18,20 +23,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-private enum class RecoveryTool {
-    RestartZygote,
-    SoftReboot,
-    RebootAndUnroot,
-}
 
 private data class RecoveryMessage(
     val title: String,
@@ -80,60 +78,7 @@ internal fun RootRecoverySection(
         if (running != null) return
         running = tool
         scope.launch {
-            // Every shell here is a real process that is waited on, and two of the actions hold the
-            // channel open until the child acknowledges them, so none of it may run on the UI thread.
-            val outcome = withContext(Dispatchers.IO) {
-                val bootToken = kernelBootToken()
-                // Only worked out if something is refused, and worked out then from what the device
-                // says about itself rather than from the refusal: "no root here" and "no root for
-                // this app" are different problems with different fixes, and the readings that tell
-                // them apart (the module list, the app's own `su`) cost more than the answer is worth
-                // on a run that is going to work.
-                val refusalDetail by lazy {
-                    context.getString(
-                        when (recoveryRefusal(KernelSuRuntime.loadedInThisBoot())) {
-                            RecoveryRefusal.RootMissing -> R.string.recovery_root_required
-                            RecoveryRefusal.ShellMissing -> R.string.recovery_shell_unavailable
-                        },
-                    )
-                }
-                when {
-                    KernelSuRuntime.rootShell("id") == null -> RecoveryOutcome(
-                        accepted = false,
-                        detail = refusalDetail,
-                    )
-                    bootToken == null -> RecoveryOutcome(
-                        accepted = false,
-                        detail = context.getString(R.string.error_boot_id),
-                    )
-                    else -> {
-                        val rootShell: (String) -> ShizukuController.ShellResult = { command ->
-                            KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
-                                NO_ROOT_SHELL_EXIT,
-                                refusalDetail,
-                            )
-                        }
-                        when (tool) {
-                            RecoveryTool.RestartZygote ->
-                                RootRecovery.restartZygote(rootShell, bootToken)
-                            RecoveryTool.SoftReboot -> RootRecovery.softReboot(
-                                shell = rootShell,
-                                bootToken = bootToken,
-                                capabilities = RootRecovery.capabilities(rootShell)
-                                    ?: KsudCapabilities(),
-                            )
-                            RecoveryTool.RebootAndUnroot -> {
-                                // Cleared before the reboot is asked for, and put back if the request
-                                // is refused: a reboot that happened first would come back rooted.
-                                AppPreferences.setBootRootMode(context, false)
-                                RootRecovery.rebootAndUnroot(rootShell, bootToken).also { result ->
-                                    if (!result.accepted) AppPreferences.setBootRootMode(context, true)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            val outcome = runRecoveryAction(context, tool)
             // The stored state is the one the screen follows, so a refusal puts root on boot back
             // on screen as well as on disk, and an accepted one leaves both off.
             if (tool == RecoveryTool.RebootAndUnroot) {
@@ -215,6 +160,109 @@ internal fun RootRecoverySection(
                 onClick = { confirming = tool },
             )
         }
+    }
+}
+
+/**
+ * One repair action as a button, with the section's own confirmation and report.
+ *
+ * The run screen offers *Restart userspace* after an install that just loaded KernelSU, and it offers
+ * it as this rather than as a second dialog of its own: the action costs the same thing wherever it is
+ * started from - every running app closes - so the confirmation says the same thing and the outcome is
+ * reported the same way.
+ */
+@Composable
+internal fun RecoveryActionButton(
+    tool: RecoveryTool,
+    label: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onBootRootModeChanged: (Boolean) -> Unit = {},
+) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    var running by remember { mutableStateOf(false) }
+    var confirming by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf<RecoveryMessage?>(null) }
+
+    FilledTonalButton(
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+            confirming = true
+        },
+        modifier = modifier,
+        enabled = enabled && !running,
+    ) {
+        if (running) {
+            LoadingIndicator(modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        } else {
+            Icon(tool.icon(), contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+        }
+        Text(label)
+    }
+
+    if (confirming) {
+        AlertDialog(
+            onDismissRequest = { confirming = false },
+            icon = { Icon(tool.icon(), contentDescription = null) },
+            title = { Text(stringResource(tool.titleRes())) },
+            text = { Text(stringResource(tool.confirmRes())) },
+            confirmButton = {
+                TextButton(onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    confirming = false
+                    running = true
+                    scope.launch {
+                        val outcome = runRecoveryAction(context, tool)
+                        if (tool == RecoveryTool.RebootAndUnroot) {
+                            onBootRootModeChanged(AppPreferences.bootRootMode(context))
+                        }
+                        message = RecoveryMessage(
+                            title = context.getString(tool.titleRes()),
+                            detail = if (outcome.accepted) {
+                                context.getString(tool.acceptedRes())
+                            } else {
+                                outcome.detail
+                            },
+                            failure = !outcome.accepted,
+                        )
+                        running = false
+                    }
+                }) {
+                    Text(stringResource(tool.actionRes()))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirming = false }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+
+    message?.let { shown ->
+        AlertDialog(
+            onDismissRequest = { message = null },
+            icon = {
+                Icon(
+                    if (shown.failure) Icons.Rounded.Warning else Icons.Rounded.Shield,
+                    contentDescription = null,
+                )
+            },
+            title = { Text(shown.title) },
+            text = { Text(shown.detail) },
+            confirmButton = {
+                TextButton(onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+                    message = null
+                }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
     }
 }
 

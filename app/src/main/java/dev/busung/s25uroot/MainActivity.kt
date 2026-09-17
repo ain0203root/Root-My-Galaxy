@@ -76,6 +76,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Code
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.BatterySaver
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
@@ -406,18 +407,43 @@ class MainActivity : ComponentActivity() {
                         AppPreferences.setShizukuBootMode(this, enabled)
                         shizukuBootMode = enabled
                     },
-                    openInstaller = { selectionId ->
-                        val installer = Intent(this, InstallActivity::class.java)
-                            .putExtra(InstallActivity.EXTRA_INSTALL_REQUEST_ID, UUID.randomUUID().toString())
-                        if (selectionId != null) {
-                            installer.putExtra(InstallActivity.EXTRA_PROFILE_ID, selectionId)
-                        }
-                        startActivity(installer)
-                    },
+                    openInstaller = ::openInstaller,
                 )
             }
         }
         maybeRequestBatteryExemption()
+        maybeResumeArmedRetry()
+    }
+
+    private fun openInstaller(selectionId: String? = null) {
+        val installer = Intent(this, InstallActivity::class.java)
+            .putExtra(InstallActivity.EXTRA_INSTALL_REQUEST_ID, UUID.randomUUID().toString())
+        if (selectionId != null) {
+            installer.putExtra(InstallActivity.EXTRA_PROFILE_ID, selectionId)
+        }
+        startActivity(installer)
+    }
+
+    /**
+     * Starts the install a user asked for before the last reboot, when nothing else has.
+     *
+     * The boot gate runs it on its own only for a device that already has a cache to run from - its
+     * runs are offline by design, because at boot there is no network to rely on and nobody to wait for
+     * one. A device whose last install never succeeded has no cache, which is exactly the device whose
+     * user was told "restart and retry" - so for that one the retry is taken here, the first time the
+     * app is opened after the boot it was armed for.
+     *
+     * The armed boot is the test, not a timestamp: a retry armed in the boot the phone is still running
+     * is one the user armed and then did not reboot for, and starting it would be the attempt they
+     * turned down when they chose to reboot instead.
+     */
+    private fun maybeResumeArmedRetry() {
+        val current = kernelBootToken() ?: return
+        if (!AppPreferences.retryPendingForBoot(this, current)) return
+        // Consumed before the install starts, so a process death mid-run cannot leave an armed retry
+        // that would start another one on the next launch.
+        AppPreferences.setRetryAfterReboot(this, null)
+        openInstaller()
     }
 
     override fun onResume() {
@@ -1883,6 +1909,7 @@ private fun historyResultLabel(result: InstallRunResult): String = stringResourc
         InstallRunResult.Succeeded -> R.string.history_succeeded
         InstallRunResult.RootOnly -> R.string.history_root_only
         InstallRunResult.Failed -> R.string.history_failed
+        InstallRunResult.Stopped -> R.string.history_stopped
     },
 )
 
@@ -1891,6 +1918,7 @@ private fun historyResultIcon(result: InstallRunResult): ImageVector = when (res
     InstallRunResult.Succeeded -> Icons.Rounded.CheckCircle
     InstallRunResult.RootOnly -> Icons.Rounded.LockOpen
     InstallRunResult.Failed -> Icons.Rounded.Error
+    InstallRunResult.Stopped -> Icons.Rounded.Block
 }
 
 @Composable
@@ -1899,6 +1927,7 @@ private fun historyResultContainerColor(result: InstallRunResult): Color = when 
     InstallRunResult.Succeeded -> MaterialTheme.colorScheme.primaryContainer
     InstallRunResult.RootOnly -> MaterialTheme.colorScheme.secondaryContainer
     InstallRunResult.Failed -> MaterialTheme.colorScheme.errorContainer
+    InstallRunResult.Stopped -> MaterialTheme.colorScheme.surfaceContainerHighest
 }
 
 @Composable
@@ -1907,6 +1936,7 @@ private fun historyResultContentColor(result: InstallRunResult): Color = when (r
     InstallRunResult.Succeeded -> MaterialTheme.colorScheme.onPrimaryContainer
     InstallRunResult.RootOnly -> MaterialTheme.colorScheme.onSecondaryContainer
     InstallRunResult.Failed -> MaterialTheme.colorScheme.onErrorContainer
+    InstallRunResult.Stopped -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
 @Composable

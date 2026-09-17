@@ -130,9 +130,13 @@ internal object AutoRootSupport {
     fun claimAttempt(context: Context, bootToken: String): Boolean {
         val preferences = context.getSharedPreferences(STATE, Context.MODE_PRIVATE)
         if (preferences.getString(LAST_ATTEMPT_TOKEN, null) == bootToken) return false
-        return preferences.edit()
+        val stored = preferences.edit()
             .putString(LAST_ATTEMPT_TOKEN, bootToken)
             .commit()
+        // Spending the attempt is what consumes a one-shot retry: the flag means "this boot gets an
+        // install it was not otherwise owed", and it has now been given one.
+        if (stored) AppPreferences.setRetryAfterReboot(context, null)
+        return stored
     }
 
     /**
@@ -143,7 +147,11 @@ internal object AutoRootSupport {
      */
     fun decision(context: Context, bootToken: String, kernelSuActive: Boolean): AutoRootDecision =
         autoRootDecision(
-            enabled = AppPreferences.bootRootMode(context),
+            // A retry armed before a reboot is this boot asking for one install, which is what the
+            // rule's first input means - and it only counts in a boot *other* than the one that armed
+            // it, so arming it cannot start the attempt the user declined when they chose to reboot.
+            enabled = AppPreferences.bootRootMode(context) ||
+                AppPreferences.retryPendingForBoot(context, bootToken),
             kernelSuLoadEnabled = AppPreferences.loadKernelSu(context),
             kernelSuActive = kernelSuActive,
             hasVerifiedInstall = hasVerifiedInstall(context),

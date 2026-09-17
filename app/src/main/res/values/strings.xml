@@ -39,6 +39,18 @@
     <string name="settings_payload_mode_offline">Offline</string>
     <string name="settings_payload_mode_summary_online">Read the catalog and download: a run uses the revision your sources are on now</string>
     <string name="settings_payload_mode_summary_offline">Use the last payload that completed a verified run, with no network at all</string>
+    <string name="action_stop_run">Stop this run</string>
+    <string name="status_run_stopped">Stopped by you</string>
+    <string name="phase_stopped">The run was abandoned at the stage above. Nothing on the device is undone by stopping it.</string>
+    <string name="log_run_stopped">[*] Stopped by you during the %1$s stage. Anything it started on the device keeps running: a payload process is the device\'s, not this app\'s, and the next run will say if it is still there.</string>
+    <string name="log_run_interrupted">[*] The run was cancelled during the %1$s stage</string>
+    <string name="retry_choice_title">Retry the install</string>
+    <string name="retry_choice_body">A fresh boot gives the exploit a cleaner window: it runs against a settled kernel rather than the one this attempt has already been through. Restarting the phone and retrying is the better odds - the install then runs on its own after the boot, or the next time you open this app if the phone has no cached payload to run it with. Retrying straight away is faster and less likely to work.</string>
+    <string name="retry_after_reboot">Restart and retry</string>
+    <string name="retry_now">Retry anyway</string>
+    <string name="retry_armed_title">The retry is armed</string>
+    <string name="retry_armed_body">This app could not reboot the phone - that needs root, which this run did not get - so restart it yourself. The install will start on its own when the phone is back up.</string>
+    <string name="install_load_modules">Restart userspace to load modules</string>
     <string name="settings_cached_payload">Cached payload</string>
     <string name="settings_cached_payload_none">Nothing cached yet</string>
     <string name="settings_cached_payload_summary">Verified files an offline run may use</string>
@@ -159,6 +171,7 @@
     <string name="history_succeeded">Succeeded</string>
     <string name="history_root_only">Root only</string>
     <string name="history_failed">Failed</string>
+    <string name="history_stopped">Stopped</string>
     <string name="history_detail_title">Run details</string>
     <string name="history_started">Started: %1$s</string>
     <string name="history_completed">Completed: %1$s</string>
