@@ -3281,7 +3281,7 @@ private fun SettingsPage(
                     // cannot both be in the kernel, so a switch made in a boot that already carries
                     // one only takes effect after a restart. It says which flavour this boot is
                     // holding, because "after a restart" on its own leaves the reason to be guessed.
-                    valueBelow = loadedFlavor
+                    notice = loadedFlavor
                         ?.takeIf { it != kernelsuFlavor }
                         ?.let { stringResource(R.string.settings_ksu_flavor_pending, it.label) },
                     position = SettingsCardPosition.Top,
@@ -5200,7 +5200,16 @@ internal fun SettingsCard(
      * and leaves the rest.
      */
     titleValue: String? = null,
-    valueBelow: String? = null,
+    /**
+     * One short line of state that is not a setting: why this card is not doing what it says.
+     *
+     * Kept to a single line on purpose. It used to be a sentence written like body copy - the same
+     * size and colour as the description above it - which made a row that carried one into a paragraph
+     * six lines tall, and made state read as more description. A small icon and a line beside it is
+     * what tells the two apart at a glance, and what keeps this row the height of its neighbours.
+     */
+    notice: String? = null,
+    noticeIcon: ImageVector = Icons.Rounded.RestartAlt,
     position: SettingsCardPosition = SettingsCardPosition.Single,
     busy: Boolean = false,
     /**
@@ -5266,7 +5275,7 @@ internal fun SettingsCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (valueBelow == null && value.isNotBlank()) {
+                if (notice == null && value.isNotBlank()) {
                     Text(
                         value,
                         style = MaterialTheme.typography.labelLarge,
@@ -5281,14 +5290,24 @@ internal fun SettingsCard(
                     )
                 }
             }
-            if (valueBelow != null) {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    valueBelow,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+            if (notice != null) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Icon(
+                        noticeIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        notice,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
             if (busy) {
                 Spacer(Modifier.height(10.dp))
