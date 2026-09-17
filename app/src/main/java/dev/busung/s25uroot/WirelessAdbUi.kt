@@ -26,7 +26,9 @@ import androidx.compose.ui.unit.dp
 internal fun WirelessAdbDialog(
     snapshot: WirelessAdbSnapshot?,
     busy: Boolean,
+    writeSecureSettingsMissing: Boolean,
     onPair: (forceRepair: Boolean) -> Unit,
+    onGrantPermission: () -> Unit,
     onOpenDeveloperOptions: () -> Unit,
     onTest: () -> Unit,
     onForget: () -> Unit,
@@ -59,6 +61,16 @@ internal fun WirelessAdbDialog(
                         )
                     }
                 }
+                // Said here rather than only as a state word on the card, because it is the difference
+                // between a screen that can turn wireless debugging on by itself and one that needs the
+                // setting already on: "Needs permission" without the way to get it is a dead end.
+                if (writeSecureSettingsMissing) {
+                    Text(
+                        text = stringResource(R.string.wireless_adb_permission_note),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 if (busy) {
                     Text(
                         text = stringResource(R.string.adb_pair_working),
@@ -69,6 +81,12 @@ internal fun WirelessAdbDialog(
         },
         confirmButton = {
             Column(modifier = Modifier.fillMaxWidth()) {
+                // First, because it is the one action that needs nothing already arranged on the device.
+                if (writeSecureSettingsMissing) {
+                    TextButton(enabled = !busy, onClick = onGrantPermission) {
+                        Text(stringResource(R.string.grant_action))
+                    }
+                }
                 TextButton(
                     enabled = !busy,
                     onClick = { onPair(snapshot?.keyPresent == true) },

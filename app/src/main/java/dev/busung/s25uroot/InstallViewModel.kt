@@ -550,7 +550,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // While the run still holds the root it just obtained: the permission below cannot be
                 // given any other way on the device, and the Shizuku start is what makes the next run
                 // possible without a cable. Neither can fail the install.
-                runCatching { PostRootSetup.apply(app) }
+                runCatching { PermissionGrant.writeSecureSettings(app) }
                     .onSuccess { outcome -> appendLog(outcome.logLine(app)) }
                     .onFailure { error ->
                         appendLog(

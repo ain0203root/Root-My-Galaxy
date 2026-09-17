@@ -2945,6 +2945,22 @@ private fun SettingsPage(
                     WirelessAdbDialog(
                         snapshot = wirelessSnapshot,
                         busy = wirelessBusy,
+                        writeSecureSettingsMissing = !PermissionGrant.hasPermission(context),
+                        onGrantPermission = {
+                            wirelessBusy = true
+                            scope.launch {
+                                val outcome = PermissionGrant.writeSecureSettings(context)
+                                // Re-read rather than assume: the transport that worked is worth naming,
+                                // and a grant that did not take has to leave the screen saying so.
+                                wirelessSnapshot = WirelessAdbDiagnostics.passiveSnapshot(context)
+                                wirelessBusy = false
+                                Toast.makeText(
+                                    context,
+                                    outcome.message(context),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        },
                         onPair = { forceRepair ->
                             // The code field lives in a notification, so pairing is started by an
                             // activity that asks for the permission first and clears a stale pairing
