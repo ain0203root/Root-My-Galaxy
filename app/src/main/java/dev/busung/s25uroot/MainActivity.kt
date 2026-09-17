@@ -157,6 +157,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import rikka.shizuku.Shizuku
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -1799,6 +1802,20 @@ private fun SettingsPage(
             Shizuku.removeBinderDeadListener(dead)
         }
     }
+    // The third way the answer changes, and the only one Shizuku will not tell us about: a grant or a
+    // revocation made in the Shizuku app itself, which sends this app no callback and does not kill the
+    // binder. Reading the state again whenever this screen comes back is what keeps the rows below
+    // describing the device rather than a snapshot from the last time the app was in front.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                shizukuAvailability = ShizukuController.availability()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     var shizukuStartResult by remember { mutableStateOf<String?>(null) }
     var showPayloadSourcesSheet by remember { mutableStateOf(false) }
     var showLocalPayloadDialog by remember { mutableStateOf(false) }
@@ -2259,7 +2276,20 @@ private fun SettingsPage(
                     // Shizuku decisions rather than under appearance.
                     icon = Icons.Rounded.VerifiedUser,
                     title = stringResource(R.string.shizuku_mode),
-                    description = stringResource(R.string.shizuku_mode_description),
+                    // The preference is the user's intent and is left alone when Shizuku cannot honour
+                    // it; what changes here is that the row stops describing an unusable preference as
+                    // if it were working. Read live, so a permission revoked in the Shizuku app - which
+                    // this app gets no callback for - shows up here rather than at the next run.
+                    description = stringResource(
+                        when {
+                            !shizukuMode -> R.string.shizuku_mode_description
+                            shizukuAvailability == ShizukuAvailability.WithoutPermission ->
+                                R.string.shizuku_mode_without_permission
+                            shizukuAvailability == ShizukuAvailability.NotRunning ->
+                                R.string.shizuku_mode_not_running
+                            else -> R.string.shizuku_mode_description
+                        },
+                    ),
                     checked = shizukuMode,
                     position = SettingsCardPosition.Top,
                     onCheckedChange = { enabled ->
@@ -2267,16 +2297,20 @@ private fun SettingsPage(
                         if (!enabled) {
                             onShizukuModeChanged(false)
                         } else {
-                            scope.launch {
-                                ShizukuController.pingUntilRunning()
-                                if (ShizukuController.isRunning()) {
-                                    onShizukuModeChanged(true)
-                                    if (!ShizukuController.isGranted()) {
-                                        ShizukuController.requestPermission()
+                            // Read at the moment of the tap, not from what was drawn: between the two
+                            // the user may have just come back from the Shizuku app.
+                            when (shizukuModeEnableRoute(ShizukuController.availability())) {
+                                ShizukuModeEnable.Enable -> onShizukuModeChanged(true)
+                                ShizukuModeEnable.RequestPermission -> scope.launch {
+                                    // Stored only once the grant lands. Turning the preference on first
+                                    // and asking afterwards leaves the app preferring a transport it is
+                                    // not allowed to use - and leaves this switch saying it is.
+                                    if (ShizukuController.requestPermission()) {
+                                        onShizukuModeChanged(true)
                                     }
-                                } else {
-                                    showShizukuMissingDialog = true
+                                    shizukuAvailability = ShizukuController.availability()
                                 }
+                                ShizukuModeEnable.ExplainMissing -> showShizukuMissingDialog = true
                             }
                         }
                     },

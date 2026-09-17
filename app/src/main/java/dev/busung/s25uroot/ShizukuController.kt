@@ -252,6 +252,35 @@ internal fun shizukuAvailability(running: Boolean, granted: Boolean): ShizukuAva
     else -> ShizukuAvailability.WithoutPermission
 }
 
+/** What turning the *use Shizuku* preference on should actually do, from what Shizuku is saying. */
+internal enum class ShizukuModeEnable {
+    /** Nothing in the way: store the preference. */
+    Enable,
+
+    /** A grant is the only thing missing, so ask for it and store the preference if it lands. */
+    RequestPermission,
+
+    /** There is no service to use: say what is missing instead of storing a preference that cannot work. */
+    ExplainMissing,
+}
+
+/**
+ * The rule, as one pure decision.
+ *
+ * It used to be a wait: enabling pinged the binder for up to three seconds and then guessed from the
+ * answer, which is the same race with a longer fuse - and it stored the preference *before* asking for
+ * the permission, so a refused prompt left the app preferring a transport it was not allowed to use and
+ * a switch saying that preference was on. The state is the input here, so there is nothing to wait for
+ * and nothing to guess.
+ */
+internal fun shizukuModeEnableRoute(availability: ShizukuAvailability): ShizukuModeEnable = when (
+    availability
+) {
+    ShizukuAvailability.Ready -> ShizukuModeEnable.Enable
+    ShizukuAvailability.WithoutPermission -> ShizukuModeEnable.RequestPermission
+    ShizukuAvailability.NotRunning -> ShizukuModeEnable.ExplainMissing
+}
+
 /**
  * Single-quotes [value] for the remote shell, closing and reopening the quote around any quote in
  * it. A payload path is built from a profile id, which the feed controls.

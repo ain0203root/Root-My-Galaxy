@@ -38,6 +38,25 @@ class ShizukuAvailabilityTest {
     }
 
     @Test
+    fun `enabling the mode asks for the grant when that is all that is missing`() {
+        assertEquals(
+            ShizukuModeEnable.RequestPermission,
+            shizukuModeEnableRoute(ShizukuAvailability.WithoutPermission),
+        )
+    }
+
+    @Test
+    fun `enabling the mode stores the preference only where it can be honoured`() {
+        // The two states where nothing has to be asked for or explained: Shizuku is usable, or the
+        // disabled switch is the honest answer because there is no service at all.
+        assertEquals(ShizukuModeEnable.Enable, shizukuModeEnableRoute(ShizukuAvailability.Ready))
+        assertEquals(
+            ShizukuModeEnable.ExplainMissing,
+            shizukuModeEnableRoute(ShizukuAvailability.NotRunning),
+        )
+    }
+
+    @Test
     fun `a grant without a service is still not running`() {
         // The precedence, stated: a permission answers a question about a service that is not there, so
         // it cannot make the app ready. `isGranted()` already implies a binder in the live reading; this

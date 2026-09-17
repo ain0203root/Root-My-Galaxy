@@ -440,6 +440,17 @@ snapshot taken while the screen is being built can predate a binder that is alre
 permission before acting since Shizuku offers no callback for a grant this app did not request, and then
 offers the one action still worth taking: start it, ask for the grant, or nothing at all.
 
+**Use Shizuku** above it reads the same state, which is what stops the switch from describing something
+the device is not doing. Enabling it used to ping the binder for up to three seconds and then guess from
+the answer — the same race with a longer fuse — and it stored the preference *before* asking for the
+permission, so a refused prompt left the app preferring a transport it was not allowed to use, with a
+switch saying that preference was on. The state decides now: running and allowed stores it, a missing
+grant is asked for and stored only if it lands, and no service at all says so instead of storing a
+preference that cannot work. The preference itself is never rewritten behind the user's back — a grant
+revoked in the Shizuku app does not silently clear it — but the row says what is true from then on,
+because the state is re-read every time the screen comes back: that third way the answer changes is the
+one Shizuku sends no callback for, and revoking does not kill the binder either.
+
 - Current Shizuku builds expose their starter as a native library inside their own APK, run with the
   path of the APK it belongs to; older or manually installed builds may have dropped a `start.sh` on
   shared storage. The native route is preferred, the legacy script is a fallback, and a device with

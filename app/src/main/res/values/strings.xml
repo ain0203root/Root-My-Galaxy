@@ -386,6 +386,8 @@
     <string name="repo_using_local_payload">Using local payload: %1$s</string>
     <string name="shizuku_mode">Use Shizuku</string>
     <string name="shizuku_mode_description">Use Shizuku to run the payload. This can improve reliability.</string>
+    <string name="shizuku_mode_without_permission">Use Shizuku is on, but this app is not allowed to use it right now, so a run falls back to its other transport until the grant is given</string>
+    <string name="shizuku_mode_not_running">Use Shizuku is on, but Shizuku is not running right now, so a run falls back to its other transport until it is started</string>
     <string name="settings_recovery">Recovery</string>
     <string name="recovery_confirm_restart_zygote">Restart the Android runtime now? Everything that is open will close, and the screen will go back to the lock screen.</string>
     <string name="recovery_confirm_soft_reboot">Let KernelSU restart the userspace now? Everything that is open will close, and the modules are walked through their normal order.</string>
