@@ -359,10 +359,8 @@
     <string name="payload_sources_failed">Some sources could not be loaded</string>
     <string name="payload_repository_label">Owner/Repository</string>
     <string name="payload_repository_hint">Used to fetch the support manifest and payload files.</string>
-    <string name="payload_repository_invalid">Use the owner/repository format</string>
     <string name="payload_branch">Branch, tag, or commit</string>
     <string name="payload_branch_hint">Branches and tags are read fresh on each run. A full commit SHA pins the source to one revision.</string>
-    <string name="payload_branch_invalid">Enter a valid branch, tag, or commit</string>
     <string name="payload_source_pin">Pin to this commit</string>
     <string name="payload_pin_title">Pin %1$s to a revision</string>
     <string name="payload_pin_pinned_at">Pinned at %1$s</string>

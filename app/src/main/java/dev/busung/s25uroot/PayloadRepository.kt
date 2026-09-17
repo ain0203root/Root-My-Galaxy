@@ -376,10 +376,7 @@ class PayloadRepository(private val context: Context) {
     fun resolveNamedRevision(repository: String, ref: String): String {
         val trimmed = ref.trim()
         if (PayloadSource.isCommitValid(trimmed)) return trimmed
-        require(PayloadSource.isRepositoryValid(repository)) {
-            context.getString(R.string.payload_repository_invalid)
-        }
-        require(PayloadSource.isBranchValid(trimmed)) { context.getString(R.string.payload_branch_invalid) }
+        // A ref that cannot be resolved fails the read, with the answer the repository gave for it.
         return resolveRefToCommit(repository, trimmed)
     }
 

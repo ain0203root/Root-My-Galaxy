@@ -40,8 +40,6 @@ data class PayloadSource(
         const val DEFAULT_REPOSITORY = "BuSung-dev/Root-My-Galaxy-Payloads"
         const val DEFAULT_BRANCH = "main"
 
-        val REPOSITORY_PATTERN = Regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
-        val BRANCH_PATTERN = Regex("^[A-Za-z0-9_.\\-/]+$")
         val COMMIT_PATTERN = Regex("^[0-9a-f]{40}$")
 
         val DEFAULT = PayloadSource(
@@ -50,17 +48,15 @@ data class PayloadSource(
             enabled = true,
         )
 
-        fun isRepositoryValid(repository: String): Boolean =
-            REPOSITORY_PATTERN.matches(repository.trim())
-
-        fun isBranchValid(branch: String): Boolean = BRANCH_PATTERN.matches(branch.trim())
-
         fun isCommitValid(commit: String): Boolean = COMMIT_PATTERN.matches(commit.trim())
 
         /**
-         * Builds a source from raw input, or null when the repository or ref is unusable. A ref
-         * that is already a full commit is pinned to it rather than resolved again on every load,
-         * which is the same thing the user asked for by pasting one.
+         * Builds a source from raw input, or null when either field is empty.
+         *
+         * What was typed is taken as written: a pattern cannot tell a repository that exists from one
+         * that does not, and the only thing that can is reading it - which is what adding a source does.
+         * A shape the reader cannot use comes back as that reader's own answer, naming what it could not
+         * reach, rather than as a rule about the field before anyone has tried.
          */
         fun create(
             repository: String,
@@ -69,7 +65,7 @@ data class PayloadSource(
         ): PayloadSource? {
             val owner = repository.trim()
             val ref = branch.trim()
-            if (!isRepositoryValid(owner) || !isBranchValid(ref)) return null
+            if (owner.isEmpty() || ref.isEmpty()) return null
             return if (isCommitValid(ref)) {
                 PayloadSource(owner, ref, enabled, pinnedCommit = ref)
             } else {

@@ -12,40 +12,25 @@ class PayloadSourcesTest {
 
     @Test
     fun defaultSourceIsUsable() {
-        assertTrue(PayloadSource.isRepositoryValid(official.repository))
-        assertTrue(PayloadSource.isBranchValid(official.branch))
         assertTrue(official.enabled)
         assertEquals("BuSung-dev/Root-My-Galaxy-Payloads@main", official.id)
     }
 
     @Test
-    fun repositoryNeedsExactlyOneOwnerAndName() {
-        assertTrue(PayloadSource.isRepositoryValid("rushiranpise/Root-My-Galaxy-Payloads"))
-        assertTrue(PayloadSource.isRepositoryValid("a/b"))
-        assertFalse(PayloadSource.isRepositoryValid("owner-only"))
-        assertFalse(PayloadSource.isRepositoryValid("owner/name/extra"))
-        assertFalse(PayloadSource.isRepositoryValid("owner/ name"))
-        assertFalse(PayloadSource.isRepositoryValid(""))
-    }
-
-    @Test
-    fun branchExcludesCharactersThatBreakUrlsOrCommands() {
-        assertTrue(PayloadSource.isBranchValid("main"))
-        assertTrue(PayloadSource.isBranchValid("feature/multi-source"))
-        assertTrue(PayloadSource.isBranchValid("release-1.2"))
-        assertFalse(PayloadSource.isBranchValid("main;rm -rf /"))
-        assertFalse(PayloadSource.isBranchValid("with space"))
-        assertFalse(PayloadSource.isBranchValid(""))
-    }
-
-    @Test
-    fun createTrimsInputAndRejectsUnusableSources() {
+    fun whatIsTypedIsTakenAsWritten() {
+        // Deliberately no format rule on the field. A pattern cannot tell a repository that exists from
+        // one that does not, and a rule that refuses a half-typed owner is the app arguing with a form
+        // nobody has finished - the read that adding performs is what can tell, and it says what it got.
         assertEquals(
             PayloadSource("example-org/payloads", "main"),
             PayloadSource.create("  example-org/payloads  ", " main "),
         )
-        assertNull(PayloadSource.create("example-org", "main"))
-        assertNull(PayloadSource.create("example-org/payloads", "bad branch"))
+        assertEquals("rushiranpise", PayloadSource.create("rushiranpise", "main")?.repository)
+        assertEquals("owner/name/extra", PayloadSource.create("owner/name/extra", "main")?.repository)
+        assertEquals("with space", PayloadSource.create("example-org/payloads", "with space")?.branch)
+        assertNull(PayloadSource.create("", "main"))
+        assertNull(PayloadSource.create("   ", "main"))
+        assertNull(PayloadSource.create("example-org/payloads", ""))
     }
 
     @Test

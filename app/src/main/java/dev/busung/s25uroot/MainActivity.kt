@@ -4320,21 +4320,13 @@ private fun PayloadSourcesEditor(
             if (outcome.isSuccess) onCovered()
         }
     }
-    val invalidRepository = stringResource(R.string.payload_repository_invalid)
-    val invalidBranch = stringResource(R.string.payload_branch_invalid)
+    // No rule about the shape of what is typed here on purpose. A pattern cannot tell a repository that
+    // exists from one that does not, so a half-typed owner only means the app argues with a form the
+    // user has not finished; the read that adding a source performs is the thing that can tell, and it
+    // reports what it found. The fields show examples instead of enforcing a format.
     val candidate = remember(repository, branch) { PayloadSource.create(repository, branch) }
-    val repositoryError = when {
-        repository.isBlank() -> null
-        !PayloadSource.isRepositoryValid(repository) -> invalidRepository
-        else -> null
-    }
-    val branchError = when {
-        branch.isBlank() -> null
-        !PayloadSource.isBranchValid(branch) -> invalidBranch
-        else -> null
-    }
     val candidateCheck = candidate?.let { checks[it.id] }
-    val addError = repositoryError ?: branchError ?: candidateCheck?.exceptionOrNull()?.let {
+    val addError = candidateCheck?.exceptionOrNull()?.let {
         stringResource(
             R.string.payload_source_check_failed,
             it.message ?: it.javaClass.simpleName,
@@ -4464,7 +4456,7 @@ private fun PayloadSourcesEditor(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    isError = repositoryError != null || duplicate,
+                    isError = duplicate,
                     label = { Text(stringResource(R.string.payload_repository_label)) },
                     placeholder = { Text(PayloadSource.DEFAULT_REPOSITORY) },
                 )
@@ -4476,7 +4468,7 @@ private fun PayloadSourcesEditor(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    isError = branchError != null,
+                    isError = false,
                     label = { Text(stringResource(R.string.payload_branch)) },
                     placeholder = { Text(PayloadSource.DEFAULT_BRANCH) },
                     supportingText = { Text(stringResource(R.string.payload_branch_hint)) },
