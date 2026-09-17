@@ -62,6 +62,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.rememberScrollState
@@ -187,8 +188,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.busung.s25uroot.ui.theme.RootMyGalaxyTheme
@@ -2492,18 +2491,6 @@ private fun SettingsPage(
         )
     }
 
-    if (showPayloadSourcesSheet) {
-        PayloadSourcesSheet(
-            device = device,
-            initialSources = payloadSources,
-            onDismiss = { showPayloadSourcesSheet = false },
-            onSave = { sources ->
-                showPayloadSourcesSheet = false
-                onPayloadSourcesChanged(sources)
-            },
-        )
-    }
-
     if (showRunPlanDialog) {
         RunPlanDialog(display = runPlan(), onDismiss = { showRunPlanDialog = false })
     }
@@ -2794,8 +2781,29 @@ private fun SettingsPage(
         )
     }
 
+    // The payload-sources editor takes this page over rather than opening a dialog or a bottom sheet.
+    // Both of those are a second window, and typing into this form tore that window down and rebuilt
+    // it, which closed the keyboard after every character; as content in this window there is nothing
+    // to tear down. The list below is skipped while it is open, so its scroll state is remembered out
+    // here, where it survives the editor.
+    val settingsList = rememberLazyListState()
+    if (showPayloadSourcesSheet) {
+        PayloadSourcesEditor(
+            padding = padding,
+            device = device,
+            initialSources = payloadSources,
+            onDismiss = { showPayloadSourcesSheet = false },
+            onSave = { sources ->
+                showPayloadSourcesSheet = false
+                onPayloadSourcesChanged(sources)
+            },
+        )
+        return
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
+        state = settingsList,
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -4272,9 +4280,9 @@ private fun LocalPayloadDialog(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PayloadSourcesSheet(
+private fun PayloadSourcesEditor(
+    padding: PaddingValues,
     device: DeviceSnapshot,
     initialSources: List<PayloadSource>,
     onDismiss: () -> Unit,
@@ -4338,35 +4346,40 @@ private fun PayloadSourcesSheet(
         null
     }
     val enabledCount = sources.count { it.enabled }
-    // The picker takes the whole dialog rather than sitting above the list, so the one scroll this
+    // The picker takes the whole screen rather than sitting above the list, so the one scroll this
     // content needs moves with it: the picker is taller than the space above a keyboard and scrolls as
     // a whole, while the list scrolls inside a fixed frame and leaves the form above it alone.
     val revisionPickerOpen = revisionTarget != null
-    // A dialog, and deliberately not a bottom sheet: the sheet closed the keyboard after every single
-    // character on a real device, which makes a form unusable however well its layout is arranged.
-    // Nothing here re-measures the view that owns the cursor while it is being typed into - the frame
-    // has a fixed height, and only the list inside it scrolls.
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+    // Content in this app's own window, and deliberately neither a dialog nor a bottom sheet: both of
+    // those are a second window, and a second window here was torn down and rebuilt as soon as the
+    // form was typed into - the keyboard went with it, once per character. Nothing below can tear a
+    // window down, so the cursor keeps its input connection however often this recomposes.
+    //
+    // Back leaves the editor, or steps out of the revision picker inside it first: the picker is a
+    // step within this screen, and back must not skip both.
+    BackHandler {
+        if (revisionPickerOpen) revisionTarget = null else onDismiss()
+    }
+    Surface(
+        modifier = Modifier.fillMaxSize().padding(padding),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(0.9f)
-                .padding(horizontal = 12.dp)
-                .padding(vertical = 24.dp)
-                .clip(MaterialTheme.shapes.extraLarge)
-                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
-                .padding(horizontal = 20.dp)
-                .padding(vertical = 16.dp)
+                .fillMaxSize()
+                // The keyboard is the one inset this screen has to answer for itself: it takes the
+                // space the footer needs, and the list above gives it up rather than scrolling under
+                // the keys.
+                .imePadding()
                 .then(
                     if (revisionPickerOpen) {
                         Modifier.verticalScroll(rememberScrollState())
                     } else {
                         Modifier
                     },
-                ),
+                )
+                .padding(horizontal = 20.dp)
+                .padding(vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // Inside the same dialog rather than a second one: two of them would fight over the same
