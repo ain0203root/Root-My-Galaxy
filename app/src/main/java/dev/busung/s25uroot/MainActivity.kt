@@ -730,6 +730,7 @@ private fun RootApp(
                     updateCardDismissed = updateCardDismissed,
                     onDismissUpdateCard = { updateCardDismissed = true },
                     onStartDownload = startDownload,
+                    onOpenSettings = { selectedPage = AppPage.Settings },
                     onInstall = {
                         selectedProfile = null
                         if (advancedMode) {
@@ -832,7 +833,60 @@ private fun OverviewPage(
     onDismissUpdateCard: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
     onInstall: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
+    // Read live, because both answers change without this screen doing anything: Shizuku hands out its
+    // binder after it starts, a grant can be made or revoked in the Shizuku app, KernelSU is loaded per
+    // boot, and the one thing that changes both at once is a run finishing - which is why the phase is
+    // a key below. Started from the cheap reading so the card is never blank, then refined.
+    var readiness by remember {
+        mutableStateOf(
+            Readiness(
+                kernelSu = if (RootStatusProbe.isActiveQuick()) {
+                    KernelSuStatus.Active
+                } else {
+                    KernelSuStatus.Unreadable
+                },
+                shizuku = ShizukuController.availability(),
+            ),
+        )
+    }
+    var resumeTick by remember { mutableStateOf(0) }
+    LaunchedEffect(installState.phase, resumeTick) {
+        // Off the main thread: the KernelSU reading may start `su`, and a status line is not worth a
+        // frozen frame.
+        readiness = withContext(Dispatchers.IO) {
+            Readiness(
+                kernelSu = KernelSuRuntime.status(),
+                shizuku = ShizukuController.availability(),
+            )
+        }
+    }
+    DisposableEffect(Unit) {
+        val received = Shizuku.OnBinderReceivedListener {
+            readiness = readiness.copy(shizuku = ShizukuController.availability())
+        }
+        val dead = Shizuku.OnBinderDeadListener {
+            readiness = readiness.copy(shizuku = ShizukuController.availability())
+        }
+        Shizuku.addBinderReceivedListenerSticky(received)
+        Shizuku.addBinderDeadListener(dead)
+        onDispose {
+            Shizuku.removeBinderReceivedListener(received)
+            Shizuku.removeBinderDeadListener(dead)
+        }
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            // Coming back from the Shizuku app is when a grant may have changed, and that is the one
+            // change Shizuku sends no callback for. A tick rather than a read here, so the work still
+            // happens off the main thread.
+            if (event == Lifecycle.Event.ON_RESUME) resumeTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(padding),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
@@ -875,6 +929,7 @@ private fun OverviewPage(
             }
         }
         item { InstallStatusCard(installState, onInstall) }
+        item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
         item { HowItWorksCard() }
     }
@@ -1119,6 +1174,69 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                     maxLines = 1,
                 )
             }
+        }
+    }
+}
+
+/**
+ * The two things a run needs, on the screen the app opens on.
+ *
+ * Both are facts about the device rather than about this app's settings, which is exactly why they
+ * belong here: *is KernelSU loaded this boot* and *can this app use Shizuku* decide what a run can even
+ * attempt, and answering them by opening Settings and reading two rows about preferences is the long way
+ * round. The rows lead there anyway, because a state that is wrong is something the user will want to
+ * fix rather than merely know.
+ *
+ * KernelSU is loaded **per boot**, so this is a statement about the current boot and not about the
+ * device's history - a phone that was rooted yesterday reads as not loaded, which is the reason root on
+ * boot exists.
+ */
+@Composable
+private fun ReadinessCard(readiness: Readiness, onOpenSettings: () -> Unit) {
+    val view = LocalView.current
+    Card(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(stringResource(R.string.readiness), style = MaterialTheme.typography.titleMedium)
+            InfoRow(
+                icon = Icons.Rounded.Security,
+                label = stringResource(R.string.readiness_kernelsu),
+                value = stringResource(
+                    when (readiness.kernelSu) {
+                        KernelSuStatus.Active -> R.string.readiness_ksu_active
+                        KernelSuStatus.NotLoaded -> R.string.readiness_ksu_not_loaded
+                        KernelSuStatus.Unreadable -> R.string.readiness_ksu_unreadable
+                    },
+                ),
+                onClick = {
+                    clickHaptic(view)
+                    onOpenSettings()
+                },
+            )
+            InfoRow(
+                icon = Icons.Rounded.VerifiedUser,
+                label = stringResource(R.string.readiness_shizuku),
+                value = stringResource(
+                    when (readiness.shizuku) {
+                        ShizukuAvailability.Ready -> R.string.settings_shizuku_state_running
+                        ShizukuAvailability.WithoutPermission ->
+                            R.string.settings_shizuku_state_needs_permission
+                        ShizukuAvailability.NotRunning -> R.string.readiness_shizuku_not_running
+                    },
+                ),
+                onClick = {
+                    clickHaptic(view)
+                    onOpenSettings()
+                },
+            )
         }
     }
 }

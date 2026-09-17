@@ -214,11 +214,24 @@ internal object KernelSuRuntime {
      * This is the question "can anything here expect root", as opposed to "can this app run a command
      * as root": the answer decides whether a refusal to act is about the phone or about a permission,
      * and those two need different words and different fixes.
+     *
+     * [KernelSuStatus.Unreadable] counts as loaded, which is deliberate. Both of the messages this
+     * feeds are advice, and when nothing could answer, the advice that survives being wrong is the one
+     * pointing at a grant: if KernelSU is in fact loaded and simply not allowed to answer this app,
+     * sending the user to re-run the install is the mistake this check was fixed for once already.
      */
-    fun loadedInThisBoot(): Boolean {
-        if (runCatching { RootStatusProbe.isActive() }.getOrDefault(false)) return true
-        return moduleLoaded() == true
-    }
+    fun loadedInThisBoot(): Boolean = status() != KernelSuStatus.NotLoaded
+
+    /**
+     * The same question for the Overview status line, which has to say when nothing could answer.
+     *
+     * Off the main thread: the authoritative reading may start `su` through [RootStatusProbe], and a
+     * status line is not worth a frozen frame.
+     */
+    fun status(): KernelSuStatus = kernelSuStatus(
+        active = runCatching { RootStatusProbe.isActive() }.getOrDefault(false),
+        moduleLoaded = moduleLoaded(),
+    )
 
     private fun shizukuRootShell(command: String): ShizukuController.ShellResult? {
         if (!ShizukuController.isRunning() || !ShizukuController.isGranted()) return null

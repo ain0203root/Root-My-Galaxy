@@ -1,0 +1,46 @@
+package dev.busung.s25uroot
+
+/**
+ * What the Overview status line can honestly say about the two things a run needs.
+ *
+ * Readiness is two independent facts, so it is two fields rather than one verdict: a device can have
+ * KernelSU loaded and no usable Shizuku, or a working Shizuku and nothing loaded, and a single "ready /
+ * not ready" would have to throw away which of those it was - the same collapsing that once made a
+ * settings row offer to start a service that was already running.
+ *
+ * [KernelSuStatus] is three-valued on purpose. The readings behind it are exactly the ones Samsung's
+ * policy denies to app domains, so "I could not look" is a real outcome and not the same answer as "it
+ * is not there". Reporting the first as the second is what once had the app tell a rooted phone it was
+ * unrooted, and a status line is where that is most tempting: it wants a single word.
+ */
+internal enum class KernelSuStatus {
+    /** Loaded in this boot, by at least one of the readings. */
+    Active,
+
+    /** A reading looked and found nothing, and no other reading contradicts it. */
+    NotLoaded,
+
+    /** Nothing could answer: not a claim about the device, and said as its own thing. */
+    Unreadable,
+}
+
+/** The two readings, as the Overview card shows them. */
+internal data class Readiness(
+    val kernelSu: KernelSuStatus,
+    val shizuku: ShizukuAvailability,
+)
+
+/**
+ * Which of the three, from the two independent KernelSU readings.
+ *
+ * A yes from either source is a yes, because both are direct evidence: the native probe or `su` says
+ * KernelSU is answering, and the kernel's module list says the module is loaded even when no shell of
+ * ours can run. A no needs a reading that actually looked - the module list is the only source that can
+ * report absence, since a `su` that does not answer is indistinguishable from a device with no root.
+ * With neither, the answer is [KernelSuStatus.Unreadable] rather than a guess.
+ */
+internal fun kernelSuStatus(active: Boolean, moduleLoaded: Boolean?): KernelSuStatus = when {
+    active || moduleLoaded == true -> KernelSuStatus.Active
+    moduleLoaded == false -> KernelSuStatus.NotLoaded
+    else -> KernelSuStatus.Unreadable
+}

@@ -412,6 +412,13 @@
     <string name="settings_shizuku_allow_summary">Shizuku is already running; what is missing is permission for this app to use it</string>
     <string name="settings_shizuku_running">Shizuku is running</string>
     <string name="settings_shizuku_running_summary">The service is up and this app is allowed to use it; there is nothing left to start</string>
+    <string name="readiness">Status</string>
+    <string name="readiness_kernelsu">KernelSU</string>
+    <string name="readiness_shizuku">Shizuku</string>
+    <string name="readiness_ksu_active">Loaded in this boot</string>
+    <string name="readiness_ksu_not_loaded">Not loaded in this boot</string>
+    <string name="readiness_ksu_unreadable">Could not be read</string>
+    <string name="readiness_shizuku_not_running">Not running</string>
     <string name="settings_shizuku_state_running">Running</string>
     <string name="settings_shizuku_state_needs_permission">Needs permission</string>
     <string name="settings_shizuku_boot">Shizuku on boot</string>

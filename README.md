@@ -388,6 +388,21 @@ when nobody is looking at the screen.
 
 ## KernelSU readiness
 
+**Home → Status** puts the two facts a run depends on on the screen the app opens on — *is KernelSU
+loaded in this boot* and *can this app use Shizuku* — read live rather than from a snapshot. KernelSU is
+loaded per boot, so the row is about the current boot and not the device's history: a phone rooted
+yesterday reads as not loaded, which is exactly why root on boot exists. Either row opens Settings,
+because a state that is wrong is something to fix and not only to know.
+
+Both answers are two-valued at best and the KernelSU one is **three**: `Loaded`, `Not loaded`, or
+`Could not be read`. That third state is the point. The readings behind the row are the ones Samsung's
+policy denies to app domains, so "could not look" is a real outcome; reporting it as "not loaded" is the
+bug that once had the app call a rooted phone unrooted, and a status line is where the temptation to
+collapse it is strongest, because it wants a single word. A yes comes from either source (the native
+probe or `su`, and the kernel's module list, which is evidence even when no shell of ours can run); a no
+needs a reading that actually looked, which in practice means the module list; with neither, the row says
+so.
+
 A successful `--late-load` says the command finished, not that KernelSU is reachable afterwards, so
 the run states which independent reading confirmed the control channel instead of taking the exit
 code for it:
