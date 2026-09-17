@@ -46,11 +46,11 @@
     <string name="log_run_stopped">[*] Stopped during the %1$s stage. Anything already started on the device will keep running. The next run will report whether it is still active.</string>
     <string name="log_run_interrupted">[*] Run cancelled during the %1$s stage</string>
     <string name="retry_choice_title">Retry installation</string>
-    <string name="retry_choice_body">Restarting gives the exploit a clean start. After the reboot, the install will retry automatically. Retrying now is faster, but may be less reliable.</string>
+    <string name="retry_choice_body">Restarting is the best odds: the exploit gets a clean boot, and the install retries by itself after the reboot.\nWaiting about a minute is the middle answer: a failed attempt leaves state behind that needs roughly that long to clear, so it retries here without a restart.\nRetrying now is the quickest and the least reliable, because it goes straight back into the state that just failed.</string>
+    <string name="retry_choice_body_blocked">Restarting is the only answer this boot has: the install retries by itself after the reboot.</string>
     <string name="retry_after_reboot">Restart and retry</string>
     <string name="retry_now">Retry now</string>
     <string name="retry_wait">Wait, then retry</string>
-    <string name="retry_wait_hint">A failed attempt leaves state behind that needs about a minute to clear, so this retries into a cleaner boot than trying again at once.</string>
     <string name="retry_waiting_body">The payload runs again in %1$d s. The state left by the last attempt needs about a minute to clear.</string>
     <string name="retry_waiting_start">Retry now</string>
     <string name="retry_waiting_cancel">Stop waiting</string>

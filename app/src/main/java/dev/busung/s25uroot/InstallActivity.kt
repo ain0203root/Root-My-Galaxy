@@ -418,16 +418,18 @@ private fun InstallScreen(
         }
     }
 
-    // Retrying straight away is offered second and named for what it costs: the exploit is a race
-    // against a boot that is already busy, and the same boot has already had one attempt go through
-    // it. The reboot is first because it is the better odds, and because it is the option that keeps
-    // everything the device has done this boot out of the way of the next attempt.
+    // All three answers are named in the body, in the order they are offered, because what separates
+    // them is what each one buys rather than how it feels: the restart puts everything this boot has
+    // done out of the way of the next attempt, the wait lets the state a failed attempt leaves behind
+    // clear itself without one, and trying again at once buys only speed. The restart is first because
+    // it is the best odds; the two in-boot answers are the ones that can be withdrawn, which is why
+    // they are the ones the notice above speaks for.
     if (showRetryChoice) {
         val scope = rememberCoroutineScope()
         var arming by remember { mutableStateOf(false) }
-        // A retry in this boot is not offered while the last payload may still be running. The restart
-        // is the answer that clears one, so the dialog keeps it alone and says why the other two are
-        // missing rather than hiding that they normally exist.
+        // A retry in this boot is not offered when this boot cannot take another attempt. The restart
+        // is the answer that clears it, so the dialog keeps that one and says why the other two are
+        // missing rather than leaving their absence to be noticed.
         val blocked = installState.failure?.inBootRetryBlocked
         AlertDialog(
             onDismissRequest = { if (!arming) showRetryChoice = false },
@@ -435,18 +437,28 @@ private fun InstallScreen(
             title = { Text(stringResource(R.string.retry_choice_title)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.retry_choice_body))
+                    // The body describes the answers that are on the dialog, so a boot that cannot be
+                    // run in again does not get a paragraph about two answers it cannot have.
                     Text(
                         text = stringResource(
-                            when (blocked) {
-                                InBootRetryBlock.PayloadMayStillRun -> R.string.retry_single_payload_hint
-                                InBootRetryBlock.PipeBudgetSpent -> R.string.retry_pipe_budget_hint
-                                null -> R.string.retry_wait_hint
-                            },
+                            if (blocked == null) R.string.retry_choice_body
+                            else R.string.retry_choice_body_blocked,
                         ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Then, only when something is missing, why it is missing - which is the whole
+                    // reason the failure carried it this far.
+                    val missing = when (blocked) {
+                        InBootRetryBlock.PayloadMayStillRun -> R.string.retry_single_payload_hint
+                        InBootRetryBlock.PipeBudgetSpent -> R.string.retry_pipe_budget_hint
+                        null -> null
+                    }
+                    if (missing != null) {
+                        Text(
+                            text = stringResource(missing),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             },
             confirmButton = {
