@@ -160,6 +160,22 @@ internal object KernelSuManager {
     }
 
     /**
+     * The versions [flavor] has published, newest first, or the failure that stopped the listing.
+     *
+     * One request for the newest page rather than one per version, and the API rather than the atom feed
+     * the payload sources read: the releases endpoint answers with the tag *and* the assets, which is the
+     * same endpoint the lookup for a single version already uses - so a version chosen from a listing and
+     * a version typed into the field are resolved by one piece of code, and a version that appears here
+     * is a version that can be downloaded.
+     *
+     * Left as a failure rather than flattened to an empty list, because the two mean different things to
+     * the screen that asked: no versions at all is a project that has published nothing, and a listing
+     * that could not be read is a network or a rate limit, which is what the manual field is for.
+     */
+    fun availableVersions(flavor: KernelSuFlavor): Result<List<String>> =
+        runCatching { managerVersionsInReleases(downloadText(releasesApiUrl(flavor))) }
+
+    /**
      * The APK for one version, resolved through the releases API.
      *
      * Null when the version has no release, the release carries no APK, or the network refused - all
@@ -235,6 +251,18 @@ internal object KernelSuManager {
 
     private fun managerReleaseApiUrl(flavor: KernelSuFlavor, version: String): String =
         "https://api.github.com/repos/${flavor.repository}/releases/tags/v$version"
+
+    private fun releasesApiUrl(flavor: KernelSuFlavor): String =
+        "https://api.github.com/repos/${flavor.repository}/releases?per_page=$VERSION_LIST_LIMIT"
+
+    /**
+     * How many releases one listing asks for.
+     *
+     * The API answers newest first, so this is "the versions anyone would pick from" rather than all of
+     * them - a project with a hundred releases has a decade of them, and a chooser that long is worse
+     * than the field beside it for anything older.
+     */
+    private const val VERSION_LIST_LIMIT = 30
 
     /** The name every manager's embedded daemon has once it is installed. */
     private const val DAEMON_LIBRARY = "libksud.so"

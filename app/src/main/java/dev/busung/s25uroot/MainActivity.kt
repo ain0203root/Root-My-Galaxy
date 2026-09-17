@@ -1412,6 +1412,52 @@ private fun ArmedRetryCard(
     }
 }
 
+/**
+ * One version in the manager chooser.
+ *
+ * The default is marked rather than given a row of its own, because it is a version like any other: what
+ * makes it the default is that it is what the app installs when nothing is named, and a user picking it
+ * is asking for that same thing.
+ */
+@Composable
+private fun ManagerVersionRow(
+    version: String,
+    isDefault: Boolean,
+    selected: Boolean,
+    onPick: () -> Unit,
+) {
+    val view = LocalView.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .clickable {
+                clickHaptic(view)
+                onPick()
+            }
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RadioButton(selected = selected, onClick = null)
+        Text(
+            version,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        if (isDefault) {
+            Text(
+                stringResource(R.string.settings_manager_versions_default),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** How tall the version list may grow before it scrolls, so the dialog still fits a short screen. */
+private val MANAGER_VERSION_LIST_MAX = 220.dp
+
 @Composable
 private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Unit) {
     val context = LocalContext.current
@@ -2554,6 +2600,17 @@ private fun SettingsPage(
     }
 
     if (showManagerVersionDialog) {
+        // Asked for while the dialog is open and forgotten with it, because a version list is about the
+        // releases that exist right now: keeping one would offer a version the user has already seen.
+        var available by remember { mutableStateOf<Result<List<String>>?>(null) }
+        LaunchedEffect(kernelsuFlavor) {
+            available = withContext(Dispatchers.IO) {
+                KernelSuManager.availableVersions(kernelsuFlavor)
+            }
+        }
+        // What a download would take now: the name in the field, or the flavour's default when it is empty.
+        val selectedVersion = managerVersionDraft.trim().ifBlank { kernelsuFlavor.defaultManagerVersion }
+        val published = available
         AlertDialog(
             onDismissRequest = { showManagerVersionDialog = false },
             title = { Text(stringResource(R.string.settings_manager_dialog_title)) },
@@ -2567,6 +2624,63 @@ private fun SettingsPage(
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    Text(
+                        stringResource(R.string.settings_manager_versions_heading),
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    when {
+                        published == null -> Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            LoadingIndicator(modifier = Modifier.size(18.dp))
+                            Text(
+                                stringResource(R.string.settings_manager_versions_loading),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+
+                        published.isFailure -> Text(
+                            stringResource(R.string.settings_manager_versions_failed),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+
+                        else -> {
+                            // The flavour's own default leads, and is listed even when the listing no
+                            // longer carries it: it is the version this app installs when nothing is
+                            // named, so it has to be selectable whether or not the network answered.
+                            val versions = (
+                                listOf(kernelsuFlavor.defaultManagerVersion) +
+                                    published.getOrDefault(emptyList())
+                                ).distinct()
+                            LazyColumn(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = MANAGER_VERSION_LIST_MAX),
+                            ) {
+                                items(versions, key = { it }) { version ->
+                                    ManagerVersionRow(
+                                        version = version,
+                                        isDefault = version == kernelsuFlavor.defaultManagerVersion,
+                                        selected = version == selectedVersion,
+                                        onPick = {
+                                            // Picking the default stores no name at all, which is what
+                                            // "the default" already means everywhere else - so a later
+                                            // change of default moves with it rather than pinning it.
+                                            managerVersionDraft = if (
+                                                version == kernelsuFlavor.defaultManagerVersion
+                                            ) {
+                                                ""
+                                            } else {
+                                                version
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     OutlinedTextField(
                         value = managerVersionDraft,
                         onValueChange = { managerVersionDraft = it },

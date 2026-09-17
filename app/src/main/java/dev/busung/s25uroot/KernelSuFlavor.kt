@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import androidx.annotation.StringRes
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -127,6 +128,36 @@ internal fun managerApkInRelease(body: String): String? {
     }
     return (apks.firstOrNull { !it.first.contains("spoofed", ignoreCase = true) }
         ?: apks.firstOrNull())?.second
+}
+
+/**
+ * The versions a flavour's release listing offers, newest first.
+ *
+ * What a listing makes possible is *choosing* a version rather than remembering one. Each entry is a tag
+ * with its leading `v` removed, which is exactly what the lookup for one version asks for
+ * (`releases/tags/v<version>`) - so a version picked from this list resolves through the same code path
+ * as one typed by hand, and the two cannot drift apart.
+ *
+ * Drafts are skipped: a draft's tag is not published yet, so looking it up could only fail. A
+ * prerelease is kept, and its own tag is what says it is one - what a flavour's newest release is, is
+ * not this app's decision to make.
+ */
+internal fun managerVersionsInReleases(body: String): List<String> {
+    // Left to throw when the answer is not a listing at all, which is what a rate limit or a renamed
+    // repository looks like: they are a failure to read, not an empty catalogue.
+    val releases = JSONArray(body.trim())
+    val versions = mutableListOf<String>()
+    for (index in 0 until releases.length()) {
+        val release = releases.optJSONObject(index) ?: continue
+        if (release.optBoolean("draft", false)) continue
+        val version = release.optString("tag_name").trim()
+            .removePrefix("v")
+            .removePrefix("V")
+            .trim()
+        if (version.isEmpty() || version in versions) continue
+        versions += version
+    }
+    return versions
 }
 
 /**

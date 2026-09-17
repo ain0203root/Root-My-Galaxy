@@ -522,6 +522,10 @@
     <string name="settings_manager_version_summary">The version offered by this app. It does not change or verify the installed version.</string>
     <string name="settings_manager_dialog_title">Manager version</string>
     <string name="settings_manager_dialog_help">The %1$s release to offer. Downloading searches the release list because the APK filename includes a build number. Leave empty to use the default, %2$s.</string>
+    <string name="settings_manager_versions_heading">Published versions</string>
+    <string name="settings_manager_versions_loading">Reading the published versions…</string>
+    <string name="settings_manager_versions_failed">Could not read the published versions. Type one below instead.</string>
+    <string name="settings_manager_versions_default">Default</string>
     <string name="settings_manager_version_hint">Version to install, for example 3.3.0</string>
     <string name="settings_manager_version_looking">Looking for %1$s %2$s…</string>
     <string name="settings_manager_version_found">%1$s %2$s found; opening the download</string>
