@@ -215,6 +215,16 @@ class MainActivity : ComponentActivity() {
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
     private var armedRetry by mutableStateOf<ArmedRetry?>(null)
+
+    /**
+     * The payload an armed retry would run, read from the attempt that armed it.
+     *
+     * On screen because a retry runs the attempt that failed rather than whatever the app would pick on
+     * its own, and that difference is invisible until after the reboot otherwise - by which point the
+     * phone has already been rooted with something the user did not choose. Null when nothing was
+     * recorded, which is a state worth naming too: the restart then falls back to the cached payload.
+     */
+    private var retryPayload by mutableStateOf<CachedPayload?>(null)
     private var restartAfterRoot by mutableStateOf(false)
     private var shizukuBootMode by mutableStateOf(false)
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
@@ -315,6 +325,7 @@ class MainActivity : ComponentActivity() {
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
         armedRetry = readArmedRetry()
+        retryPayload = readArmedRetryPayload()
         restartAfterRoot = AppPreferences.restartAfterRoot(this)
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
@@ -338,6 +349,7 @@ class MainActivity : ComponentActivity() {
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
                     armedRetry = armedRetry,
+                    retryPayload = retryPayload,
                     restartAfterRoot = restartAfterRoot,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
@@ -455,6 +467,15 @@ class MainActivity : ComponentActivity() {
         ArmedRetry.of(AppPreferences.retryArmedInBoot(this), kernelBootToken())
 
     /**
+     * The payload the armed retry would run, or null when there is no retry or nothing was recorded.
+     *
+     * Read only while a retry is armed: the record outlives the retry it was made for, and showing a
+     * payload on a screen with no retry on it would imply the next boot was about to run something.
+     */
+    private fun readArmedRetryPayload(): CachedPayload? =
+        if (AppPreferences.retryArmed(this)) AttemptedPayloadStore.describe(this) else null
+
+    /**
      * Starts the install a retry was armed for.
      *
      * Offered on Home rather than taken on the way in, which is what it used to be: the app started the
@@ -468,6 +489,7 @@ class MainActivity : ComponentActivity() {
     private fun startArmedRetry() {
         AppPreferences.setRetryAfterReboot(this, null)
         armedRetry = null
+        retryPayload = null
         openInstaller()
     }
 
@@ -475,6 +497,7 @@ class MainActivity : ComponentActivity() {
     private fun cancelArmedRetry() {
         AppPreferences.setRetryAfterReboot(this, null)
         armedRetry = null
+        retryPayload = null
     }
 
     override fun onResume() {
@@ -484,6 +507,7 @@ class MainActivity : ComponentActivity() {
         // A retry is armed on the run screen and consumed by a boot, so coming back from either is
         // exactly when this screen can be wrong about it.
         armedRetry = readArmedRetry()
+        retryPayload = readArmedRetryPayload()
         if (resumedOnce) installViewModel.refresh() else resumedOnce = true
     }
 }
@@ -548,6 +572,7 @@ private fun RootApp(
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
     armedRetry: ArmedRetry?,
+    retryPayload: CachedPayload?,
     restartAfterRoot: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
@@ -869,6 +894,7 @@ private fun RootApp(
                     device = device,
                     installState = installState,
                     armedRetry = armedRetry,
+                    retryPayload = retryPayload,
                     updateStatus = updateStatus,
                     updateCardDismissed = updateCardDismissed,
                     onDismissUpdateCard = { updateCardDismissed = true },
@@ -981,6 +1007,7 @@ private fun OverviewPage(
     device: DeviceSnapshot,
     installState: InstallUiState,
     armedRetry: ArmedRetry?,
+    retryPayload: CachedPayload?,
     updateStatus: UpdateStatus,
     updateCardDismissed: Boolean,
     onDismissUpdateCard: () -> Unit,
@@ -1102,6 +1129,7 @@ private fun OverviewPage(
             item {
                 ArmedRetryCard(
                     retry = armedRetry,
+                    payload = retryPayload,
                     onStart = onStartArmedRetry,
                     onCancel = onCancelArmedRetry,
                 )
@@ -1274,10 +1302,25 @@ private fun HowItWorksCard() {
 @Composable
 private fun ArmedRetryCard(
     retry: ArmedRetry,
+    payload: CachedPayload?,
     onStart: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val view = LocalView.current
+    // Where the payload came from, when the record says. The commit is shown short, the way the history
+    // shows it: what a pinned source means is "these bytes", and seven characters are enough to answer
+    // "is this the revision I pinned?".
+    val payloadSource = payload?.takeIf { it.sourceLabel.isNotBlank() }?.let { attempted ->
+        if (attempted.sourceCommit.isBlank()) {
+            stringResource(R.string.retry_armed_payload_from, attempted.sourceLabel)
+        } else {
+            stringResource(
+                R.string.retry_armed_payload_from_at,
+                attempted.sourceLabel,
+                attempted.sourceCommit.take(7),
+            )
+        }
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -1320,6 +1363,26 @@ private fun ArmedRetryCard(
                         ),
                         style = MaterialTheme.typography.bodySmall,
                     )
+                    // Named before the restart, not only in the log afterwards: what a retry runs is the
+                    // attempt that failed, which is not necessarily the payload the app would choose by
+                    // itself - and on a device somebody is testing payloads on, that is the whole point.
+                    if (payload != null) {
+                        Text(
+                            stringResource(
+                                R.string.retry_armed_payload,
+                                payload.displayName.ifBlank { payload.profileId },
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        payloadSource?.let { source ->
+                            Text(source, style = MaterialTheme.typography.labelSmall)
+                        }
+                    } else {
+                        Text(
+                            stringResource(R.string.retry_armed_payload_none),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
             Row(

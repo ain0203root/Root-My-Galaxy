@@ -282,6 +282,10 @@
     <string name="retry_armed_next_boot_title">Retry scheduled for next restart</string>
     <string name="retry_armed_next_boot_body">The next restart will run the installation once, even if Root on boot is off. Cancel it if you no longer want to retry.</string>
     <string name="retry_armed_start">Start now</string>
+    <string name="retry_armed_payload">Retry will run: %1$s</string>
+    <string name="retry_armed_payload_from">From %1$s</string>
+    <string name="retry_armed_payload_from_at">From %1$s at %2$s</string>
+    <string name="retry_armed_payload_none">No payload was recorded for this retry, so the restart uses the cached one.</string>
     <string name="retry_armed_cancel">Cancel retry</string>
     <string name="log_ksu_staged_late_only">[*] No shell transport was available to stage KernelSU before the exploit. The payload has no daemon to load, so KernelSU will be staged afterward.</string>
     <string name="log_ksu_control_verified">[+] KernelSU control channel verified (%1$s)</string>
