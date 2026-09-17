@@ -19,6 +19,44 @@ internal enum class RecoveryTool {
 }
 
 /**
+ * The widest shell this device will give the app, which is what decides whether an action can run.
+ *
+ * The tiers are not interchangeable, and naming them is the point. A root shell can do all four
+ * actions. The plain shell a running Shizuku server offers is uid 2000, and the `shell` user may
+ * reboot the phone - that is how `adb reboot` works - but may not restart the Android userspace,
+ * re-apply the module lifecycle, or ask KernelSU for a soft reboot, because those go through `ctl.*`
+ * properties and the daemon's own privileged channel.
+ *
+ * Before this, "no root" was one answer for all four actions, so the one a shell can do was refused
+ * with the advice to reboot the phone by hand - while Shizuku, already running, could have done it.
+ */
+internal enum class ShellTier {
+    Root,
+    Unprivileged,
+    None,
+}
+
+/** Which tier the device offers, from the two transports having been asked. Root wins when both answer. */
+internal fun shellTier(rootReachable: Boolean, unprivilegedReachable: Boolean): ShellTier = when {
+    rootReachable -> ShellTier.Root
+    unprivilegedReachable -> ShellTier.Unprivileged
+    else -> ShellTier.None
+}
+
+/**
+ * Whether this tier can carry out [tool].
+ *
+ * Only the reboot survives the loss of root, and it survives it intact: the setting that decides
+ * whether the phone comes back rooted is this app's own, so it is cleared on disk either way, and what
+ * root was needed for was the reboot itself - which the shell user is allowed to ask for.
+ */
+internal fun ShellTier.canRun(tool: RecoveryTool): Boolean = when (this) {
+    ShellTier.Root -> true
+    ShellTier.Unprivileged -> tool == RecoveryTool.RebootAndUnroot
+    ShellTier.None -> false
+}
+
+/**
  * The one place a repair action is actually run.
  *
  * It began as the settings section's own code, and it was pulled out when the run screen wanted the
@@ -40,23 +78,46 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
     // open until the child acknowledges them, so none of it may run on the UI thread.
     withContext(Dispatchers.IO) {
         val bootToken = kernelBootToken()
+        // Asked for rather than assumed: the in-process reading of KernelSU can say no on a device
+        // where root is usable, so each tier is whichever transport actually answers a command.
+        val rootReachable = KernelSuRuntime.rootShell("id") != null
+        val tier = shellTier(
+            rootReachable = rootReachable,
+            // Asked only when root did not answer, so the common case does not pay a second round trip
+            // to learn what the first one already settled.
+            unprivilegedReachable = !rootReachable && KernelSuRuntime.unprivilegedShell("id") != null,
+        )
         val refusalDetail by lazy {
             context.getString(
-                when (recoveryRefusal(KernelSuRuntime.loadedInThisBoot())) {
+                when (recoveryRefusalFor(tier, tool, KernelSuRuntime.loadedInThisBoot())) {
                     RecoveryRefusal.RootMissing -> R.string.recovery_root_required
                     RecoveryRefusal.ShellMissing -> R.string.recovery_shell_unavailable
+                    RecoveryRefusal.ShizukuNeedsRoot -> R.string.recovery_shizuku_needs_root
                 },
             )
         }
         when {
-            KernelSuRuntime.rootShell("id") == null -> RecoveryOutcome(
-                accepted = false,
-                detail = refusalDetail,
-            )
+            !tier.canRun(tool) -> RecoveryOutcome(accepted = false, detail = refusalDetail)
             bootToken == null -> RecoveryOutcome(
                 accepted = false,
                 detail = context.getString(R.string.error_boot_id),
             )
+            // The one action a shell that is not root can still do. Nothing is downgraded about it: the
+            // app's own root-on-boot setting is what decides whether the phone comes back rooted, and it
+            // is cleared before the request exactly as it is on the root path.
+            tier == ShellTier.Unprivileged -> {
+                val shell: (String) -> ShizukuController.ShellResult = { command ->
+                    KernelSuRuntime.unprivilegedShell(command) ?: ShizukuController.ShellResult(
+                        NO_ROOT_SHELL_EXIT,
+                        refusalDetail,
+                    )
+                }
+                AppPreferences.setBootRootMode(context, false)
+                RootRecovery.rebootAndUnroot(shell, bootToken, requiresRoot = false)
+                    .also { result ->
+                        if (!result.accepted) AppPreferences.setBootRootMode(context, true)
+                    }
+            }
             else -> {
                 val rootShell: (String) -> ShizukuController.ShellResult = { command ->
                     KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
@@ -100,18 +161,26 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
  * request was made.
  *
  * A failed run usually has no root to reboot with - that is often the whole reason it failed - and
- * there is no route here that pretends otherwise: [KernelSuRuntime.rootShell] covers the two ways root
- * is reachable (a Shizuku session that is already root, and KernelSU's own `su`), and a device that
- * gives neither returns false. False is not a failure of the caller: the retry the caller armed is
- * stored on disk and does not depend on this, and the screen that offers it says what to do by hand.
- * What must not happen is arming a retry and then reporting a reboot that never happened.
+ * for a long time that meant saying so and leaving the reboot to the user. It does not have to: a
+ * running Shizuku server is a shell, the `shell` user may reboot the phone, and that is what
+ * [KernelSuRuntime.unprivilegedShell] supplies. So the request is made through a root shell when there
+ * is one and through Shizuku's own shell when there is not.
+ *
+ * False is not a failure of the caller: the retry the caller armed is stored on disk and does not
+ * depend on this, and the screen that offers it says what to do by hand when nothing could ask. What
+ * must not happen is arming a retry and then reporting a reboot that never happened.
  */
 internal suspend fun requestReboot(): Boolean = withContext(Dispatchers.IO) {
     // `svc power reboot` after `reboot`: some builds ship one and not the other, and both mean the
     // same thing to the user. A non-zero exit is not retried beyond that - a reboot that has already
     // been asked for does not need asking twice, and the caller reports what happened either way.
     val commands = listOf("/system/bin/reboot", "/system/bin/svc power reboot")
-    commands.any { command ->
-        runCatching { KernelSuRuntime.rootShell(command)?.exitCode == 0 }.getOrDefault(false)
+    fun reboot(shell: (String) -> ShizukuController.ShellResult?): Boolean = commands.any { command ->
+        // A reboot takes the transport down with it, so the answer to the command that caused it is not
+        // always readable. That is what the detached script above exists for; here the request is made
+        // best-effort and the caller reports what it managed.
+        runCatching { shell(command)?.exitCode == 0 }.getOrDefault(false)
     }
+    reboot { command -> KernelSuRuntime.rootShell(command) } ||
+        reboot { command -> KernelSuRuntime.unprivilegedShell(command) }
 }

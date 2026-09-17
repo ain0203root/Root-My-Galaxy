@@ -24,11 +24,40 @@ internal enum class RecoveryRefusal {
 
     /** KernelSU is loaded; what is missing is this app's own way to run a command as root. */
     ShellMissing,
+
+    /**
+     * Shizuku's shell is usable and this action still needs root, which Shizuku cannot supply here.
+     *
+     * Its own words matter because the advice is different from the other two: nothing is missing that
+     * a grant or an install would supply, and the user is one reboot away from a boot that can. Sending
+     * them to look for a missing permission instead would be the same mistake [ShellMissing] exists to
+     * stop.
+     */
+    ShizukuNeedsRoot,
 }
 
 /** Which of the two refusals applies, from whether KernelSU is loaded in this boot. */
 internal fun recoveryRefusal(rootLoadedInThisBoot: Boolean): RecoveryRefusal =
     if (rootLoadedInThisBoot) RecoveryRefusal.ShellMissing else RecoveryRefusal.RootMissing
+
+/**
+ * Which refusal an action that cannot run should show.
+ *
+ * Pure, because the three answers are the whole of what makes a refusal useful and they used to be one
+ * message: a phone with KernelSU loaded and this app ungranted needs a grant, a phone without KernelSU
+ * needs a boot that has it, and a phone with only Shizuku's shell needs to know that a shell is not
+ * root - which is the one case where the app must not offer to help.
+ */
+internal fun recoveryRefusalFor(
+    tier: ShellTier,
+    tool: RecoveryTool,
+    rootLoadedInThisBoot: Boolean,
+): RecoveryRefusal = when {
+    // Asked only when the action cannot run, so a shell that is merely not root is the whole story:
+    // nothing is missing here that a grant or an install would supply.
+    tier == ShellTier.Unprivileged && !tier.canRun(tool) -> RecoveryRefusal.ShizukuNeedsRoot
+    else -> recoveryRefusal(rootLoadedInThisBoot)
+}
 
 /**
  * What the installed KernelSU daemon can be asked to do, as its own help output states it.
@@ -350,12 +379,17 @@ internal object RootRecovery {
     suspend fun rebootAndUnroot(
         shell: (String) -> ShizukuController.ShellResult,
         bootToken: String,
+        requiresRoot: Boolean = true,
     ): RecoveryOutcome = runDetached(
         shell = shell,
         scriptPath = "/data/local/tmp/rmg-reboot.sh",
         logPath = "/data/local/tmp/rmg-reboot.log",
         acceptedPath = "/data/local/tmp/.rmg-reboot-accepted",
-        script = rebootScript(bootToken, "/data/local/tmp/.rmg-reboot-accepted"),
+        script = rebootScript(
+            bootToken = bootToken,
+            acceptedPath = "/data/local/tmp/.rmg-reboot-accepted",
+            requiresRoot = requiresRoot,
+        ),
     )
 
     private suspend fun runDetached(
@@ -759,8 +793,33 @@ internal object RootRecovery {
         log "module lifecycle re-applied"
     """.trimIndent() + "\n"
 
-    /** `sync` first, so what the app persisted before the reboot is on disk when it happens. */
-    internal fun rebootScript(bootToken: String, acceptedPath: String): String = """
+    /**
+     * `sync` first, so what the app persisted before the reboot is on disk when it happens.
+     *
+     * [requiresRoot] is the difference between the two transports this action can be reached through,
+     * and it is the only difference. A root shell issues `/system/bin/reboot`, which a plain Shizuku
+     * shell may not execute - but it does not have to: the `shell` user holds the reboot permission,
+     * which is how `adb reboot` works, so the same action is asked for through `svc power reboot` and
+     * the privilege check becomes the platform's rather than this script's. A refusal is then the
+     * device's own words and is reported like any other, instead of the app claiming a missing root
+     * for an action that never needed one.
+     */
+    internal fun rebootScript(
+        bootToken: String,
+        acceptedPath: String,
+        requiresRoot: Boolean = true,
+    ): String {
+        val privilegeCheck = if (requiresRoot) {
+            "[ \"${'$'}(id -u 2>/dev/null)\" = \"0\" ] || reject_handoff 'not-root'"
+        } else {
+            ": # no root: this reboot is asked for with the shell user's own permission"
+        }
+        val reboot = if (requiresRoot) {
+            "/system/bin/reboot"
+        } else {
+            "/system/bin/svc power reboot 2>/dev/null || /system/bin/reboot"
+        }
+        return """
         #!/system/bin/sh
         EXPECTED_BOOT=${shellQuote(bootToken)}
         ACCEPTED=${shellQuote(acceptedPath)}
@@ -777,7 +836,7 @@ internal object RootRecovery {
         }
         ${handoffConsumedSnippet()}
 
-        [ "${'$'}(id -u 2>/dev/null)" = "0" ] || reject_handoff 'not-root'
+        $privilegeCheck
         [ "${'$'}(current_boot)" = "${'$'}EXPECTED_BOOT" ] || reject_handoff 'boot-changed'
         [ -x /system/bin/reboot ] || reject_handoff 'reboot-command-missing'
 
@@ -791,6 +850,7 @@ internal object RootRecovery {
 
         sleep 0.75
         rm -f -- "${'$'}0"
-        /system/bin/reboot
+        $reboot
     """.trimIndent() + "\n"
+    }
 }

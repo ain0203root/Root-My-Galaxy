@@ -233,6 +233,19 @@ internal object KernelSuRuntime {
         moduleLoaded = moduleLoaded(),
     )
 
+    /**
+     * The plain shell a running Shizuku server offers, which is the widest transport left with no root.
+     *
+     * This is deliberately *not* [rootShell]: the commands it may run are the ones the `shell` user
+     * itself holds, the most useful of which is asking for a reboot. It exists so an action that a
+     * shell can do is done rather than refused, and so an action that needs root can be refused for the
+     * right reason - the shell is there, root is not.
+     */
+    fun unprivilegedShell(command: String): ShizukuController.ShellResult? {
+        if (!ShizukuController.isRunning() || !ShizukuController.isGranted()) return null
+        return runCatching { ShizukuController.shell(command) }.getOrNull()
+    }
+
     private fun shizukuRootShell(command: String): ShizukuController.ShellResult? {
         if (!ShizukuController.isRunning() || !ShizukuController.isGranted()) return null
         // Shizuku's own process is already the shell uid, so a device that granted the late-load's

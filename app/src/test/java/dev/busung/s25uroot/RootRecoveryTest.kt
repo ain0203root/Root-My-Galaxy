@@ -393,6 +393,27 @@ class RootRecoveryTest {
         assertTrue(script.contains("boot-changed"))
     }
 
+    @Test
+    fun `the root form of the reboot still checks for root`() {
+        assertTrue(RootRecovery.rebootScript(BOOT, ACCEPTED).contains("'not-root'"))
+    }
+
+    @Test
+    fun `the shell form of the reboot asks with the shell user's own permission`() {
+        val script = RootRecovery.rebootScript(BOOT, ACCEPTED, requiresRoot = false)
+
+        // A plain Shizuku shell cannot run `/system/bin/reboot`, but the `shell` user holds the reboot
+        // permission - which is how `adb reboot` works - so the same action is asked for through `svc`.
+        assertFalse(script.contains("'not-root'"))
+        assertTrue(script.contains("/system/bin/svc power reboot"))
+        // The two halves that make any reboot script trustworthy are unchanged: it is refused for the
+        // wrong boot, and it does not fire if nobody read the acknowledgement.
+        assertTrue(script.contains("boot-changed"))
+        val published = script.indexOf("publish_handoff \"\$ACCEPTED_VALUE\"")
+        assertTrue(published > 0)
+        assertTrue(script.indexOf("rmg_handoff_consumed ||", published) > published)
+    }
+
     // --- the module reload -------------------------------------------------------------------------
 
     @Test

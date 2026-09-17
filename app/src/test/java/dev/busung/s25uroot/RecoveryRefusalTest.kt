@@ -27,6 +27,83 @@ class RecoveryRefusalTest {
     }
 
     @Test
+    fun `root wins the transport when both answer`() {
+        assertEquals(ShellTier.Root, shellTier(rootReachable = true, unprivilegedReachable = true))
+        assertEquals(ShellTier.Root, shellTier(rootReachable = true, unprivilegedReachable = false))
+    }
+
+    @Test
+    fun `a running Shizuku with no root is the unprivileged tier`() {
+        assertEquals(
+            ShellTier.Unprivileged,
+            shellTier(rootReachable = false, unprivilegedReachable = true),
+        )
+    }
+
+    @Test
+    fun `nothing answering is no tier at all`() {
+        assertEquals(ShellTier.None, shellTier(rootReachable = false, unprivilegedReachable = false))
+    }
+
+    @Test
+    fun `only the reboot survives losing root`() {
+        // The `shell` user may reboot the phone - that is how `adb reboot` works - and may not restart
+        // the Android userspace, re-apply the module lifecycle, or ask KernelSU for a soft reboot.
+        assertTrue(ShellTier.Root.canRun(RecoveryTool.RebootAndUnroot))
+        assertTrue(ShellTier.Root.canRun(RecoveryTool.SoftReboot))
+        assertTrue(ShellTier.Unprivileged.canRun(RecoveryTool.RebootAndUnroot))
+        assertFalse(ShellTier.Unprivileged.canRun(RecoveryTool.SoftReboot))
+        assertFalse(ShellTier.Unprivileged.canRun(RecoveryTool.RestartZygote))
+        assertFalse(ShellTier.Unprivileged.canRun(RecoveryTool.ReloadModules))
+    }
+
+    @Test
+    fun `a shell that is not root says so, instead of blaming a missing grant`() {
+        // The mistake this prevents: telling the user to grant superuser in the KernelSU app, when the
+        // shell is right there and the thing that is missing is root itself.
+        assertEquals(
+            RecoveryRefusal.ShizukuNeedsRoot,
+            recoveryRefusalFor(
+                tier = ShellTier.Unprivileged,
+                tool = RecoveryTool.SoftReboot,
+                rootLoadedInThisBoot = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `the reboot is not refused on a shell, because the shell can do it`() {
+        assertEquals(
+            RecoveryRefusal.ShellMissing,
+            recoveryRefusalFor(
+                tier = ShellTier.Unprivileged,
+                tool = RecoveryTool.RebootAndUnroot,
+                rootLoadedInThisBoot = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `no transport at all keeps the refusal it always had`() {
+        assertEquals(
+            RecoveryRefusal.RootMissing,
+            recoveryRefusalFor(
+                tier = ShellTier.None,
+                tool = RecoveryTool.RebootAndUnroot,
+                rootLoadedInThisBoot = false,
+            ),
+        )
+        assertEquals(
+            RecoveryRefusal.ShellMissing,
+            recoveryRefusalFor(
+                tier = ShellTier.None,
+                tool = RecoveryTool.SoftReboot,
+                rootLoadedInThisBoot = true,
+            ),
+        )
+    }
+
+    @Test
     fun `a root id is root`() {
         // What KernelSU's own `su` prints for an approved app, context and all.
         assertTrue(

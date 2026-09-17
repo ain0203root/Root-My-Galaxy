@@ -448,6 +448,7 @@
     <string name="recovery_reboot_unroot_summary">Turn root on boot off, then restart the phone; KernelSU is loaded per boot, so root is gone afterwards</string>
     <string name="recovery_root_required">KernelSU is not loaded in this boot, so there is no root to run this with. Root is loaded per boot: run the install first, or turn root on boot back on.</string>
     <string name="recovery_shell_unavailable">KernelSU is running, but this app has no root shell of its own yet. Grant Root My Galaxy superuser in the KernelSU app, or start Shizuku, and try again.</string>
+    <string name="recovery_shizuku_needs_root">Shizuku is running, but this needs root and a Shizuku shell is not root. Restarting the userspace has to happen from a boot with KernelSU loaded: turn root on boot on, or run the install again.</string>
     <string name="recovery_scheduled">Scheduled. The device will restart its Android runtime shortly.</string>
     <string name="recovery_reboot_scheduled">Scheduled. The phone will restart without root.</string>
     <string name="recovery_needs_kernel_su">Needs KernelSU</string>
