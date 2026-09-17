@@ -55,8 +55,14 @@ class ReadinessTest {
     fun `each manager app is reported under its own flavour`() {
         val presence = ManagerPresence.of(
             listOf(
-                InstalledManager("me.weishu.kernelsu", "KernelSU", KernelSuFlavor.KernelSu, false),
-                InstalledManager("com.rifsxd.ksunext", "KernelSU-Next", KernelSuFlavor.KernelSuNext, false),
+                InstalledManager("me.weishu.kernelsu", "KernelSU", "3.3.0", KernelSuFlavor.KernelSu, false),
+                InstalledManager(
+                    "com.rifsxd.ksunext",
+                    "KernelSU-Next",
+                    "3.3.0",
+                    KernelSuFlavor.KernelSuNext,
+                    false,
+                ),
             ),
         )
 
@@ -70,7 +76,15 @@ class ReadinessTest {
         // nothing about the other - and the phone with a manager installed and nothing loaded is the
         // state a fresh install leaves, which is the one worth seeing before a run rather than after.
         val presence = ManagerPresence.of(
-            listOf(InstalledManager("me.weishu.kernelsu", "KernelSU", KernelSuFlavor.KernelSu, false)),
+            listOf(
+                InstalledManager(
+                    "me.weishu.kernelsu",
+                    "KernelSU",
+                    "3.3.0",
+                    KernelSuFlavor.KernelSu,
+                    false,
+                ),
+            ),
         )
 
         assertTrue(presence.installed(KernelSuFlavor.KernelSu))
@@ -83,7 +97,7 @@ class ReadinessTest {
         // unnameable one is a real state rather than a parse failure - and attributing it to a project
         // would put it in the wrong row.
         val presence = ManagerPresence.of(
-            listOf(InstalledManager("com.three.random.words", "Settings", null, true)),
+            listOf(InstalledManager("com.three.random.words", "Settings", null, null, true)),
         )
 
         assertFalse(presence.installed(KernelSuFlavor.KernelSu))

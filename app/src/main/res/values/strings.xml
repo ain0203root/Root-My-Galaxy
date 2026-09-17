@@ -555,10 +555,14 @@
     <string name="settings_ksu_flavor_dialog_title">KernelSU flavour</string>
     <string name="settings_ksu_flavor_pending">Restart to apply · this boot loaded %1$s</string>
     <string name="settings_manager">Manager app</string>
-    <string name="settings_manager_summary">Offered at %1$s. Other versions can be installed manually; the app does not check which version is installed.</string>
+    <string name="settings_manager_summary">Offered at %1$s. Nothing is installed on this phone yet.</string>
     <string name="settings_manager_summary_installed">Offered at %1$s; %2$s is installed and will be opened.</string>
     <string name="settings_manager_version">Manager version</string>
-    <string name="settings_manager_version_summary">The version offered by this app. It does not change or verify the installed version.</string>
+    <string name="settings_manager_version_summary">The version this app installs when you tap the row above.</string>
+    <string name="settings_manager_running">%1$s %2$s is running</string>
+    <string name="settings_manager_mismatch">%1$s is installed · %2$s %3$s is running</string>
+    <string name="settings_manager_running_version">This phone runs %1$s %2$s</string>
+    <string name="settings_manager_running_use">Use %1$s</string>
     <string name="settings_manager_dialog_title">Manager version</string>
     <string name="settings_manager_dialog_help">The %1$s release to offer. Downloading searches the release list because the APK filename includes a build number. Leave empty to use the default, %2$s.</string>
     <string name="settings_manager_versions_heading">Published versions</string>

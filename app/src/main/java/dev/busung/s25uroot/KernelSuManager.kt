@@ -14,6 +14,15 @@ import java.net.URL
 internal data class InstalledManager(
     val packageName: String,
     val label: String,
+    /**
+     * The version of the manager that is installed, as its own package declares it.
+     *
+     * Read from the package rather than from anything this app chose, because it is the one reading
+     * that says what is actually on the phone: a manager installed by hand, replaced by its own
+     * updater, or left over from an older release all read here as themselves. Null when the package
+     * could not be asked, which is not the same as a manager with no version.
+     */
+    val versionName: String?,
     /** The flavour its package name or its label claims, or null when neither says. */
     val flavor: KernelSuFlavor?,
     /** Whether its package is not the one its project publishes. */
@@ -67,13 +76,20 @@ internal object KernelSuManager {
         // every release can be addressed at all.
         AppPreferences.managerPackage(context, flavor)?.let { named ->
             if (isLaunchable(context, named)) {
-                return InstalledManager(named, labelOf(context, named), flavor, spoofed = true)
+                return InstalledManager(
+                    packageName = named,
+                    label = labelOf(context, named),
+                    versionName = versionNameOf(context, named),
+                    flavor = flavor,
+                    spoofed = true,
+                )
             }
         }
         if (isLaunchable(context, flavor.managerPackage)) {
             return InstalledManager(
                 packageName = flavor.managerPackage,
                 label = labelOf(context, flavor.managerPackage),
+                versionName = versionNameOf(context, flavor.managerPackage),
                 flavor = flavor,
                 spoofed = false,
             )
@@ -111,7 +127,13 @@ internal object KernelSuManager {
                 if (!isLaunchable(context, app.packageName)) return@mapNotNull null
                 val label = labelOf(context, app.packageName)
                 val identity = identifyManager(app.packageName, label)
-                InstalledManager(app.packageName, label, identity.flavor, identity.spoofed)
+                InstalledManager(
+                    packageName = app.packageName,
+                    label = label,
+                    versionName = versionNameOf(context, app.packageName),
+                    flavor = identity.flavor,
+                    spoofed = identity.spoofed,
+                )
             }.sortedWith(compareBy({ it.spoofed }, { it.label }))
         }.getOrDefault(emptyList())
     }
@@ -242,6 +264,18 @@ internal object KernelSuManager {
         val info = context.packageManager.getApplicationInfo(packageName, 0)
         context.packageManager.getApplicationLabel(info).toString()
     }.getOrDefault(packageName)
+
+    /**
+     * The version an installed package declares for itself.
+     *
+     * `versionName` rather than the version code, because it is the name the releases are tagged with
+     * and therefore the only form that can be compared against the running KernelSU's. Null when the
+     * package manager would not answer, which sends the comparison to [ManagerVersionState.Unknown]
+     * rather than to a mismatch.
+     */
+    private fun versionNameOf(context: Context, packageName: String): String? = runCatching {
+        context.packageManager.getPackageInfo(packageName, 0).versionName
+    }.getOrNull()?.trim()?.takeIf(String::isNotBlank)
 
     /**
      * Whether an app carries the KernelSU daemon.

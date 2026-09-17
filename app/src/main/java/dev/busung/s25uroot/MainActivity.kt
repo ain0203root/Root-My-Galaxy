@@ -2929,6 +2929,14 @@ private fun SettingsPage(
     }
 
     if (showManagerVersionDialog) {
+        // What the phone is running, read when the dialog opens rather than passed in: this is the
+        // version a manager has to match, and the picker beside it is where that gets acted on.
+        var runningVersion by remember { mutableStateOf<String?>(null) }
+        LaunchedEffect(kernelsuFlavor) {
+            runningVersion = withContext(Dispatchers.IO) {
+                KernelSuVersionProbe.read(context).daemon
+            }
+        }
         // Asked for while the dialog is open and forgotten with it, because a version list is about the
         // releases that exist right now: keeping one would offer a version the user has already seen.
         var available by remember { mutableStateOf<Result<List<String>>?>(null) }
@@ -2953,6 +2961,36 @@ private fun SettingsPage(
                         ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
+                    // The reading the picker exists for, next to the picker: it is the one version
+                    // that is certainly right, and naming it is what turns "which do I install" into
+                    // one tap. Offered only when it is not the version this app already installs by
+                    // default, because that one is already the default row below.
+                    runningVersion?.let { running ->
+                        if (running != kernelsuFlavor.defaultManagerVersion) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(
+                                        R.string.settings_manager_running_version,
+                                        kernelsuFlavor.label,
+                                        running,
+                                    ),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = { managerVersionDraft = running }) {
+                                    Text(
+                                        stringResource(
+                                            R.string.settings_manager_running_use,
+                                            running,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
                     Text(
                         stringResource(R.string.settings_manager_versions_heading),
                         style = MaterialTheme.typography.labelLarge,
@@ -3683,6 +3721,19 @@ private fun SettingsPage(
                 val installedManager = remember(kernelsuFlavor, offeredManagerVersion) {
                     KernelSuManager.installedFor(context, kernelsuFlavor)
                 }
+                // Read here, where the rows that say what it means are, and off the main thread: the
+                // read is a root shell, which on a device that has not answered its grant prompt is a
+                // wait rather than a failure - and a settings list is not worth a frozen frame.
+                var runningKernelSu by remember { mutableStateOf<KernelSuVersionReading?>(null) }
+                LaunchedEffect(kernelsuFlavor) {
+                    runningKernelSu = withContext(Dispatchers.IO) {
+                        KernelSuVersionProbe.read(context)
+                    }
+                }
+                val managerVersion = installedManager?.versionName
+                val managerState = remember(managerVersion, runningKernelSu) {
+                    managerVersionState(managerVersion, runningKernelSu?.daemon)
+                }
                 SettingsCard(
                     icon = Icons.Rounded.VerifiedUser,
                     title = stringResource(R.string.settings_manager),
@@ -3695,7 +3746,32 @@ private fun SettingsPage(
                     } else {
                         stringResource(R.string.settings_manager_summary, offeredManagerVersion)
                     },
-                    value = installedManager?.label ?: offeredManagerVersion,
+                    // What is on the phone, not what the app would install: the offered version is
+                    // the row below this one, and the two were the same number in the same place
+                    // until a manager from another line could be installed without the app noticing.
+                    value = managerVersion ?: offeredManagerVersion,
+                    // The pair, said out loud. A mismatch is the one thing this screen could never see:
+                    // any manager talks to the loaded module over KernelSU's socket, so a manager from
+                    // one line against a kernel from another installs and runs exactly like a matching
+                    // one. Tapping the row still opens whatever manager is installed.
+                    notice = runningKernelSu?.daemon?.let { kernelVersion ->
+                        when (managerState) {
+                            ManagerVersionState.Differing -> stringResource(
+                                R.string.settings_manager_mismatch,
+                                managerVersion.orEmpty(),
+                                kernelsuFlavor.label,
+                                kernelVersion,
+                            )
+                            ManagerVersionState.Matching -> stringResource(
+                                R.string.settings_manager_running,
+                                kernelsuFlavor.label,
+                                kernelVersion,
+                            )
+                            // Nothing was read, so there is nothing to say about the manager: the
+                            // absence of a reading is not a finding.
+                            ManagerVersionState.Unknown -> null
+                        }
+                    },
                     position = SettingsCardPosition.Middle,
                     // Opens whatever manager is on the phone, of whatever version; the download is
                     // only offered when there is none. Nothing here rejects a version the user
