@@ -7,6 +7,7 @@ import org.junit.Test
 
 private const val BOOT = "0f2a4c6e-1b2d-4f6a-8c0e-2d4f6a8c0e2d"
 private const val ACCEPTED = "/data/local/tmp/.rmg-restart-zygote-accepted"
+private const val REPORT = "/data/user/0/dev.busung.s25uroot/files/framework-restart-report"
 
 
 class RootRecoveryTest {
@@ -153,7 +154,7 @@ class RootRecoveryTest {
 
     @Test
     fun `zygote is restarted through init, never killed`() {
-        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED)
+        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED, REPORT)
 
         assertTrue(script.contains("setprop ctl.restart zygote"))
         assertFalse(script.contains("kill"))
@@ -162,7 +163,7 @@ class RootRecoveryTest {
 
     @Test
     fun `the secondary zygote is restarted first, and only when it runs`() {
-        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED)
+        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED, REPORT)
 
         val secondary = script.indexOf("ctl.restart zygote_secondary")
         // The last occurrence, because the secondary command literally starts with the primary's.
@@ -173,7 +174,7 @@ class RootRecoveryTest {
 
     @Test
     fun `the restart validates root, the boot and a live framework before it acts`() {
-        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED)
+        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED, REPORT)
 
         assertTrue(script.contains("[ \"\$(id -u 2>/dev/null)\" = \"0\" ] || reject_handoff 'not-root'"))
         assertTrue(script.contains("boot-changed"))
@@ -187,7 +188,7 @@ class RootRecoveryTest {
 
     @Test
     fun `the restart waits for the modules that inject into Zygote`() {
-        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED)
+        val script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED, REPORT)
 
         // Mounted is not the same as up: creating a Zygote before these services run brings the
         // framework back without them, which is the opposite of what the restart is for.
@@ -293,7 +294,7 @@ class RootRecoveryTest {
     @Test
     fun `the restart's window outlasts the wait its child does before it can answer`() {
         val windowSeconds = windowSecondsFor(
-            script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED),
+            script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED, REPORT),
             attempts = RootRecovery.restartZygoteAcceptPollAttempts,
         )
 
@@ -314,7 +315,7 @@ class RootRecoveryTest {
     @Test
     fun `no action acts after the app has given up on it`() {
         val scripts = listOf(
-            RootRecovery.restartZygoteScript(BOOT, ACCEPTED),
+            RootRecovery.restartZygoteScript(BOOT, ACCEPTED, REPORT),
             RootRecovery.softRebootScript(BOOT, ACCEPTED),
             RootRecovery.rebootScript(BOOT, ACCEPTED),
         )
@@ -521,7 +522,7 @@ class RootRecoveryTest {
     fun `every action is scoped to the kernel boot it was asked for`() {
         val scripts = listOf(
             RootRecovery.reloadModulesScript(BOOT, ACCEPTED),
-            RootRecovery.restartZygoteScript(BOOT, ACCEPTED),
+            RootRecovery.restartZygoteScript(BOOT, ACCEPTED, REPORT),
             RootRecovery.softRebootScript(BOOT, ACCEPTED),
             RootRecovery.rebootScript(BOOT, ACCEPTED),
         )

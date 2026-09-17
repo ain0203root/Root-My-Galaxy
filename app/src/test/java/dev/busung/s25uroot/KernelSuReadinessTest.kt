@@ -22,7 +22,10 @@ class KernelSuReadinessTest {
         // to "what counts as a module that should be mounted" cannot reach one and miss the other.
         val variables = KernelSuReadiness.variables()
         assertTrue(KernelSuReadiness.command().contains(variables))
-        assertTrue(RootRecovery.restartZygoteScript("boot-1", "/tmp/accepted").contains(variables))
+        assertTrue(
+            RootRecovery.restartZygoteScript("boot-1", "/tmp/accepted", "/tmp/report")
+                .contains(variables),
+        )
     }
 
     @Test

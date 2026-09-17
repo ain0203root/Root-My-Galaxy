@@ -544,6 +544,17 @@
     <string name="recovery_scheduled">Scheduled. The Android runtime will restart shortly.</string>
     <string name="recovery_reboot_scheduled">Scheduled. The phone will restart without root.</string>
     <string name="recovery_needs_kernel_su">Needs KernelSU</string>
+    <string name="framework_restart_title">Framework restart</string>
+    <string name="framework_restart_came_back">The Android runtime restarted and came back after about %1$d s with a new framework (Zygote %2$s, system_server %3$s).</string>
+    <string name="framework_restart_not_restarted">The Android runtime did not restart: Zygote is still pid %1$s after %2$d s, so init never replaced it. Nothing was reloaded.</string>
+    <string name="framework_restart_framework_missing">Zygote was replaced, but the framework did not come back within %1$d s. The phone needs a reboot before anything else can run.</string>
+    <string name="framework_restart_boot_changed">The phone restarted while this was being checked, so there is nothing to report about that restart.</string>
+    <string name="framework_restart_unreadable">The restart was asked for, but its result could not be read back here, so nothing is claimed about what it did.</string>
+    <string name="framework_restart_module_code_mapped">Module code is mapped into the new framework, so the modules that inject into it are loading in it.</string>
+    <string name="framework_restart_module_code_absent">No module code is mapped into the new framework, so it came back without the modules that inject into it.</string>
+    <string name="framework_restart_module_code_unreadable">Whether module code is mapped into the new framework could not be read on this device.</string>
+    <string name="framework_restart_module_services_missing">These modules\' services are not running: %1$s.</string>
+    <string name="log_framework_restart_report">[+] Framework restart: %1$s</string>
     <string name="settings_shizuku_start">Start Shizuku now</string>
     <string name="settings_shizuku_start_summary">Start Shizuku with root, or through wireless debugging when root is not available</string>
     <string name="settings_shizuku_allow">Allow this app in Shizuku</string>

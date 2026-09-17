@@ -148,8 +148,14 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
                         if (reload.accepted) KernelSuManagerRefresh.afterLoad(context)
                         reload
                     }
-                    RecoveryTool.RestartZygote ->
-                        RootRecovery.restartZygote(rootShell, bootToken)
+                    // The one action whose result the app cannot report when it happens: the restart
+                    // ends this process, so the child checks the framework that replaced it and leaves
+                    // its record in the app's own files directory for the next run to read.
+                    RecoveryTool.RestartZygote -> RootRecovery.restartZygote(
+                        shell = rootShell,
+                        bootToken = bootToken,
+                        reportPath = ZygoteRestartReport.file(context).absolutePath,
+                    )
                     RecoveryTool.SoftReboot -> RootRecovery.softReboot(
                         shell = rootShell,
                         bootToken = bootToken,

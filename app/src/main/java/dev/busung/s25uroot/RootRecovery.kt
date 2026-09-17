@@ -328,6 +328,16 @@ internal object RootRecovery {
     suspend fun restartZygote(
         shell: (String) -> ShizukuController.ShellResult,
         bootToken: String,
+        /**
+         * Where the child writes what the framework came back with, in a place the app can read
+         * without a shell.
+         *
+         * Passed in rather than fixed here because it is the app's own files directory, and this object
+         * deliberately knows nothing about a `Context`: the verification's record is the one thing this
+         * action produces that the app has to be able to read on its own, after the restart has taken
+         * the process that started it.
+         */
+        reportPath: String,
     ): RecoveryOutcome {
         // The restart's purpose is to make already-mounted modules take effect, so a module that is
         // enabled but not mounted is a reason not to spend the restart: the framework would go down
@@ -341,7 +351,11 @@ internal object RootRecovery {
         scriptPath = "/data/local/tmp/rmg-restart-zygote.sh",
         logPath = "/data/local/tmp/rmg-restart-zygote.log",
         acceptedPath = "/data/local/tmp/.rmg-restart-zygote-accepted",
-        script = restartZygoteScript(bootToken, "/data/local/tmp/.rmg-restart-zygote-accepted"),
+        script = restartZygoteScript(
+            bootToken = bootToken,
+            acceptedPath = "/data/local/tmp/.rmg-restart-zygote-accepted",
+            reportPath = reportPath,
+        ),
         // Outlasts the child's own wait for the module services, so a refusal is read as a refusal
         // rather than as silence.
         acceptPollAttempts = restartZygoteAcceptPollAttempts,
@@ -482,8 +496,18 @@ internal object RootRecovery {
      *
      * The short sleep before the restart is not decoration: the app has to be able to read the
      * acknowledgement and persist what it says before the framework it is running in goes away.
+     *
+     * The child also stays behind after asking init for the restart, because it is the only thing left
+     * that can see the result: the acceptance says the request was made, and the framework that would
+     * report what came back is the one being replaced. What it finds is written to [reportPath], where
+     * the app reads it on its next run - which is what turns "Scheduled" into an account of the
+     * framework that actually came back.
      */
-    internal fun restartZygoteScript(bootToken: String, acceptedPath: String): String = """
+    internal fun restartZygoteScript(
+        bootToken: String,
+        acceptedPath: String,
+        reportPath: String,
+    ): String = """
         #!/system/bin/sh
         EXPECTED_BOOT=${shellQuote(bootToken)}
         ACCEPTED=${shellQuote(acceptedPath)}
@@ -526,6 +550,9 @@ internal object RootRecovery {
         fi
 
         publish_handoff "${'$'}ACCEPTED_VALUE"
+        # What this restart is replacing, read while the app is reading the acknowledgement: after the
+        # request there is no "before" left to compare the framework that comes back against.
+        ${ZygoteRestartReport.baselineSnippet(reportPath)}
         # Being heard is not the same as being acknowledged: the app removes the acknowledgement as it
         # reads it, so one still sitting there means the app is gone - and an action the user has
         # already been told failed must not go on to restart the framework under them.
@@ -537,6 +564,12 @@ internal object RootRecovery {
         sleep 0.75
         rm -f -- "${'$'}0"
         setprop ctl.restart zygote
+
+        # The request is not the result, and this child is the only witness left to it: the app that
+        # started it is one of the processes the restart just ended, while this script was detached from
+        # that process's session. So the framework that replaces the one above is checked here, and its
+        # record is left where the app can read it without a shell.
+        ${ZygoteRestartReport.verificationSnippet()}
     """.trimIndent() + "\n"
 
     /**

@@ -658,6 +658,20 @@ private fun RootApp(
     val scope = rememberCoroutineScope()
     var updateStatus by remember { mutableStateOf<UpdateStatus>(UpdateStatus.Idle) }
     var updateCardDismissed by remember { mutableStateOf(false) }
+    // What the framework came back with after the last restart, read once here because here is the one
+    // screen every launch goes through: the restart ends the process that asked for it, so its result
+    // has no other place to be read from. Read away as it is read - a result is news, and the app runs
+    // in several processes.
+    var frameworkRestart by remember { mutableStateOf<FrameworkRestartReport?>(null) }
+    var frameworkRestartDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val report = withContext(Dispatchers.IO) {
+            ZygoteRestartReport
+                .consume(ZygoteRestartReport.file(context), kernelBootToken())
+                ?.also { AppLog.info(AppLogTags.KERNEL_SU, ZygoteRestartReport.logLine(context, it)) }
+        }
+        frameworkRestart = report
+    }
     // The updater stands down while a run is in flight, and says so when it is asked.
     //
     // A run's delicate part is the payload's own timing, and an update check or a download beside it is
@@ -935,6 +949,8 @@ private fun RootApp(
                     updateStatus = updateStatus,
                     updateCardDismissed = updateCardDismissed,
                     onDismissUpdateCard = { updateCardDismissed = true },
+                    frameworkRestart = frameworkRestart.takeIf { !frameworkRestartDismissed },
+                    onDismissFrameworkRestart = { frameworkRestartDismissed = true },
                     onStartDownload = startDownload,
                     onStartArmedRetry = onStartArmedRetry,
                     onCancelArmedRetry = onCancelArmedRetry,
@@ -1051,6 +1067,9 @@ private fun OverviewPage(
     updateStatus: UpdateStatus,
     updateCardDismissed: Boolean,
     onDismissUpdateCard: () -> Unit,
+    /** What the last framework restart came back with, until it is dismissed. */
+    frameworkRestart: FrameworkRestartReport?,
+    onDismissFrameworkRestart: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
     onStartArmedRetry: () -> Unit,
     onCancelArmedRetry: () -> Unit,
@@ -1163,6 +1182,17 @@ private fun OverviewPage(
             }
         }
         item { InstallStatusCard(installState, onInstall) }
+        // Above the readiness card, because it is about something that already happened rather than
+        // something to check, and it is the only account of a restart the user asked for: the dialog
+        // that started it could only say the request was made.
+        if (frameworkRestart != null) {
+            item {
+                FrameworkRestartCard(
+                    report = frameworkRestart,
+                    onDismiss = onDismissFrameworkRestart,
+                )
+            }
+        }
         // Above the readiness card, and above everything else that is only information: this one is
         // waiting on a decision, and it changes what the next boot does.
         if (armedRetry != null && !installState.busy) {
@@ -1199,6 +1229,78 @@ private val UpdateStatus.info: UpdateInfo?
         is UpdateStatus.Downloading -> this.info
         else -> null
     }
+
+/**
+ * What the last framework restart came back with.
+ *
+ * The dialog that starts the restart can only say the request was made: the framework it would report a
+ * result in is the one being replaced. So the result is this, on the screen the app opens on - which is
+ * the first place anyone looks once the phone has come back - and it is here rather than only in
+ * Settings because the action that produced it can be started from either one.
+ *
+ * The account comes from [ZygoteRestartReport.describe], the same words the app log gets, so the card
+ * and the log cannot end up saying different things about one restart. It is dismissible and does not
+ * come back: the record is read away as it is read, because a result read twice is reported twice.
+ */
+@Composable
+private fun FrameworkRestartCard(report: FrameworkRestartReport, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val attention = report.needsAttention
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = if (attention) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            contentColor = if (attention) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        ),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    if (attention) Icons.Rounded.Warning else Icons.Rounded.RestartAlt,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                )
+                Text(
+                    text = stringResource(R.string.framework_restart_title),
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onDismiss()
+                    },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = stringResource(R.string.action_close),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            ZygoteRestartReport.describe(context, report).forEach { line ->
+                Text(text = line, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
 
 @Composable
 private fun UpdateCard(
