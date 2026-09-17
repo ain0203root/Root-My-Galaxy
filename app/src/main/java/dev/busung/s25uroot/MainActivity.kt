@@ -3273,10 +3273,12 @@ private fun SettingsPage(
                     icon = Icons.Rounded.Security,
                     title = stringResource(R.string.settings_ksu_flavor),
                     description = stringResource(kernelsuFlavor.summaryRes),
-                    // What is selected rides beside the title, and stays there whether a restart is
-                    // pending or not: the band that usually carries a setting would take its width cap
-                    // out of the description, which is the longest one on this screen.
-                    titleValue = kernelsuFlavor.label,
+                    // The selected flavour sits in the band every other row puts its setting in, so it
+                    // lands on their centre line instead of riding up beside the title. That band is
+                    // measured before the text column next to it, which is why these two descriptions
+                    // are one line long: anything longer wraps into a second line at half the card's
+                    // width, and reads as a row that overflowed rather than one that fits.
+                    value = kernelsuFlavor.label,
                     // The pending marker is the only warning this screen can give: the two flavours
                     // cannot both be in the kernel, so a switch made in a boot that already carries
                     // one only takes effect after a restart. It says which flavour this boot is
@@ -5193,20 +5195,14 @@ internal fun SettingsCard(
     description: String,
     value: String = "",
     /**
-     * A short setting shown beside the title instead of in the trailing band.
-     *
-     * For a card whose description needs the whole width: [value] is measured before the text column
-     * beside it, so a value there takes its cap out of the description, while a title is a few words
-     * and leaves the rest.
-     */
-    titleValue: String? = null,
-    /**
      * One short line of state that is not a setting: why this card is not doing what it says.
      *
      * Kept to a single line on purpose. It used to be a sentence written like body copy - the same
      * size and colour as the description above it - which made a row that carried one into a paragraph
      * six lines tall, and made state read as more description. A small icon and a line beside it is
      * what tells the two apart at a glance, and what keeps this row the height of its neighbours.
+     * Centred, because it belongs to the whole row rather than to the text column it would otherwise
+     * hang off, aligned under an icon it has nothing to do with.
      */
     notice: String? = null,
     noticeIcon: ImageVector = Icons.Rounded.RestartAlt,
@@ -5246,27 +5242,7 @@ internal fun SettingsCard(
             ) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text(
-                            title,
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (titleValue != null) {
-                            Text(
-                                titleValue,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.widthIn(max = SETTINGS_VALUE_MAX_WIDTH),
-                                textAlign = TextAlign.End,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
+                    Text(title, style = MaterialTheme.typography.titleMedium)
                     // Wraps like SettingsSwitchCard rather than ellipsising: a description that
                     // needs a second line is still worth reading.
                     Text(
@@ -5275,7 +5251,7 @@ internal fun SettingsCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (notice == null && value.isNotBlank()) {
+                if (value.isNotBlank()) {
                     Text(
                         value,
                         style = MaterialTheme.typography.labelLarge,
@@ -5293,8 +5269,9 @@ internal fun SettingsCard(
             if (notice != null) {
                 Spacer(Modifier.height(8.dp))
                 Row(
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.Center,
                 ) {
                     Icon(
                         noticeIcon,
@@ -5302,6 +5279,7 @@ internal fun SettingsCard(
                         modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.primary,
                     )
+                    Spacer(Modifier.width(6.dp))
                     Text(
                         notice,
                         style = MaterialTheme.typography.labelMedium,
