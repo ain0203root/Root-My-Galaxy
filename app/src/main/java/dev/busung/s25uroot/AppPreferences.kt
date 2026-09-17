@@ -44,6 +44,7 @@ object AppPreferences {
     private const val LOADED_FLAVOR_BOOT = "loaded_flavor_boot"
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
+    private const val RESTART_AFTER_ROOT = "restart_after_root"
     private const val RETRY_AFTER_REBOOT = "retry_after_reboot_boot"
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
     private const val BOOT_SETTLE_SECONDS = "boot_settle_seconds"
@@ -280,6 +281,23 @@ object AppPreferences {
     fun setBootRootMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(BOOT_ROOT_MODE, enabled)
+            .apply()
+    }
+
+    /**
+     * Whether a run that loaded KernelSU should hand the userspace over before it reports done.
+     *
+     * Off by default, because what it does is close everything that is open, and a setting that did
+     * that unannounced would cost more than the tap it saves. What it buys when it is on: KernelSU's
+     * own soft reboot walks the module lifecycle in its normal order, so a run that started from a
+     * phone whose modules were inert ends with them loaded rather than with an instruction to restart.
+     */
+    fun restartAfterRoot(context: Context): Boolean =
+        prefs(context).getBoolean(RESTART_AFTER_ROOT, false)
+
+    fun setRestartAfterRoot(context: Context, enabled: Boolean) {
+        prefs(context).edit()
+            .putBoolean(RESTART_AFTER_ROOT, enabled)
             .apply()
     }
 

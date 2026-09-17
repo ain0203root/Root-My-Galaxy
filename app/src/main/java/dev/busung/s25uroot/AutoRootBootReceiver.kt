@@ -1,9 +1,14 @@
 package dev.busung.s25uroot
 
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * The one thing that happens on `BOOT_COMPLETED`: decide whether this boot gets an automatic
@@ -81,11 +86,44 @@ class AutoRootActionReceiver : BroadcastReceiver() {
                 AppPreferences.setBootRootMode(context, false)
                 AutoRootService.stop(context)
             }
+
+            ACTION_APPLY_MODULES -> applyModules(context)
+        }
+    }
+
+    /**
+     * Runs KernelSU's soft reboot, the userspace restart that walks the module lifecycle in its order.
+     *
+     * goAsync, because this is a broadcast: the action takes as long as a shell takes, and returning
+     * from onReceive first would let the process be killed in the middle of the one action the user
+     * just asked for. The notification is left standing when it is refused, so the offer is still there
+     * to retry - and taken away when the restart has been accepted, because the userspace is going.
+     */
+    private fun applyModules(context: Context) {
+        val pending = goAsync()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                val outcome = runRecoveryAction(context.applicationContext, RecoveryTool.SoftReboot)
+                if (outcome.accepted) {
+                    context.getSystemService(NotificationManager::class.java)
+                        .cancel(AutoRootService.NOTIFICATION_ID)
+                    Log.i(TAG, "KernelSU soft reboot accepted from the root on boot notification")
+                } else {
+                    Log.w(TAG, "Applying modules from the notification failed: ${outcome.detail}")
+                }
+            } catch (error: Throwable) {
+                Log.e(TAG, "Applying modules from the notification failed", error)
+            } finally {
+                pending.finish()
+            }
         }
     }
 
     companion object {
         const val ACTION_DISABLE_ROOT_ON_BOOT =
             "dev.busung.s25uroot.action.DISABLE_ROOT_ON_BOOT"
+        const val ACTION_APPLY_MODULES =
+            "dev.busung.s25uroot.action.APPLY_MODULES"
+        private const val TAG = "RootMyGalaxyBootAction"
     }
 }

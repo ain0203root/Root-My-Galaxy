@@ -211,6 +211,7 @@ class MainActivity : ComponentActivity() {
     private var shizukuMode by mutableStateOf(false)
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
+    private var restartAfterRoot by mutableStateOf(false)
     private var shizukuBootMode by mutableStateOf(false)
     private var bootSettleSeconds by mutableStateOf(BootSettle.DEFAULT_SECONDS)
     private var autoRootSettleSeconds by mutableStateOf(BootSettle.AUTO_ROOT_DEFAULT_SECONDS)
@@ -309,6 +310,7 @@ class MainActivity : ComponentActivity() {
         shizukuMode = AppPreferences.shizukuMode(this)
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
+        restartAfterRoot = AppPreferences.restartAfterRoot(this)
         shizukuBootMode = AppPreferences.shizukuBootMode(this)
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
         autoRootSettleSeconds = AppPreferences.autoRootSettleSeconds(this)
@@ -330,6 +332,7 @@ class MainActivity : ComponentActivity() {
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
+                    restartAfterRoot = restartAfterRoot,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
@@ -383,6 +386,10 @@ class MainActivity : ComponentActivity() {
                         // Turning it off has to reach a gate that is already waiting, not just the
                         // next boot: a foreground service left running would install anyway.
                         if (!enabled) AutoRootService.stop(this)
+                    },
+                    onRestartAfterRootChanged = { enabled ->
+                        AppPreferences.setRestartAfterRoot(this, enabled)
+                        restartAfterRoot = enabled
                     },
                     onBootSettleChanged = { seconds ->
                         AppPreferences.setBootSettleSeconds(this, seconds)
@@ -525,6 +532,7 @@ private fun RootApp(
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
+    restartAfterRoot: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
@@ -543,6 +551,7 @@ private fun RootApp(
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
+    onRestartAfterRootChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
@@ -851,6 +860,7 @@ private fun RootApp(
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
+                    restartAfterRoot = restartAfterRoot,
                     shizukuBootMode = shizukuBootMode,
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
@@ -872,6 +882,7 @@ private fun RootApp(
                     onShizukuModeChanged = onShizukuModeChanged,
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                     onBootRootModeChanged = onBootRootModeChanged,
+                    onRestartAfterRootChanged = onRestartAfterRootChanged,
                     onShizukuBootModeChanged = onShizukuBootModeChanged,
                     onBootSettleChanged = onBootSettleChanged,
                     onAutoRootSettleChanged = onAutoRootSettleChanged,
@@ -1977,6 +1988,7 @@ private fun SettingsPage(
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
+    restartAfterRoot: Boolean,
     shizukuBootMode: Boolean,
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
@@ -1998,6 +2010,7 @@ private fun SettingsPage(
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
+    onRestartAfterRootChanged: (Boolean) -> Unit,
     onShizukuBootModeChanged: (Boolean) -> Unit,
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
@@ -2948,6 +2961,21 @@ private fun SettingsPage(
                         clickHaptic(view)
                         if (enabled) onRequestNotificationPermission()
                         onBootRootModeChanged(enabled)
+                    },
+                )
+                // Follows the load decision for the same reason root on boot does: what it applies its
+                // modules to is the KernelSU a run loaded, and with loading off there is nothing to
+                // apply. It is not tied to root on boot - a manual run can load KernelSU with that off.
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.RestartAlt,
+                    title = stringResource(R.string.settings_restart_after_root),
+                    description = stringResource(R.string.settings_restart_after_root_summary),
+                    checked = restartAfterRoot,
+                    position = SettingsCardPosition.Middle,
+                    enabled = loadKernelSu,
+                    onCheckedChange = { enabled ->
+                        clickHaptic(view)
+                        onRestartAfterRootChanged(enabled)
                     },
                 )
                 SettingsCard(

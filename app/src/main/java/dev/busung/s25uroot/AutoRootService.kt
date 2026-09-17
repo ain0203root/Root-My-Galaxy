@@ -229,7 +229,10 @@ class AutoRootService : Service() {
         if (state.phase == InstallPhase.Installed) {
             AutoRootSupport.markVerifiedForBoot(this, bootToken)
             if (AppPreferences.shizukuBootMode(this)) ShizukuBootService.start(this)
-            finish(getString(R.string.autoroot_succeeded))
+            // KernelSU is loaded and its modules are not: this run happened in a userspace that was
+            // already built, so the offer to build it again is the difference between a phone that is
+            // rooted and a phone whose modules do anything.
+            finish(getString(R.string.autoroot_succeeded), offerSoftReboot = true)
             return
         }
         val failure = state.failure
@@ -251,12 +254,12 @@ class AutoRootService : Service() {
     }
 
     /** The run is over: the notification stops being ongoing and says how it went. */
-    private fun finish(message: String) {
+    private fun finish(message: String, offerSoftReboot: Boolean = false) {
         if (stopping) return
         stopping = true
         getSystemService(NotificationManager::class.java).notify(
             NOTIFICATION_ID,
-            buildNotification(message, ongoing = false),
+            buildNotification(message, ongoing = false, offerSoftReboot = offerSoftReboot),
         )
         stopForegroundCompat()
         stopSelf()
@@ -286,7 +289,19 @@ class AutoRootService : Service() {
         runCatching { stopSelf() }
     }
 
-    private fun buildNotification(message: String, ongoing: Boolean) = NotificationCompat
+    /**
+     * [offerSoftReboot] adds the action a boot run needs after it succeeds, and only then.
+     *
+     * A boot run loads KernelSU into a userspace that was already built, so its modules are inert until
+     * that userspace is built again. The offer is the only way to do it without asking the user to know
+     * which of the two restarts is the one that loads modules - and it is offered rather than performed
+     * because it closes everything that is open, which is not something a background run gets to decide.
+     */
+    private fun buildNotification(
+        message: String,
+        ongoing: Boolean,
+        offerSoftReboot: Boolean = false,
+    ) = NotificationCompat
         .Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_warning)
         .setContentTitle(getString(R.string.settings_boot_root))
@@ -308,6 +323,20 @@ class AutoRootService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             ),
         )
+        .apply {
+            if (!offerSoftReboot) return@apply
+            addAction(
+                0,
+                getString(R.string.autoroot_apply_modules),
+                PendingIntent.getBroadcast(
+                    this@AutoRootService,
+                    2,
+                    Intent(this@AutoRootService, AutoRootActionReceiver::class.java)
+                        .setAction(AutoRootActionReceiver.ACTION_APPLY_MODULES),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                ),
+            )
+        }
         .build()
 
     private fun launcherPendingIntent(): PendingIntent = PendingIntent.getActivity(
@@ -342,7 +371,8 @@ class AutoRootService : Service() {
 
         private const val TAG = "RootMyGalaxyAutoRoot"
         private const val CHANNEL_ID = "auto_root"
-        private const val NOTIFICATION_ID = 0x42554f55
+        /** Also read by the notification's own action, so the offer can clear the result it acted on. */
+        internal const val NOTIFICATION_ID = 0x42554f55
 
         /** How long the whole gate may take, including the run's own cut-offs. */
         private const val GATE_LIMIT_MILLIS = 15 * 60 * 1_000L

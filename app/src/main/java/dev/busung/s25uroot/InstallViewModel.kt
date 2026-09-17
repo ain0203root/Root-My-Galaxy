@@ -594,6 +594,22 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 finishHistory(
                     if (loadKernelSu) InstallRunResult.Succeeded else InstallRunResult.RootOnly,
                 )
+                // Last, and only for a run that loaded KernelSU: modules take effect when the userspace
+                // is built again, and KernelSU's own soft reboot is the way that walks their lifecycle
+                // in the normal order. After the result is written, because the restart ends everything
+                // this process is in the middle of - a result that had not been persisted yet would go
+                // with it. Opt-in, and a refusal is a line in the log: the run already succeeded.
+                if (loadKernelSu && AppPreferences.restartAfterRoot(app)) {
+                    appendLog(app.getString(R.string.log_restart_after_root))
+                    val restart = runRecoveryAction(app, RecoveryTool.SoftReboot)
+                    appendLog(
+                        if (restart.accepted) {
+                            app.getString(R.string.log_restart_after_root_accepted)
+                        } else {
+                            app.getString(R.string.log_restart_after_root_refused, restart.detail)
+                        },
+                    )
+                }
             } catch (cancelled: CancellationException) {
                 // Stopped, not failed: the run was cancelled, and the flag says whether a person asked
                 // for it. Either way this must be rethrown - swallowing a cancellation would leave the

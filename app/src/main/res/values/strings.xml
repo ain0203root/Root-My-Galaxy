@@ -254,6 +254,12 @@
     <string name="log_ksu_staged">[+] KernelSU staging complete</string>
     <string name="log_ksu_staged_early">[+] KernelSU daemon staged ahead of the payload: the load that follows bootstrap root needs it already in place</string>
     <string name="log_local_adb_shell_ready">[+] Local ADB shell transport ready: u:r:shell:s0</string>
+    <string name="log_restart_after_root">[*] Restarting the userspace so KernelSU walks the module lifecycle</string>
+    <string name="log_restart_after_root_accepted">[+] KernelSU accepted the soft reboot: modules are being applied</string>
+    <string name="log_restart_after_root_refused">[!] Root succeeded, but KernelSU did not take the soft reboot: %1$s</string>
+    <string name="settings_restart_after_root">Apply modules when a run finishes</string>
+    <string name="settings_restart_after_root_summary">Let KernelSU restart the userspace at the end of a run that loaded it, so modules are active straight away. Everything that is open closes, and the screen goes back to the lock screen</string>
+    <string name="autoroot_apply_modules">Apply modules</string>
     <string name="log_ksu_staged_late_only">[*] No shell transport to stage KernelSU before the exploit; the payload has no daemon to load, so it is staged afterwards instead</string>
     <string name="log_ksu_control_verified">[+] KernelSU control channel verified (%1$s)</string>
     <string name="log_ksu_control_readings">[*] Control channel readings: %1$s</string>
