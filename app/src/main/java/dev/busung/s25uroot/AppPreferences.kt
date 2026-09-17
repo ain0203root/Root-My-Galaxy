@@ -36,6 +36,7 @@ object AppPreferences {
     private const val THEME_MODE = "theme_mode"
     private const val ADVANCED_MODE = "advanced_mode"
     private const val DISABLE_KSU_MODULES = "disable_ksu_modules"
+    private const val LOAD_KERNEL_SU = "load_kernel_su"
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val SHIZUKU_BOOT_MODE = "shizuku_boot_mode"
@@ -151,6 +152,26 @@ object AppPreferences {
     fun setDisableKsuModules(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(DISABLE_KSU_MODULES, enabled)
+            .apply()
+    }
+
+    /**
+     * Whether a run loads KernelSU once the exploit has root.
+     *
+     * On by default, because loading it is what this app is for. Off is for a device where the module
+     * is deliberately not wanted - another root solution is doing that job, or the load itself is the
+     * thing that misbehaves - and the run then ends at the root the exploit won and says so rather
+     * than reporting an install it did not make.
+     *
+     * A preference rather than a per-run choice: everything that depends on the load (root on boot,
+     * the recovery actions, keeping the modules out of the way) reads the same answer, so it has to be
+     * the same answer for all of them. A run freezes it at its start, like the transport.
+     */
+    fun loadKernelSu(context: Context): Boolean = prefs(context).getBoolean(LOAD_KERNEL_SU, true)
+
+    fun setLoadKernelSu(context: Context, enabled: Boolean) {
+        prefs(context).edit()
+            .putBoolean(LOAD_KERNEL_SU, enabled)
             .apply()
     }
 

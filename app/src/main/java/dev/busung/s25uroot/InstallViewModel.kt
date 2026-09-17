@@ -26,6 +26,15 @@ enum class InstallPhase {
     Exploiting,
     LoadingKernelSu,
     Installed,
+
+    /**
+     * Root was obtained and KernelSU was not loaded, because loading is switched off.
+     *
+     * A terminal state of its own rather than [Installed]: the run is over and it worked, but the
+     * device is not running KernelSU, and a screen that says "Installed" about that would be the app
+     * claiming something it did not do.
+     */
+    RootOnly,
     Failed,
 }
 
@@ -276,6 +285,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // requires one can be carried by a pairing instead of by Shizuku. Frozen for the
                 // whole run, so a mid-run preference change cannot mix transports between the exploit
                 // and the KernelSU staging steps.
+                // Frozen here with the transport, for the same reason: a preference changed from the
+                // settings screen while this run is in flight must not be able to produce a half-load
+                // - staged on one reading and skipped on another.
+                val loadKernelSu = AppPreferences.loadKernelSu(app)
                 val shizukuRequested = !forceStandalone && AppPreferences.shizukuMode(app)
                 val localAdbPaired = AdbCredentialStore.hasStoredKey(app) && AppPreferences.adbPaired(app)
                 val transport = chooseRunTransport(
@@ -346,22 +359,31 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // is a write made while bootstrap root is the only root on the device.
                 if (AppPreferences.partitionReadOnlyMode(app)) setPartitionBlocksToRo()
 
-                val modulesSkipped = if (AppPreferences.disableKsuModules(app)) {
-                    moveModulesAside()
-                } else {
-                    appendLog(app.getString(R.string.log_ksu_modules_disabled_off))
-                    false
-                }
+                if (loadKernelSu) {
+                    val modulesSkipped = if (AppPreferences.disableKsuModules(app)) {
+                        moveModulesAside()
+                    } else {
+                        appendLog(app.getString(R.string.log_ksu_modules_disabled_off))
+                        false
+                    }
 
-                try {
-                    activeStage = RunStage.KernelSu
-                    setPhase(InstallPhase.LoadingKernelSu, app.getString(R.string.status_ksu_loading))
-                    installKernelSu(payloads)
-                } finally {
-                    // Modules are only meant to sit out the load itself. Restoring here also
-                    // covers a load that fails, which is where leaving them aside would strand
-                    // them with nothing in the app to bring them back.
-                    if (modulesSkipped) restoreModules()
+                    try {
+                        activeStage = RunStage.KernelSu
+                        setPhase(
+                            InstallPhase.LoadingKernelSu,
+                            app.getString(R.string.status_ksu_loading),
+                        )
+                        installKernelSu(payloads)
+                    } finally {
+                        // Modules are only meant to sit out the load itself. Restoring here also
+                        // covers a load that fails, which is where leaving them aside would strand
+                        // them with nothing in the app to bring them back.
+                        if (modulesSkipped) restoreModules()
+                    }
+                } else {
+                    // Nothing is loaded, so nothing is staged, nothing is verified, and there is
+                    // nothing for the modules to sit out: the run ends at the root the exploit won.
+                    appendLog(app.getString(R.string.log_ksu_loading_off))
                 }
 
                 // While the run still holds the root it just obtained: the permission below cannot be
@@ -379,8 +401,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     }
                 if (AppPreferences.shizukuBootMode(app)) ShizukuBootService.start(app)
 
-                setPhase(InstallPhase.Installed, app.getString(R.string.status_ksu_active))
-                appendLog(app.getString(R.string.log_install_complete))
+                setPhase(
+                    if (loadKernelSu) InstallPhase.Installed else InstallPhase.RootOnly,
+                    app.getString(
+                        if (loadKernelSu) R.string.status_ksu_active else R.string.status_root_only,
+                    ),
+                )
+                appendLog(
+                    app.getString(
+                        if (loadKernelSu) R.string.log_install_complete else R.string.log_root_only_complete,
+                    ),
+                )
                 // A payload becomes the offline fallback only here, once KernelSU is verified: that is
                 // what makes "known good" mean something, and it is why nothing is written while the
                 // exploit is running. Publishing is best-effort - a full disk must not turn a root
@@ -399,7 +430,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                             )
                         }
                 }
-                finishHistory(InstallRunResult.Succeeded)
+                finishHistory(
+                    if (loadKernelSu) InstallRunResult.Succeeded else InstallRunResult.RootOnly,
+                )
             } catch (error: Throwable) {
                 // The stage and the last payload output travel with the failure: the message alone
                 // is the same for a download that failed and an exploit that gave up, and only one

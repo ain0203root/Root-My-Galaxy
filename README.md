@@ -80,9 +80,9 @@ Appearance and a run option is not filed under Advanced:
 | Appearance | theme mode, material colour, language |
 | Payloads | payload sources, local payload |
 | Run | advanced mode, disable KSU modules, protect image partitions, boot settle, run plan |
+| Root | load KernelSU after the exploit, root on boot, and the automatic settle floor |
 | Shizuku | use Shizuku, start Shizuku now, Shizuku start token, Shizuku on boot |
 | Wireless ADB | pair, test, or remove this app's wireless-debugging identity |
-| Root | root on boot, and its settle floor |
 | Recovery | restart Zygote, KernelSU soft reboot, reboot and unroot — each confirms first |
 | System | the battery-optimisation exemption a run with the screen off depends on |
 | About | update check, and the app with its version and build label |
@@ -311,6 +311,36 @@ for a later run; without it the wireless transport only works when the user has 
 wireless debugging on by hand. A grant that does not happen is a line in the log and nothing more: the
 root that was obtained is the result, and the cable (or the next boot, which has root of its own) is
 still there.
+
+## Loading KernelSU, or not
+
+**Settings → Root → Load KernelSU after the exploit**, on by default. It is the run's last decision
+and the only one that changes what a run *is*: with it on, the exploit's bootstrap root is spent on
+loading KernelSU and the run is not finished until the kernel's module list, the app's own `su`, or the
+helper's control report says the channel is there. With it off, the run stops at the root the exploit
+won, loads nothing, verifies nothing, and ends in its own state — *root only* — rather than reporting an
+install it did not make. Run history records it separately from a success for the same reason: one says
+the device is rooted with KernelSU, the other says the payload worked.
+
+This is our side of the boundary, and it needs nothing from the payload. The helper binary in the feed
+is what implements `--late-load` (it execs `ksud late-load` with the package name KernelSU is asked
+for); the app only asks for it. Off means the app never asks, so a feed that cannot load anything is
+still a feed that can exploit — and nothing is staged either, since a staged daemon exists only to be
+loaded.
+
+Everything that consumes the load is switched off with it rather than left to fail:
+
+- **Root on boot** cannot run, because there is nothing for a boot run to put back; the switch is
+disabled with that reason on it, and the gate itself refuses with a reason of its own
+  (`SkipKernelSuLoadingOff`) rather than looking like the setting had been turned off. The stored
+  value is kept, so turning loading back on restores exactly what was there.
+- **The recovery actions** — restart Zygote, KernelSU soft reboot, reboot and unroot — consume the
+  daemon a verified load installed, so the cards read *Needs KernelSU* and take no tap.
+- **Disable KSU modules** is inert when there is no load for modules to sit out, so it is disabled
+  with that said on it.
+
+The single per-run choice is frozen when a run starts, like the transport, so a preference changed
+from Settings mid-run cannot stage a daemon on one reading and skip the load on another.
 
 ## Protecting the image partitions
 

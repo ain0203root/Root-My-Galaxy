@@ -197,6 +197,7 @@ class MainActivity : ComponentActivity() {
     private var themeMode by mutableStateOf(AppThemeMode.System)
     private var advancedMode by mutableStateOf(false)
 	private var disableKsuModules by mutableStateOf(false)
+    private var loadKernelSu by mutableStateOf(true)
     private var shizukuMode by mutableStateOf(false)
     private var payloadSources by mutableStateOf<List<PayloadSource>>(emptyList())
     private var bootRootMode by mutableStateOf(false)
@@ -286,6 +287,7 @@ class MainActivity : ComponentActivity() {
         themeMode = AppPreferences.themeMode(this)
         advancedMode = AppPreferences.advancedMode(this)
 		disableKsuModules = AppPreferences.disableKsuModules(this)
+        loadKernelSu = AppPreferences.loadKernelSu(this)
         shizukuMode = AppPreferences.shizukuMode(this)
         payloadSources = AppPreferences.payloadSources(this)
         bootRootMode = AppPreferences.bootRootMode(this)
@@ -304,6 +306,7 @@ class MainActivity : ComponentActivity() {
                     themeMode = themeMode,
                     advancedMode = advancedMode,
 					disableKsuModules = disableKsuModules,
+                    loadKernelSu = loadKernelSu,
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
@@ -332,6 +335,10 @@ class MainActivity : ComponentActivity() {
 						AppPreferences.setDisableKsuModules(this, enabled)
 						disableKsuModules = enabled
 					},
+                    onLoadKernelSuChanged = { enabled ->
+                        AppPreferences.setLoadKernelSu(this, enabled)
+                        loadKernelSu = enabled
+                    },
                     onShizukuModeChanged = { enabled ->
                         AppPreferences.setShizukuMode(this, enabled)
                         shizukuMode = enabled
@@ -461,6 +468,7 @@ private fun RootApp(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
 	disableKsuModules: Boolean,
+    loadKernelSu: Boolean,
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
@@ -475,6 +483,7 @@ private fun RootApp(
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
 	onDisableKsuModulesChanged: (Boolean) -> Unit,
+    onLoadKernelSuChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
@@ -740,6 +749,7 @@ private fun RootApp(
                     themeMode = themeMode,
                     advancedMode = advancedMode,
 					disableKsuModules = disableKsuModules,
+                    loadKernelSu = loadKernelSu,
                     shizukuMode = shizukuMode,
                     payloadSources = payloadSources,
                     bootRootMode = bootRootMode,
@@ -757,6 +767,7 @@ private fun RootApp(
                     onThemeModeChanged = onThemeModeChanged,
                     onAdvancedModeChanged = onAdvancedModeChanged,
 					onDisableKsuModulesChanged = onDisableKsuModulesChanged,
+                    onLoadKernelSuChanged = onLoadKernelSuChanged,
                     onShizukuModeChanged = onShizukuModeChanged,
                     onPayloadSourcesChanged = onPayloadSourcesChanged,
                     onBootRootModeChanged = onBootRootModeChanged,
@@ -1051,6 +1062,9 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
                 )
                 installState.phase == InstallPhase.Installed -> Icon(
                     Icons.Rounded.CheckCircle, contentDescription = null, modifier = Modifier.size(44.dp),
+                )
+                installState.phase == InstallPhase.RootOnly -> Icon(
+                    Icons.Rounded.LockOpen, contentDescription = null, modifier = Modifier.size(44.dp),
                 )
                 installState.phase == InstallPhase.Failed -> Icon(
                     Icons.Rounded.Warning, contentDescription = null, modifier = Modifier.size(44.dp),
@@ -1679,6 +1693,7 @@ private fun historyResultLabel(result: InstallRunResult): String = stringResourc
     when (result) {
         InstallRunResult.Running -> R.string.history_running
         InstallRunResult.Succeeded -> R.string.history_succeeded
+        InstallRunResult.RootOnly -> R.string.history_root_only
         InstallRunResult.Failed -> R.string.history_failed
     },
 )
@@ -1686,6 +1701,7 @@ private fun historyResultLabel(result: InstallRunResult): String = stringResourc
 private fun historyResultIcon(result: InstallRunResult): ImageVector = when (result) {
     InstallRunResult.Running -> Icons.Rounded.Schedule
     InstallRunResult.Succeeded -> Icons.Rounded.CheckCircle
+    InstallRunResult.RootOnly -> Icons.Rounded.LockOpen
     InstallRunResult.Failed -> Icons.Rounded.Error
 }
 
@@ -1693,6 +1709,7 @@ private fun historyResultIcon(result: InstallRunResult): ImageVector = when (res
 private fun historyResultContainerColor(result: InstallRunResult): Color = when (result) {
     InstallRunResult.Running -> MaterialTheme.colorScheme.tertiaryContainer
     InstallRunResult.Succeeded -> MaterialTheme.colorScheme.primaryContainer
+    InstallRunResult.RootOnly -> MaterialTheme.colorScheme.secondaryContainer
     InstallRunResult.Failed -> MaterialTheme.colorScheme.errorContainer
 }
 
@@ -1700,6 +1717,7 @@ private fun historyResultContainerColor(result: InstallRunResult): Color = when 
 private fun historyResultContentColor(result: InstallRunResult): Color = when (result) {
     InstallRunResult.Running -> MaterialTheme.colorScheme.onTertiaryContainer
     InstallRunResult.Succeeded -> MaterialTheme.colorScheme.onPrimaryContainer
+    InstallRunResult.RootOnly -> MaterialTheme.colorScheme.onSecondaryContainer
     InstallRunResult.Failed -> MaterialTheme.colorScheme.onErrorContainer
 }
 
@@ -1720,6 +1738,7 @@ private fun SettingsPage(
     themeMode: AppThemeMode,
     advancedMode: Boolean,
 	disableKsuModules: Boolean,
+    loadKernelSu: Boolean,
     shizukuMode: Boolean,
     payloadSources: List<PayloadSource>,
     bootRootMode: Boolean,
@@ -1737,6 +1756,7 @@ private fun SettingsPage(
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
 	onDisableKsuModulesChanged: (Boolean) -> Unit,
+    onLoadKernelSuChanged: (Boolean) -> Unit,
     onShizukuModeChanged: (Boolean) -> Unit,
     onPayloadSourcesChanged: (List<PayloadSource>) -> Unit,
     onBootRootModeChanged: (Boolean) -> Unit,
@@ -2175,9 +2195,19 @@ private fun SettingsPage(
                 SettingsSwitchCard(
                     icon = Icons.Rounded.Security,
                     title = stringResource(R.string.disable_ksu_modules),
-                    description = stringResource(R.string.disable_ksu_modules_description),
+                    // Moving the modules aside is something a run does *around the load*, so with no
+                    // load there is nothing for them to sit out and the setting would quietly do
+                    // nothing. Said here rather than left to be discovered.
+                    description = stringResource(
+                        if (loadKernelSu) {
+                            R.string.disable_ksu_modules_description
+                        } else {
+                            R.string.disable_ksu_modules_needs_load
+                        },
+                    ),
                     checked = disableKsuModules,
                     position = SettingsCardPosition.Middle,
+                    enabled = loadKernelSu,
                     onCheckedChange = {
                         clickHaptic(view)
                         onDisableKsuModulesChanged(it)
@@ -2390,12 +2420,35 @@ private fun SettingsPage(
         item { SectionLabel(stringResource(R.string.settings_section_root)) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // The load decision sits at the top of this group because the rest of it depends on
+                // it: root on boot exists to put KernelSU back after a reboot, and a boot run with
+                // nothing to load is not a boot run at all.
+                SettingsSwitchCard(
+                    icon = Icons.Rounded.Memory,
+                    title = stringResource(R.string.settings_ksu_load),
+                    description = stringResource(R.string.settings_ksu_load_summary),
+                    checked = loadKernelSu,
+                    position = SettingsCardPosition.Top,
+                    onCheckedChange = { enabled ->
+                        clickHaptic(view)
+                        onLoadKernelSuChanged(enabled)
+                    },
+                )
                 SettingsSwitchCard(
                     icon = Icons.Rounded.RestartAlt,
                     title = stringResource(R.string.settings_boot_root),
-                    description = stringResource(R.string.settings_boot_root_summary),
+                    // Disabled rather than turned off: the stored choice is kept, so turning loading
+                    // back on restores it exactly - and the reason is on the row either way.
+                    description = stringResource(
+                        if (loadKernelSu) {
+                            R.string.settings_boot_root_summary
+                        } else {
+                            R.string.settings_boot_root_needs_load
+                        },
+                    ),
                     checked = bootRootMode,
-                    position = SettingsCardPosition.Top,
+                    position = SettingsCardPosition.Middle,
+                    enabled = loadKernelSu,
                     onCheckedChange = { enabled ->
                         clickHaptic(view)
                         if (enabled) onRequestNotificationPermission()
@@ -2412,6 +2465,7 @@ private fun SettingsPage(
                     description = stringResource(R.string.settings_autoroot_settle_summary),
                     value = BootSettle.label(autoRootSettleSeconds),
                     position = SettingsCardPosition.Bottom,
+                    enabled = loadKernelSu,
                     onClick = {
                         clickHaptic(view)
                         showAutoRootSettleDialog = true
@@ -2426,6 +2480,9 @@ private fun SettingsPage(
                 // Root on boot is what would bring root back, so it is turned off before the reboot
                 // is asked for and this screen has to follow whatever was stored.
                 onBootRootModeChanged = onBootRootModeChanged,
+                // Every action here consumes the root a verified load installed, so with loading
+                // switched off they are not offered as things that will work.
+                kernelSuLoadingEnabled = loadKernelSu,
             )
         }
 
@@ -4114,11 +4171,20 @@ private fun SettingsSwitchCard(
     description: String,
     checked: Boolean,
     position: SettingsCardPosition = SettingsCardPosition.Single,
+    /**
+     * False when the setting cannot take effect right now, so the switch dims and refuses to move.
+     *
+     * The stored value is left alone: a setting that is inert because something it depends on is off
+     * comes back as it was when that is turned back on, and silently clearing it would lose a choice
+     * the user made deliberately.
+     */
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val view = LocalView.current
     Card(
+        enabled = enabled,
         onClick = {
             clickHaptic(view)
             onCheckedChange(!checked)
@@ -4144,7 +4210,9 @@ private fun SettingsSwitchCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Switch(checked = checked, onCheckedChange = null)
+            // `onCheckedChange = null` already, so the switch is a reading of the card rather than a
+            // second control; a disabled card simply stops the whole row taking a tap.
+            Switch(checked = checked, enabled = enabled, onCheckedChange = null)
         }
     }
 }

@@ -56,6 +56,8 @@ private data class RecoveryMessage(
 @Composable
 internal fun RootRecoverySection(
     onBootRootModeChanged: (Boolean) -> Unit,
+    /** False when runs are told not to load KernelSU, which is what these actions consume. */
+    kernelSuLoadingEnabled: Boolean = true,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -201,6 +203,15 @@ internal fun RootRecoverySection(
                     else -> SettingsCardPosition.Middle
                 },
                 busy = running == tool,
+                enabled = kernelSuLoadingEnabled,
+                // The dependency is stated on the row rather than only in the refusal dialog: with
+                // loading off these actions cannot ever run, and a card that looks live and then
+                // refuses is the shape of bug this screen has already had once.
+                value = if (kernelSuLoadingEnabled) {
+                    ""
+                } else {
+                    stringResource(R.string.recovery_needs_kernel_su)
+                },
                 onClick = { confirming = tool },
             )
         }

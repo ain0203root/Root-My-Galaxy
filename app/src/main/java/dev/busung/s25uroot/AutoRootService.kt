@@ -115,6 +115,7 @@ class AutoRootService : Service() {
                 return
             }
             AutoRootDecision.SkipDisabled,
+            AutoRootDecision.SkipKernelSuLoadingOff,
             AutoRootDecision.SkipAlreadyVerified,
             AutoRootDecision.SkipAttempted,
             -> {

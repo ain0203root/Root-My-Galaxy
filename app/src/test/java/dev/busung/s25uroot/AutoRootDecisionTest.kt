@@ -10,6 +10,7 @@ class AutoRootDecisionTest {
 
     private fun decide(
         enabled: Boolean = true,
+        kernelSuLoadEnabled: Boolean = true,
         kernelSuActive: Boolean = false,
         hasVerifiedInstall: Boolean = true,
         verifiedBootToken: String? = LAST_BOOT,
@@ -17,6 +18,7 @@ class AutoRootDecisionTest {
         bootToken: String = THIS_BOOT,
     ) = autoRootDecision(
         enabled = enabled,
+        kernelSuLoadEnabled = kernelSuLoadEnabled,
         kernelSuActive = kernelSuActive,
         hasVerifiedInstall = hasVerifiedInstall,
         verifiedBootToken = verifiedBootToken,
@@ -59,6 +61,37 @@ class AutoRootDecisionTest {
         assertEquals(
             AutoRootDecision.NeedsPriorInstall,
             decide(hasVerifiedInstall = false),
+        )
+    }
+
+    @Test
+    fun `a boot with no load to make is refused for that reason`() {
+        // Root on boot is on and there is a verified install, so every other rule would say run. What
+        // stops it is that runs are told not to load KernelSU, which is a different answer from the
+        // setting being off - and has to stay different, because one of them the user chose.
+        assertEquals(
+            AutoRootDecision.SkipKernelSuLoadingOff,
+            decide(kernelSuLoadEnabled = false),
+        )
+    }
+
+    @Test
+    fun `the load decision outranks what the device looks like`() {
+        // Nothing is loaded on a boot that is not allowed to load anything, so there is nothing for a
+        // reading about KernelSU to change - including a reading that says it is already active.
+        assertEquals(
+            AutoRootDecision.SkipKernelSuLoadingOff,
+            decide(kernelSuLoadEnabled = false, kernelSuActive = true),
+        )
+    }
+
+    @Test
+    fun `turning root on boot off still wins over the load decision`() {
+        // Both are configuration, and the automation being off is the outer answer: someone reading
+        // the log should not be told about KernelSU loading when the feature itself is switched off.
+        assertEquals(
+            AutoRootDecision.SkipDisabled,
+            decide(enabled = false, kernelSuLoadEnabled = false),
         )
     }
 

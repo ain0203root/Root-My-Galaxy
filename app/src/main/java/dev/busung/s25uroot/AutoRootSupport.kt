@@ -14,6 +14,15 @@ import android.content.Context
 internal enum class AutoRootDecision {
     Run,
     SkipDisabled,
+
+    /**
+     * Root on boot is on and KernelSU loading is off, so there is nothing for a boot run to load.
+     *
+     * Its own reason rather than [SkipDisabled]: the setting is still on, and a boot that silently did
+     * nothing would look exactly like the setting having been turned off - which is the one thing an
+     * unattended feature must not do.
+     */
+    SkipKernelSuLoadingOff,
     SkipAlreadyRooted,
     SkipAlreadyVerified,
     SkipAttempted,
@@ -30,6 +39,7 @@ internal enum class AutoRootDecision {
  */
 internal fun autoRootDecision(
     enabled: Boolean,
+    kernelSuLoadEnabled: Boolean,
     kernelSuActive: Boolean,
     hasVerifiedInstall: Boolean,
     verifiedBootToken: String?,
@@ -37,6 +47,9 @@ internal fun autoRootDecision(
     bootToken: String,
 ): AutoRootDecision = when {
     !enabled -> AutoRootDecision.SkipDisabled
+    // A configuration refusal, so it sits with the setting above rather than with the readings: this
+    // boot is not being asked to load anything, whatever the device looks like.
+    !kernelSuLoadEnabled -> AutoRootDecision.SkipKernelSuLoadingOff
     kernelSuActive -> AutoRootDecision.SkipAlreadyRooted
     verifiedBootToken == bootToken -> AutoRootDecision.SkipAlreadyVerified
     attemptedBootToken == bootToken -> AutoRootDecision.SkipAttempted
@@ -131,6 +144,7 @@ internal object AutoRootSupport {
     fun decision(context: Context, bootToken: String, kernelSuActive: Boolean): AutoRootDecision =
         autoRootDecision(
             enabled = AppPreferences.bootRootMode(context),
+            kernelSuLoadEnabled = AppPreferences.loadKernelSu(context),
             kernelSuActive = kernelSuActive,
             hasVerifiedInstall = hasVerifiedInstall(context),
             verifiedBootToken = verifiedBootToken(context),

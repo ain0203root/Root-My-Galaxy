@@ -153,6 +153,7 @@
     <string name="history_empty_description">Installation results and logs will appear here.</string>
     <string name="history_running">Running</string>
     <string name="history_succeeded">Succeeded</string>
+    <string name="history_root_only">Root only</string>
     <string name="history_failed">Failed</string>
     <string name="history_detail_title">Run details</string>
     <string name="history_started">Started: %1$s</string>
@@ -194,9 +195,11 @@
     <string name="phase_exploiting">This may take 10 minutes or longer. Your device may become hot or stop responding.</string>
     <string name="phase_loading_ksu">Loading KernelSU with the acquired bootstrap root</string>
     <string name="phase_installed">KernelSU module and control channel verified</string>
+    <string name="phase_root_only">Root only, and nothing was loaded</string>
     <string name="phase_failed">Review the failure point in the log below</string>
 
     <string name="status_ksu_active">KernelSU active</string>
+    <string name="status_root_only">Root acquired. KernelSU was not loaded, because loading is switched off in Settings.</string>
     <string name="status_not_installed">Not installed</string>
     <string name="status_support_failed">Support check failed</string>
     <string name="status_checking_github">Checking GitHub support manifest</string>
@@ -212,6 +215,7 @@
     <string name="log_payload_source">[+] Payload source: %1$s</string>
     <string name="log_download_verified">[+] Payload download complete</string>
     <string name="log_install_complete">[+] Installation complete</string>
+    <string name="log_root_only_complete">[+] Run complete: root obtained and KernelSU left unloaded</string>
     <string name="log_postroot_permission_granted">[+] Secure-settings permission granted: wireless debugging can be turned on without a cable</string>
     <string name="log_postroot_permission_present">[*] Secure-settings permission already granted</string>
     <string name="log_postroot_permission_failed">[!] Secure-settings permission was not granted: %1$s</string>
@@ -221,6 +225,7 @@
     <string name="log_ro_blocks_failed">[!] Could not set partitions to read-only</string>
     <string name="log_ro_blocks_script_missing">[!] This build is missing the read-only partition script</string>
     <string name="log_ksu_modules_disabled_off">[*] Disable KSU modules is off</string>
+    <string name="log_ksu_loading_off">[*] KernelSU loading is switched off in Settings, so nothing is staged or loaded; the run ends at the root the exploit won</string>
     <string name="log_ksu_modules_moved">[*] KernelSU modules moved to %1$s for the load</string>
     <string name="log_ksu_modules_restored">[+] KernelSU modules restored</string>
     <string name="log_ksu_modules_restore_skipped">[*] Nothing to restore, the module directory is already in place</string>
@@ -283,6 +288,7 @@
     <string name="advanced_mode_description">Manually choose a device-compatible payload during installation</string>
     <string name="disable_ksu_modules">Disable KSU modules</string>
     <string name="disable_ksu_modules_description">Temporarily disable KernelSU modules before loading KernelSU</string>
+    <string name="disable_ksu_modules_needs_load">There is nothing to keep out of the way when a run does not load KernelSU</string>
     <string name="partition_read_only">Protect image partitions</string>
     <string name="partition_read_only_description">Mark boot, super, optics, prism and vbmeta read-only once bootstrap root is in hand, so a write to them fails instead of leaving a phone that only download mode can recover. Off by default: it also stops flashing an image from the phone or a KernelSU install that patches boot</string>
     <string name="run_plan_partition_read_only">Image partitions</string>
@@ -397,6 +403,7 @@
     <string name="recovery_shell_unavailable">KernelSU is running, but this app has no root shell of its own yet. Grant Root My Galaxy superuser in the KernelSU app, or start Shizuku, and try again.</string>
     <string name="recovery_scheduled">Scheduled. The device will restart its Android runtime shortly.</string>
     <string name="recovery_reboot_scheduled">Scheduled. The phone will restart without root.</string>
+    <string name="recovery_needs_kernel_su">Needs KernelSU</string>
     <string name="settings_shizuku_start">Start Shizuku now</string>
     <string name="settings_shizuku_start_summary">Launch the Shizuku service through KernelSU, so this app keeps working without a computer</string>
     <string name="settings_shizuku_allow">Allow this app in Shizuku</string>
@@ -411,8 +418,11 @@
     <string name="status_shizuku_started">Shizuku is running</string>
     <string name="error_shizuku_start_no_root">Shizuku cannot be started from here: this device has no root and no stored start token</string>
     <string name="error_no_root_shell">No root shell is available yet</string>
+    <string name="settings_ksu_load">Load KernelSU after the exploit</string>
+    <string name="settings_ksu_load_summary">Load the KernelSU module and its daemon as soon as the exploit has root. Turning this off ends a run at that root instead, and switches off everything here that needs KernelSU</string>
     <string name="settings_boot_root">Root on boot</string>
     <string name="settings_boot_root_summary">Automatically re-run the install after every reboot when root is not active</string>
+    <string name="settings_boot_root_needs_load">Root on boot puts KernelSU back after a reboot, so it needs KernelSU loading switched on</string>
     <string name="settings_battery">Battery usage</string>
     <string name="settings_battery_summary_restricted">Optimised by Android, so a run with the screen off can be delayed or lose the network</string>
     <string name="settings_battery_summary_allowed">Unrestricted, so a long run and root on boot keep the network with the screen off</string>

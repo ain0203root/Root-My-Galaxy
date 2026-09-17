@@ -228,7 +228,10 @@ private fun InstallScreen(
                         ) {
                             Text(stringResource(R.string.action_retry))
                         }
-                    } else if (installState.phase == InstallPhase.Installed) {
+                    } else if (
+                        installState.phase == InstallPhase.Installed ||
+                        installState.phase == InstallPhase.RootOnly
+                    ) {
                         Button(
                             onClick = {
                                 clickHaptic(view)
@@ -286,6 +289,13 @@ private fun InstallerStatusCard(installState: InstallUiState) {
                         )
                         phase == InstallPhase.Installed -> Icon(
                             Icons.Rounded.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(44.dp),
+                        )
+                        // Root was obtained, so this is not the failure icon: it is the honest
+                        // "root only" reading of a run whose load was switched off.
+                        phase == InstallPhase.RootOnly -> Icon(
+                            Icons.Rounded.Security,
                             contentDescription = null,
                             modifier = Modifier.size(44.dp),
                         )
@@ -462,6 +472,7 @@ private fun installPhaseDetail(installState: InstallUiState): String =
                 InstallPhase.Exploiting -> R.string.phase_exploiting
                 InstallPhase.LoadingKernelSu -> R.string.phase_loading_ksu
                 InstallPhase.Installed -> R.string.phase_installed
+                InstallPhase.RootOnly -> R.string.phase_root_only
                 InstallPhase.Failed -> R.string.phase_failed
             },
         )
@@ -514,16 +525,25 @@ private fun installProgress(phase: InstallPhase): Float = when (phase) {
     InstallPhase.Exploiting -> 0.6f
     InstallPhase.LoadingKernelSu -> 0.85f
     InstallPhase.Installed -> 1f
+    // Everything that was going to happen happened, and the load was not part of it, so the bar
+    // stops short of claiming a step the run was told to skip.
+    InstallPhase.RootOnly -> 0.9f
     InstallPhase.Failed -> 0f
 }
 
 private fun stepState(phase: InstallPhase, stepIndex: Int): Int {
     if (phase == InstallPhase.Installed) return 2
+    // A run that was told not to load KernelSU ended at the exploit, so the steps it never reached
+    // stay empty: the screen should not tick a load that was deliberately not asked for.
+    if (phase == InstallPhase.RootOnly) return if (stepIndex <= 2) 2 else 0
     val activeIndex = when (phase) {
         InstallPhase.Checking, InstallPhase.Ready, InstallPhase.Settling, InstallPhase.Failed -> 0
         InstallPhase.Downloading -> 1
         InstallPhase.Exploiting -> 2
         InstallPhase.LoadingKernelSu -> 3
+        // Unreachable: the early return above takes this phase. Listed so the branch is not the one
+        // thing a new phase could fall through.
+        InstallPhase.RootOnly -> 2
         InstallPhase.Installed -> 4
     }
     return when {

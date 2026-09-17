@@ -9,6 +9,15 @@ import java.util.UUID
 enum class InstallRunResult {
     Running,
     Succeeded,
+
+    /**
+     * The exploit got root and the run was told not to load KernelSU, so root was all it produced.
+     *
+     * Its own result rather than Succeeded, because the two mean different things to whoever reads the
+     * history later: one says the device is rooted with KernelSU, the other says the payload worked and
+     * nothing was loaded on top of it.
+     */
+    RootOnly,
     Failed,
 }
 
