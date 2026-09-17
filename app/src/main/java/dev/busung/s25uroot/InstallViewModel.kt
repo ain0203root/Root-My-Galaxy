@@ -407,6 +407,23 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     selectionId == null -> repository.resolveTarget(DeviceSnapshot.current())
                     else -> repository.resolveTarget(selectionId)
                 }
+                // Said before anything is attempted, because the flavour is a property of the entry
+                // that was chosen and not of the app's setting: a catalog that carries only the other
+                // project's payloads serves that one, and the log is where that becomes visible.
+                appendLog(app.getString(R.string.run_flavor_label, profile.flavor.label))
+
+                // One flavour per boot. Both projects hook the same syscall paths and a loader refuses
+                // a module into a kernel that already carries the other one, so this is a restart
+                // away rather than a failure worth retrying - which is what the message says.
+                AppPreferences.loadedFlavor(app)?.let { loaded ->
+                    require(loaded == profile.flavor) {
+                        app.getString(
+                            R.string.run_flavor_conflict,
+                            loaded.label,
+                            profile.flavor.label,
+                        )
+                    }
+                }
 
                 // The transport is chosen here rather than beside the Shizuku check, because the
                 // profile is what decides whether a shell is required at all - and a target that
@@ -945,6 +962,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 readings.proofs.joinToString { it.label },
             ),
         )
+        // Recorded for the boot, which is as long as a late-loaded module exists: it is what makes a
+        // later run of the other flavour refuse with a restart instead of failing inside the loader.
+        AppPreferences.setLoadedFlavor(app, payloads.profile.flavor, AutoRootSupport.currentBootToken())
         storeInstallReceipt()
     }
 

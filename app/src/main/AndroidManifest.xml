@@ -27,6 +27,12 @@
 
     <queries>
         <package android:name="me.weishu.kernelsu" />
+        <!--
+            KernelSU-Next's manager. The spoofed build of it renames its package to three random
+            words, so a fixed list cannot cover that one - see KernelSuManager, which finds it by the
+            daemon it carries instead.
+        -->
+        <package android:name="com.rifsxd.ksunext" />
         <package android:name="moe.shizuku.manager" />
     </queries>
 

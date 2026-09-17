@@ -37,6 +37,10 @@ object AppPreferences {
     private const val ADVANCED_MODE = "advanced_mode"
     private const val DISABLE_KSU_MODULES = "disable_ksu_modules"
     private const val LOAD_KERNEL_SU = "load_kernel_su"
+    private const val KERNEL_SU_FLAVOR = "kernel_su_flavor"
+    private const val MANAGER_VERSION_PREFIX = "manager_version_"
+    private const val LOADED_FLAVOR = "loaded_flavor"
+    private const val LOADED_FLAVOR_BOOT = "loaded_flavor_boot"
     private const val SHIZUKU_MODE = "shizuku_mode"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val RETRY_AFTER_REBOOT = "retry_after_reboot_boot"
@@ -178,6 +182,67 @@ object AppPreferences {
         prefs(context).edit()
             .putBoolean(LOAD_KERNEL_SU, enabled)
             .apply()
+    }
+
+    /**
+     * Which KernelSU a run installs.
+     *
+     * An id this build no longer knows falls back to the default rather than refusing: the only way
+     * that happens is a downgrade, and a phone that had the other flavour selected is not a reason to
+     * show an empty list.
+     */
+    fun kernelsuFlavor(context: Context): KernelSuFlavor {
+        val stored = prefs(context).getString(KERNEL_SU_FLAVOR, null)
+        return KernelSuFlavor.fromId(stored) ?: KernelSuFlavor.Default
+    }
+
+    fun setKernelsuFlavor(context: Context, flavor: KernelSuFlavor) {
+        prefs(context).edit()
+            .putString(KERNEL_SU_FLAVOR, flavor.id)
+            .apply()
+    }
+
+    /**
+     * The manager version to offer for [flavor], when the user has named one.
+     *
+     * Null means the flavour's own default, which is what keeps this from being a second place a
+     * version is written down: the app stores only the deliberate choice, so a default that changes
+     * in a later build changes for everyone who never made one.
+     */
+    fun managerVersion(context: Context, flavor: KernelSuFlavor): String? =
+        prefs(context).getString(MANAGER_VERSION_PREFIX + flavor.id, null)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+
+    fun setManagerVersion(context: Context, flavor: KernelSuFlavor, version: String?) {
+        val editor = prefs(context).edit()
+        val key = MANAGER_VERSION_PREFIX + flavor.id
+        if (version.isNullOrBlank()) editor.remove(key) else editor.putString(key, version.trim())
+        editor.apply()
+    }
+
+    /**
+     * The flavour this boot has already loaded, or null when nothing was loaded into it.
+     *
+     * Stored with the boot it happened in, because the promise it feeds is about *this* boot: a
+     * late-loaded module is gone after a restart, so a record that outlived one would refuse a run on
+     * a phone that is perfectly able to make it.
+     */
+    fun loadedFlavor(context: Context): KernelSuFlavor? {
+        val preferences = prefs(context)
+        val boot = preferences.getString(LOADED_FLAVOR_BOOT, null) ?: return null
+        if (boot != AutoRootSupport.currentBootToken()) return null
+        return KernelSuFlavor.fromId(preferences.getString(LOADED_FLAVOR, null))
+    }
+
+    fun setLoadedFlavor(context: Context, flavor: KernelSuFlavor?, bootToken: String?) {
+        val editor = prefs(context).edit()
+        if (flavor == null || bootToken == null) {
+            editor.remove(LOADED_FLAVOR).remove(LOADED_FLAVOR_BOOT)
+        } else {
+            editor.putString(LOADED_FLAVOR, flavor.id).putString(LOADED_FLAVOR_BOOT, bootToken)
+        }
+        editor.commit()
     }
 
     fun shizukuMode(context: Context): Boolean =

@@ -184,8 +184,15 @@ class PayloadRepository(private val context: Context) {
 
     fun loadTargets(): List<TargetProfile> = loadCatalog().targets
 
+    /**
+     * The payload a run should use on this device, preferring the flavour the app is set to.
+     *
+     * The flavour is a preference and not a filter, because its alternative - refusing when the
+     * enabled sources happen to carry only the other one - leaves a user with no run and nothing that
+     * says which entry to add. Which flavour was offered is on the profile, and the run reports it.
+     */
     fun resolveTarget(snapshot: DeviceSnapshot): TargetProfile = loadTargets()
-        .resolveFor(snapshot)
+        .resolveFor(snapshot, AppPreferences.kernelsuFlavor(context))
         ?: error(context.getString(R.string.repo_no_profile))
 
     /** Resolves a catalog selection, which may name the source it came from. */
@@ -269,7 +276,9 @@ class PayloadRepository(private val context: Context) {
         val kernelSu = downloadArtifact(
             profile.kernelSu,
             File(directory, "ksud-s25u-kdp"),
-            context.getString(R.string.artifact_kernelsu),
+            // Named after the flavour, because the two daemons are different binaries from different
+            // projects and the log is the only place a run says which one it installed.
+            context.getString(R.string.artifact_daemon, profile.flavor.label),
             onProgress,
         )
         Os.chmod(exploit.absolutePath, 0b100100100)

@@ -482,24 +482,15 @@ private val languageOptions = listOf(
     LanguageOption(R.string.language_uzbek, "uz"),
 )
 
-private const val KERNEL_SU_MANAGER_URL =
-    "https://github.com/tiann/KernelSU/releases/download/v3.2.5/KernelSU_v3.2.5_32525-release.apk"
-private const val KERNEL_SU_MANAGER_PACKAGE = "me.weishu.kernelsu"
+/**
+ * The KernelSU project's own documentation, which is about KernelSU rather than one flavour.
+ *
+ * What the app installs is per flavour and lives in [KernelSuFlavor]; this is only the link offered
+ * beside the general explanation, and it stays the upstream project's page for both.
+ */
 private const val KERNEL_SU_HOME_URL = "https://kernelsu.org/"
 private const val SHIZUKU_MANAGER_PACKAGE = "moe.shizuku.manager"
 private const val SHIZUKU_MANAGER_URL = "https://github.com/thedjchi/Shizuku/releases/"
-
-private fun isKernelSuManagerInstalled(context: Context): Boolean =
-    context.packageManager.getLaunchIntentForPackage(KERNEL_SU_MANAGER_PACKAGE) != null
-
-private fun openKernelSuManager(context: Context) {
-    val launch = context.packageManager.getLaunchIntentForPackage(KERNEL_SU_MANAGER_PACKAGE)
-    if (launch != null) {
-        context.startActivity(launch)
-    } else {
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(KERNEL_SU_MANAGER_URL)))
-    }
-}
 
 private fun openShizukuManager(context: Context) {
     val launch = context.packageManager.getLaunchIntentForPackage(SHIZUKU_MANAGER_PACKAGE)
@@ -1177,17 +1168,24 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
     val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
     val uriHandler = LocalUriHandler.current
-    val managerInstalled = remember(installState) { isKernelSuManagerInstalled(context) }
+    // Read here rather than passed in, because the card has to name whichever KernelSU the app is set
+    // to: the two managers are different apps with different packages and only one of them is the one
+    // a finished run leaves needing to be opened.
+    val managerFlavor = remember(installState) { AppPreferences.kernelsuFlavor(context) }
+    val managerInstalled = remember(installState, managerFlavor) {
+        KernelSuManager.isInstalled(context, managerFlavor)
+    }
     Card(
         onClick = {
             clickHaptic(view)
             when {
                 installState.busy -> Unit
                 installState.phase == InstallPhase.Installed -> {
-                    if (managerInstalled) {
-                        openKernelSuManager(context)
-                    } else {
-                        uriHandler.openUri(KERNEL_SU_MANAGER_URL)
+                    // A named version that is not the default has to be looked up before there is a
+                    // download to offer, so the card says what it is doing rather than appearing to
+                    // ignore the tap.
+                    KernelSuManager.open(context, managerFlavor) { message ->
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                     }
                 }
                 else -> onInstall()

@@ -48,6 +48,15 @@ data class TargetProfile(
     val routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
     val exploit: RemoteArtifact,
     val kernelSu: RemoteArtifact,
+    /**
+     * Which KernelSU this entry's daemon and module belong to.
+     *
+     * Carried with the profile rather than read from the app's setting, because the two have to be
+     * the same thing: this entry's `ksud` embeds a module for one flavour's kernel, and installing
+     * it into the other one's is what a flavour mix-up looks like from the phone's side. An entry
+     * that does not declare one is KernelSU, which is every entry written before flavours existed.
+     */
+    val flavor: KernelSuFlavor = KernelSuFlavor.Default,
     /** Source that provided this target, empty when it was not loaded through one. */
     val sourceId: String = "",
     val sourceLabel: String = "",
@@ -84,16 +93,29 @@ data class TargetProfile(
 }
 
 /**
- * Picks the profile for [snapshot].
+ * Picks the profile for [snapshot], preferring the ones of [flavor].
  *
- * An exact full kernel-release match wins, so regional builds that share a
- * model and the three-part kernel version (for example `SM-S9360` ZCS vs ZHS)
- * resolve to the profile that documents their build. Profiles that only list a
- * three-part version keep the legacy first-match behaviour.
+ * Within a flavour the rules are unchanged: an exact full kernel-release match wins over a three-part
+ * one, so regional builds that share a model and kernel version resolve to the profile that documents
+ * their build.
+ *
+ * The flavour is a preference rather than a filter, and the fallback is deliberate. A catalog that
+ * only carries the other flavour for this device is still a catalog that roots it, and refusing to
+ * use it would leave a user who picked the wrong flavour in the app with no run at all and no way to
+ * tell why. Which flavour was actually offered is a property of the returned profile, and the run
+ * reports it, so the fallback is visible instead of silent.
  */
-fun List<TargetProfile>.resolveFor(snapshot: DeviceSnapshot): TargetProfile? =
-    firstOrNull { it.matches(snapshot) && snapshot.kernelRelease in it.kernelVersions }
-        ?: firstOrNull { it.matches(snapshot) }
+fun List<TargetProfile>.resolveFor(
+    snapshot: DeviceSnapshot,
+    flavor: KernelSuFlavor = KernelSuFlavor.Default,
+): TargetProfile? {
+    val matching = filter { it.matches(snapshot) }
+    val preferred = matching.filter { it.flavor == flavor }
+    return preferred.firstOrNull { snapshot.kernelRelease in it.kernelVersions }
+        ?: preferred.firstOrNull()
+        ?: matching.firstOrNull { snapshot.kernelRelease in it.kernelVersions }
+        ?: matching.firstOrNull()
+}
 
 /**
  * How a profile's declared kernel versions line up with a device.
@@ -144,6 +166,7 @@ data class SupportManifest(
                             routePolicy = ExploitRoutePolicy.parse(payload.optJSONObject("routePolicy")),
                             exploit = exploit.artifact(),
                             kernelSu = kernelSu.artifact(),
+                            flavor = payload.flavor(),
                         ),
                     )
                 }
@@ -153,6 +176,20 @@ data class SupportManifest(
 
         private fun JSONArray.strings(): Set<String> = buildSet {
             for (index in 0 until length()) add(getString(index))
+        }
+
+        /**
+         * The flavour an entry declares, or the default when it declares none.
+         *
+         * An id this build does not know is refused rather than read as the default. A manifest that
+         * says `"flavor": "kernel-su"` was written for something, and installing the other project's
+         * module because the name looked close is the one outcome that cannot be explained afterwards.
+         */
+        private fun JSONObject.flavor(): KernelSuFlavor {
+            val declared = optString("flavor").trim()
+            if (declared.isEmpty()) return KernelSuFlavor.Default
+            return KernelSuFlavor.fromId(declared)
+                ?: error("Unknown payload flavour \"$declared\"; expected one of ${KernelSuFlavor.ids}")
         }
 
         /** Reads one artifact. Both artifacts of a payload take the same optional fields. */

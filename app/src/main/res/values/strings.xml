@@ -281,6 +281,10 @@
 
     <string name="artifact_exploit">exploit</string>
     <string name="artifact_kernelsu">KernelSU</string>
+    <!-- The daemon's own label, which differs between the two flavours it can come from. -->
+    <string name="artifact_daemon">%1$s daemon</string>
+    <string name="flavor_kernelsu_summary">The upstream project, and what this app has always installed. Its daemon and its modules come from its own releases.</string>
+    <string name="flavor_kernelsu_next_summary">A separate project with its own manager, daemon and module. It needs a payload built for it, and its module does not load into a kernel that already carries the other one.</string>
     <string name="repo_no_profile">No compatible payload supports this model and kernel version</string>
     <string name="repo_no_source_enabled">No payload source is enabled</string>
     <string name="repo_source_failed">%1$s: %2$s</string>
@@ -461,6 +465,22 @@
     <string name="status_shizuku_started">Shizuku is running</string>
     <string name="error_shizuku_start_no_root">Shizuku cannot be started from here: this device has no root, no wireless debugging pairing to run its starter through, and no stored start token</string>
     <string name="error_no_root_shell">No root shell is available yet</string>
+    <string name="settings_ksu_flavor">KernelSU flavour</string>
+    <string name="settings_ksu_flavor_summary">Which KernelSU a run installs. The two cannot both be in the kernel, so switching takes a restart to take effect</string>
+    <string name="settings_ksu_flavor_dialog_title">KernelSU flavour</string>
+    <string name="settings_ksu_flavor_pending">after a restart</string>
+    <string name="settings_manager">Manager app</string>
+    <string name="settings_manager_summary">Offered at %1$s. Any other version can be installed nothing here checks which one you have</string>
+    <string name="settings_manager_dialog_title">Manager version</string>
+    <string name="settings_manager_version_hint">Version to install, for example 3.3.0</string>
+    <string name="settings_manager_version_looking">Looking for %1$s %2$s\u2026</string>
+    <string name="settings_manager_version_found">%1$s %2$s found; opening the download</string>
+    <string name="settings_manager_version_missing">No APK in %1$s %2$s</string>
+    <string name="settings_manager_version_reset">Back to the default (%1$s)</string>
+    <string name="run_flavor_conflict">%1$s is loaded in this boot, and %2$s cannot be loaded into a kernel that already carries it. Restart the phone, then run this payload</string>
+    <string name="run_flavor_conflict_restart">Restart now</string>
+    <string name="run_flavor_conflict_dismiss">Not now</string>
+    <string name="run_flavor_label">KernelSU flavour: %1$s</string>
     <string name="settings_ksu_load">Load KernelSU after the exploit</string>
     <string name="settings_ksu_load_summary">Load the KernelSU module and its daemon as soon as the exploit has root. Turning this off ends a run at that root instead, and switches off everything here that needs KernelSU</string>
     <string name="settings_boot_root">Root on boot</string>
