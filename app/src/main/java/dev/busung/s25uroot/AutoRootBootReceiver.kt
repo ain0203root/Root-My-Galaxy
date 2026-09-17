@@ -27,12 +27,15 @@ class AutoRootBootReceiver : BroadcastReceiver() {
         val rootActive = RootStatusProbe.isActiveQuick()
 
         // Collected before the root checks rather than inside them, because Shizuku no longer needs
-        // root to be started: a stored start token is its own route, and a boot with a token and no
-        // root is exactly the boot where asking Shizuku to start itself matters most. A boot with
-        // neither is left alone instead of being told once per reboot that nothing can be done.
+        // root to be started: the app's own adb identity and a stored start token are each routes of
+        // their own, and a boot with one of those and no root is exactly the boot where starting
+        // Shizuku matters most. A boot with none of them is left alone instead of being told once per
+        // reboot that nothing can be done.
         if (AppPreferences.shizukuBootMode(context) &&
             shizukuBootStartWorthAttempting(
                 rootAlreadyActive = rootActive,
+                localAdbPaired = AdbCredentialStore.hasStoredKey(context) &&
+                    AppPreferences.adbPaired(context),
                 tokenConfigured = AppPreferences.shizukuAutomationToken(context).isNotBlank(),
             )
         ) {

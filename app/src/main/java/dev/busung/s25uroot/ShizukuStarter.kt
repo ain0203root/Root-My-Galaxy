@@ -67,16 +67,44 @@ internal object ShizukuStarter {
             return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
         }
 
-        // Root is what makes Shizuku's own starter usable; without it the only route left is asking
-        // the Shizuku app, which needs a token and cannot be verified beyond waiting for a binder.
-        val route = shizukuStartRoute(
-            rootShellAvailable = hasRoot(shell),
-            tokenConfigured = AppPreferences.shizukuAutomationToken(context).isNotBlank(),
-        )
-        if (route != ShizukuStartRoute.NativeStarter) {
-            return@withStartLock startWithoutRoot(context, route, binderTimeoutMillis, onLog)
-        }
+        val tokenConfigured = AppPreferences.shizukuAutomationToken(context).isNotBlank()
+        when (
+            shizukuStartRoute(
+                rootShellAvailable = hasRoot(shell),
+                localAdbPaired = hasLocalAdbCredential(context),
+                tokenConfigured = tokenConfigured,
+            )
+        ) {
+            // Shizuku's own starter, in the shell this app was handed - KernelSU's - which is the route
+            // whose result the app can watch for itself.
+            ShizukuStartRoute.NativeStarter ->
+                startWithStarter(context, shell, binderTimeoutMillis, onLog)
 
+            // No root, but this app has an adb identity of its own on the device: the same starter in
+            // the shell adbd hands out, over loopback, with no network in the way.
+            ShizukuStartRoute.LocalAdb ->
+                startThroughDeviceAdb(context, tokenConfigured, binderTimeoutMillis, onLog)
+
+            ShizukuStartRoute.AuthenticatedIntent,
+            ShizukuStartRoute.Unavailable,
+            -> startWithoutRoot(context, tokenConfigured, binderTimeoutMillis, onLog)
+        }
+    }
+
+    /**
+     * Runs Shizuku's starter in [shell], native first and the legacy script second.
+     *
+     * Both are Shizuku's own routes: `libshizuku.so --apk=<apk>` for current builds, and the `start.sh`
+     * an older or manually installed build may have left on shared storage. Neither cares which shell it
+     * is running in, which is the whole point - the same sequence serves KernelSU's root shell and the
+     * shell the device's own adbd hands out, so the two routes cannot drift apart.
+     */
+    private suspend fun startWithStarter(
+        context: Context,
+        shell: (String) -> ShizukuController.ShellResult,
+        binderTimeoutMillis: Long,
+        onLog: (String) -> Unit,
+    ): ShizukuStartOutcome {
         val native = nativeStarter(context)
         if (native == null) {
             onLog("[*] The Shizuku app is not installed; only a legacy starter could be used")
@@ -84,13 +112,13 @@ internal object ShizukuStarter {
             onLog("[*] This Shizuku build has no native starter; checking the legacy script")
         } else {
             if (ShizukuController.pingUntilRunning(BINDER_RACE_PROBE_MILLIS)) {
-                return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
+                return ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
             }
             onLog("[*] Starting Shizuku with its own native starter")
             val result = shell(shizukuStarterCommand(native.starterPath, native.apkPath))
             if (result.exitCode == 0 && ShizukuController.pingUntilRunning(binderTimeoutMillis)) {
                 onLog("[+] Shizuku started and its binder answered")
-                return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_NATIVE)
+                return ShizukuStartOutcome(started = true, method = METHOD_NATIVE)
             }
             onLog(
                 "[!] The native starter " +
@@ -105,7 +133,7 @@ internal object ShizukuStarter {
         }
 
         if (ShizukuController.pingUntilRunning(BINDER_RACE_PROBE_MILLIS)) {
-            return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
+            return ShizukuStartOutcome(started = true, method = METHOD_ALREADY_RUNNING)
         }
 
         val legacy = legacyStartScript(shell)
@@ -114,18 +142,81 @@ internal object ShizukuStarter {
             val result = shell("sh ${shellQuote(legacy)} 2>&1")
             if (result.exitCode == 0 && ShizukuController.pingUntilRunning(binderTimeoutMillis)) {
                 onLog("[+] Shizuku started and its binder answered")
-                return@withStartLock ShizukuStartOutcome(started = true, method = METHOD_LEGACY)
+                return ShizukuStartOutcome(started = true, method = METHOD_LEGACY)
             }
             val detail = result.output.trim().takeLast(240).ifBlank { "exit ${result.exitCode}" }
             val reason = "the legacy start.sh did not produce a binder: $detail"
             onLog("[!] $reason")
-            return@withStartLock ShizukuStartOutcome(started = false, method = METHOD_LEGACY, detail = reason)
+            return ShizukuStartOutcome(started = false, method = METHOD_LEGACY, detail = reason)
         }
 
         val detail = "no Shizuku starter on this device produced a binder"
         onLog("[!] $detail")
-        return@withStartLock ShizukuStartOutcome(started = false, detail = detail)
+        return ShizukuStartOutcome(started = false, detail = detail)
     }
+
+    /**
+     * The no-root route that also needs no network: this app's own adb identity, used as the shell.
+     *
+     * A paired device has an authenticated adb connection to its *own* adbd, which is a shell-uid
+     * context - exactly what Shizuku's starter needs - and the connection is to `127.0.0.1`, so nothing
+     * here cares whether the device is on a network. That is the difference from the request route: the
+     * token asks the Shizuku app to start itself, and on a build whose own start method is wireless
+     * debugging, that method waits for a wifi connection this app cannot supply.
+     *
+     * Wireless debugging is turned on for the attempt and off again afterwards, the same window the run
+     * transport uses, so the device is not left with a shell port open for the sake of one command.
+     */
+    private suspend fun startThroughDeviceAdb(
+        context: Context,
+        tokenConfigured: Boolean,
+        binderTimeoutMillis: Long,
+        onLog: (String) -> Unit,
+    ): ShizukuStartOutcome {
+        onLog("[*] No root: running Shizuku's starter in the device's own adb shell")
+        val outcome = runCatching {
+            TemporaryWirelessAdb.use(context, onLog = onLog) {
+                WirelessAdbSession.open(context, portDiscoveryTimeoutMs = LOCAL_ADB_PORT_TIMEOUT_MILLIS)
+                    .use { session ->
+                        startWithStarter(
+                            context = context,
+                            shell = { command ->
+                                val result = session.shell(command)
+                                ShizukuController.ShellResult(result.exitCode, result.output)
+                            },
+                            binderTimeoutMillis = binderTimeoutMillis,
+                            onLog = onLog,
+                        )
+                    }
+            }
+        }.getOrElse { error ->
+            val detail = error.message ?: error.javaClass.simpleName
+            onLog("[!] The device's own adb shell is not usable: $detail")
+            null
+        }
+        if (outcome?.started == true) return outcome
+
+        // No starter worked in that shell, but the request route has different requirements, so it is
+        // still worth making - and with no token it is also the call that says in words what this
+        // device has to work with.
+        val requested = startWithoutRoot(context, tokenConfigured, binderTimeoutMillis, onLog)
+        return when {
+            requested.started -> requested
+            // With no token there was nothing to request, so the failure worth reporting is the one
+            // from the attempt that was actually made.
+            !tokenConfigured && outcome != null -> outcome
+            else -> requested
+        }
+    }
+
+    /**
+     * Whether this app has an adb identity of its own on the device.
+     *
+     * Asked as two facts, the way the run transport asks it: a completed pairing leaves a key and a
+     * flag, and the flag on its own is a stale note if the key has gone.
+     */
+    private fun hasLocalAdbCredential(context: Context): Boolean =
+        AdbCredentialStore.hasStoredKey(context) && AppPreferences.adbPaired(context)
 
     /**
      * The two routes that need no root: asking Shizuku to start itself when a token is stored, and
@@ -137,14 +228,14 @@ internal object ShizukuStarter {
      */
     private suspend fun startWithoutRoot(
         context: Context,
-        route: ShizukuStartRoute,
+        tokenConfigured: Boolean,
         binderTimeoutMillis: Long,
         onLog: (String) -> Unit,
     ): ShizukuStartOutcome {
-        if (route == ShizukuStartRoute.Unavailable) {
+        if (!tokenConfigured) {
             val detail =
-                "this device has no root and no Shizuku start token, so Shizuku cannot be started " +
-                    "from here"
+                "this device has no root, no paired wireless debugging identity, and no Shizuku start " +
+                    "token, so Shizuku cannot be started from here"
             onLog("[!] $detail")
             return ShizukuStartOutcome(started = false, detail = detail)
         }
@@ -199,6 +290,16 @@ internal object ShizukuStarter {
     internal const val METHOD_LEGACY = "legacy start.sh"
     internal const val METHOD_AUTHENTICATED_INTENT = "Shizuku start request"
     internal const val DEFAULT_BINDER_TIMEOUT_MILLIS = 20_000L
+
+    /**
+     * How long the adb route waits for adbd to publish the port it is listening on.
+     *
+     * Shorter than the run transport's, because this is a start attempt rather than a run: the port is
+     * read from the system property adbd sets when wireless debugging comes up, which is there as soon
+     * as the listener is, and a start that has waited this long is not going to be helped by waiting
+     * more.
+     */
+    private const val LOCAL_ADB_PORT_TIMEOUT_MILLIS = 20_000L
 }
 
 /**

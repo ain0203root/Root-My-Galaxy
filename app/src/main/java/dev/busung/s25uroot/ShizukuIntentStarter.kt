@@ -5,45 +5,67 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 
-/** Which way a start attempt should be made, from the two things that decide it. */
+/** Which way a start attempt should be made, from the things that decide it. */
 internal enum class ShizukuStartRoute {
     /** Root exists, so Shizuku's own starter can be run where it is verifiable. */
     NativeStarter,
 
-    /** No root, but the user configured a token: the broadcast is the only way left. */
+    /**
+     * No root, but this app is paired with the device's own adbd, so the same starter can be run in the
+     * shell adbd hands out.
+     *
+     * It is the same process Shizuku's own starter would be, started by this app, so the result is
+     * verifiable in the same way root's is - and it needs no computer and no network, which the route
+     * below cannot say for itself.
+     */
+    LocalAdb,
+
+    /** No root and no adb identity: the token broadcast is the only way left. */
     AuthenticatedIntent,
 
-    /** No root and no token: nothing in this app can start a privileged process. */
+    /** Nothing the app can start Shizuku with. */
     Unavailable,
 }
 
 /**
- * The route a start takes, as a function of the two facts that decide it.
+ * The route a start takes, as a function of the facts that decide it.
  *
- * Pure, so the choice can be tested without a device, and worth testing because the fallback exists
- * precisely in the state that is hardest to reproduce: a device with no root. Root wins when it is
- * there, because the native starter's result is verifiable - the app can see the process it started -
- * while a broadcast is a request to another app that can only be answered by waiting for a binder.
+ * Pure, so the choice can be tested without a device, and worth testing because these routes exist
+ * precisely in the states that are hardest to reproduce: a device with no root, or a device with no
+ * network.
+ *
+ * The order is by how much the app can see for itself. **Root** starts Shizuku's own starter, so the
+ * app watches the process it started. **Local adb** does the same thing in the shell the device's own
+ * adbd hands out, which needs neither root nor a network to connect to it - the connection is
+ * loopback. **The token** is a request to another app that can only be answered by waiting for a
+ * binder, and on a build whose own start method needs wireless debugging it waits for something this
+ * app cannot provide: a wifi connection.
  */
-internal fun shizukuStartRoute(rootShellAvailable: Boolean, tokenConfigured: Boolean): ShizukuStartRoute =
-    when {
-        rootShellAvailable -> ShizukuStartRoute.NativeStarter
-        tokenConfigured -> ShizukuStartRoute.AuthenticatedIntent
-        else -> ShizukuStartRoute.Unavailable
-    }
+internal fun shizukuStartRoute(
+    rootShellAvailable: Boolean,
+    localAdbPaired: Boolean,
+    tokenConfigured: Boolean,
+): ShizukuStartRoute = when {
+    rootShellAvailable -> ShizukuStartRoute.NativeStarter
+    localAdbPaired -> ShizukuStartRoute.LocalAdb
+    tokenConfigured -> ShizukuStartRoute.AuthenticatedIntent
+    else -> ShizukuStartRoute.Unavailable
+}
 
 /**
  * Whether a boot is worth starting Shizuku on at all.
  *
  * The start used to be triggered from inside the boot's root check, which made it root-only in
  * practice: a device with a stored token and no root never asked Shizuku to start, even though the
- * token is exactly the route that does not need root. The same two facts as the route decide it, and
- * a boot with neither is left alone rather than told, once per reboot, that nothing can be done.
+ * token is exactly the route that does not need root. The same facts as the route decide it, and a
+ * boot with none of them is left alone rather than told, once per reboot, that nothing can be done.
  */
 internal fun shizukuBootStartWorthAttempting(
     rootAlreadyActive: Boolean,
+    localAdbPaired: Boolean,
     tokenConfigured: Boolean,
-): Boolean = shizukuStartRoute(rootAlreadyActive, tokenConfigured) != ShizukuStartRoute.Unavailable
+): Boolean = shizukuStartRoute(rootAlreadyActive, localAdbPaired, tokenConfigured) !=
+    ShizukuStartRoute.Unavailable
 
 /**
  * Starts Shizuku by asking the Shizuku app itself, for devices where the app has no root to work with.

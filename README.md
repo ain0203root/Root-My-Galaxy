@@ -475,28 +475,40 @@ one Shizuku sends no callback for, and revoking does not kill the binder either.
   binder immediately before every launch, because a start racing the Shizuku app's own or a previous
   boot's attempt otherwise looks like one that never took effect. A binder that appears during a probe
   is reported as already running, not as a failure.
-- **A device with no root has one route left**, and it is opt-in: if your Shizuku build accepts
+- **A device with no root has two routes left**, and neither needs a computer.
+
+  The first is this app's own adb identity: **Settings → Wireless ADB → Pair** once, and from then on
+  the app can run *Shizuku's own starter* in the shell the device's adbd hands out — the same
+  `libshizuku.so --apk=…` (or legacy `start.sh`) that root would run, just in a different shell. It
+  is the route with the fewest dependencies of any of them: no root, no cable, another app's
+  cooperation is not needed, and **no network**, because the connection to adbd is to `127.0.0.1`
+  (see [Wireless ADB](#wireless-adb)). The app can see the process it started, so the result is
+  checkable in the same way root's is, and it is preferred over the token route for that reason.
+  Wireless debugging is turned on for the attempt and off again after it, the same window a run
+  gets.
+
+  The second is opt-in and is a request rather than an act: if your Shizuku build accepts
   authenticated start requests, store the matching token under **Settings → Shizuku → Shizuku start
   token** and the app will ask the Shizuku package itself to start. The broadcast is package-scoped,
   the token is only ever sent to that package, and it is never written to the log or to run history.
-  Without a token the app says no root and no token is why nothing can be started, instead of sending
-  a request it cannot authenticate and reporting Shizuku's refusal as a failure.
-- On boot the start runs after a settle delay, by whichever route the device has: root when it is
-  there, and the stored start token when it is not. The boot trigger sits before the boot's root
-  checks rather than inside them, because the token is precisely the route a boot with no root can
-  take — and a boot with neither is left alone rather than told once per reboot that nothing can be
-  done. Retries are for the root route only: a root starter races a system that is still settling,
-  where a start request has already been delivered, so sending it again asks the same question twice.
-  A boot-time install that succeeds starts Shizuku too, because the boot that has to re-establish
-  root is exactly the boot that can then bring Shizuku back.
+  It is last because the app cannot verify it — and because on a build whose own start method is
+  wireless debugging, the thing it waits for is a wifi connection this app cannot supply.
 
-It says so plainly when it cannot work: with no root — and no token stored — there is no way for an
-app to start a privileged process, so the failure names that rather than pretending the button did
-something. Root is always preferred when it exists, because the native starter's result can be
-checked while a request to another app can only be answered by waiting for a binder. If your Shizuku
-build starts itself on boot, the app notices and reports that rather than racing it.
-Switching the setting on starts Shizuku there and then, so the setting is proven on the device
-instead of at the next reboot.
+  With neither, the app says no root, no pairing and no token are why nothing can be started,
+  instead of sending a request it cannot authenticate and reporting Shizuku's refusal as a failure.
+- On boot the start runs after a settle delay, by whichever route the device has: root when it is
+  there, the app's own pairing, and the stored token as the last resort. The boot trigger sits before
+  the boot's root checks rather than inside them, because those two no-root routes are precisely what
+  a boot without root can take — and a boot with none of them is left alone rather than told once per
+  reboot that nothing can be done. Retries are for the root route only: a root starter races a system
+  that is still settling, where a start request has already been delivered, so sending it again asks
+  the same question twice. A boot-time install that succeeds starts Shizuku too, because the boot
+  that has to re-establish root is exactly the boot that can then bring Shizuku back.
+
+Root is always preferred when it exists, because the native starter's result can be checked while a
+request to another app can only be answered by waiting for a binder. If your Shizuku build starts
+itself on boot, the app notices and reports that rather than racing it. Switching the setting on
+starts Shizuku there and then, so the setting is proven on the device instead of at the next reboot.
 
 ## Which transport a run uses
 
@@ -534,7 +546,19 @@ computer; the bootstrap helper's socket only exists in the window it was staged 
 wireless debugging is different: it is a shell the user can enable from Developer options, with no
 cable and no root.
 
-**Settings → Wireless ADB** pairs with it. Pairing is three steps on adbd's side — a TLS 1.3 session
+**Settings → Wireless ADB** pairs with it. It does two jobs, and both are the same connection: it is a
+transport a run can use when Shizuku is not available, and it is a shell this app can run *Shizuku's
+own starter* in when there is no root — which is how a device with no root and no cable gets Shizuku
+back after a reboot.
+
+One detail decides whether either job needs a network. The connection is always to `127.0.0.1`, and the
+port is read from the system property adbd sets when wireless debugging comes up (`service.adb.tls.port`)
+*before* anything tries mDNS — so **on a device that has paired once, neither job needs wifi at all**:
+the device is talking to its own adbd over loopback. What does need a network is the *pairing* itself,
+where the port is only published over mDNS; that is a one-time step done by hand with Android's own
+pairing dialog open, and the key it leaves behind survives reboots.
+
+Pairing is three steps on adbd's side — a TLS 1.3 session
 whose exported key material joins the pairing code to form the password, a SPAKE2 exchange that proves
 both sides hold that password without sending it, and an encrypted PeerInfo carrying this app's public
 key — and the code itself is entered **in the notification** the app posts, because the code is shown

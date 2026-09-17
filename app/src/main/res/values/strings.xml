@@ -108,7 +108,7 @@
     <string name="adb_pair_unknown_error">Pairing stopped with no explanation.</string>
     <string name="adb_pair_notification_permission_required">Notifications are needed for the pairing code field, so pairing was not started.</string>
     <string name="settings_shizuku_token">Shizuku start token</string>
-    <string name="settings_shizuku_token_summary">Only for a device with no root, and only if your Shizuku build accepts start requests. Kept on this device and never written to the log</string>
+    <string name="settings_shizuku_token_summary">For a device with no root and no wireless debugging pairing. Only if your Shizuku build accepts start requests; kept on this device and never written to the log</string>
     <string name="settings_shizuku_token_value_set">Set</string>
     <string name="settings_shizuku_token_value_unset">Not set</string>
     <string name="shizuku_token_dialog_title">Shizuku start token</string>
@@ -407,7 +407,7 @@
     <string name="recovery_reboot_scheduled">Scheduled. The phone will restart without root.</string>
     <string name="recovery_needs_kernel_su">Needs KernelSU</string>
     <string name="settings_shizuku_start">Start Shizuku now</string>
-    <string name="settings_shizuku_start_summary">Launch the Shizuku service through KernelSU, so this app keeps working without a computer</string>
+    <string name="settings_shizuku_start_summary">Launch the Shizuku service through root, or through this app\u2019s own wireless debugging pairing when there is no root, so this app keeps working without a computer</string>
     <string name="settings_shizuku_allow">Allow this app in Shizuku</string>
     <string name="settings_shizuku_allow_summary">Shizuku is already running; what is missing is permission for this app to use it</string>
     <string name="settings_shizuku_running">Shizuku is running</string>
@@ -422,10 +422,10 @@
     <string name="settings_shizuku_state_running">Running</string>
     <string name="settings_shizuku_state_needs_permission">Needs permission</string>
     <string name="settings_shizuku_boot">Shizuku on boot</string>
-    <string name="settings_shizuku_boot_summary">Start Shizuku automatically after a reboot, using root when the device has it or the start token when it does not</string>
+    <string name="settings_shizuku_boot_summary">Start Shizuku automatically after a reboot, by root when the device has it, by this app\u2019s wireless debugging pairing when it does not, or by the start token</string>
     <string name="status_shizuku_starting">Starting\u2026</string>
     <string name="status_shizuku_started">Shizuku is running</string>
-    <string name="error_shizuku_start_no_root">Shizuku cannot be started from here: this device has no root and no stored start token</string>
+    <string name="error_shizuku_start_no_root">Shizuku cannot be started from here: this device has no root, no wireless debugging pairing to run its starter through, and no stored start token</string>
     <string name="error_no_root_shell">No root shell is available yet</string>
     <string name="settings_ksu_load">Load KernelSU after the exploit</string>
     <string name="settings_ksu_load_summary">Load the KernelSU module and its daemon as soon as the exploit has root. Turning this off ends a run at that root instead, and switches off everything here that needs KernelSU</string>
