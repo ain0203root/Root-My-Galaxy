@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
@@ -227,6 +228,22 @@ private fun InstallScreen(
     // Whether a reboot was *asked for*, which is all the app can know: null while nothing has been
     // asked, false when the phone would not take the request.
     var retryNotice by remember { mutableStateOf<Boolean?>(null) }
+    // Seconds left before a retry in this boot, or null when none is waiting. Held here rather than in
+    // the view model because it is a countdown on a screen, not a fact about the run: nothing on the
+    // device changes while it runs, and leaving the screen cancels it with nothing left to clean up.
+    var waitRemaining by remember { mutableStateOf<Int?>(null) }
+    LaunchedEffect(waitRemaining != null) {
+        if (waitRemaining == null) return@LaunchedEffect
+        val startedAt = SystemClock.elapsedRealtime()
+        while (true) {
+            val left = InBootRetry.remainingSeconds(SystemClock.elapsedRealtime() - startedAt)
+            waitRemaining = left
+            if (left <= 0) break
+            delay(1_000)
+        }
+        waitRemaining = null
+        onRetry()
+    }
     LaunchedEffect(installState.log) {
         delay(40)
         logScrollState.scrollTo(logScrollState.maxValue)
@@ -348,23 +365,40 @@ private fun InstallScreen(
                     ) {
                         when (installState.phase) {
                             InstallPhase.Failed, InstallPhase.Stopped -> {
-                                FilledTonalButton(
-                                    onClick = {
-                                        clickHaptic(view)
-                                        onClose()
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Text(stringResource(R.string.action_close))
-                                }
-                                Button(
-                                    onClick = {
-                                        clickHaptic(view)
-                                        showRetryChoice = true
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                ) {
-                                    Text(stringResource(R.string.action_retry))
+                                val waiting = waitRemaining
+                                if (waiting != null) {
+                                    WaitingRetryCard(
+                                        secondsLeft = waiting,
+                                        modifier = Modifier.weight(1f),
+                                        onRetryNow = {
+                                            clickHaptic(view)
+                                            waitRemaining = null
+                                            onRetry()
+                                        },
+                                        onStopWaiting = {
+                                            clickHaptic(view)
+                                            waitRemaining = null
+                                        },
+                                    )
+                                } else {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            clickHaptic(view)
+                                            onClose()
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(stringResource(R.string.action_close))
+                                    }
+                                    Button(
+                                        onClick = {
+                                            clickHaptic(view)
+                                            showRetryChoice = true
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(stringResource(R.string.action_retry))
+                                    }
                                 }
                             }
                             InstallPhase.Installed, InstallPhase.RootOnly -> Button(
@@ -395,7 +429,16 @@ private fun InstallScreen(
             onDismissRequest = { if (!arming) showRetryChoice = false },
             icon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
             title = { Text(stringResource(R.string.retry_choice_title)) },
-            text = { Text(stringResource(R.string.retry_choice_body)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.retry_choice_body))
+                    Text(
+                        text = stringResource(R.string.retry_wait_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            },
             confirmButton = {
                 TextButton(
                     enabled = !arming,
@@ -423,6 +466,16 @@ private fun InstallScreen(
                         },
                     ) {
                         Text(stringResource(R.string.action_cancel))
+                    }
+                    TextButton(
+                        enabled = !arming,
+                        onClick = {
+                            clickHaptic(view)
+                            showRetryChoice = false
+                            waitRemaining = InBootRetry.remainingSeconds(0)
+                        },
+                    ) {
+                        Text(stringResource(R.string.retry_wait))
                     }
                     TextButton(
                         enabled = !arming,
@@ -458,6 +511,45 @@ private fun InstallScreen(
                     }
                 },
             )
+        }
+    }
+}
+
+/**
+ * The wait between a failed run and a retry in the same boot.
+ *
+ * Shown instead of the retry button rather than beside it, because both would start the same run and
+ * two ways to start one thing on one screen is how it gets started twice. The wait can be cut short,
+ * so someone who knows this boot is settled is not held by a rule they disagree with.
+ */
+@Composable
+private fun WaitingRetryCard(
+    secondsLeft: Int,
+    onRetryNow: () -> Unit,
+    onStopWaiting: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.retry_waiting_body, secondsLeft),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TextButton(onClick = onStopWaiting) {
+                    Text(stringResource(R.string.retry_waiting_cancel))
+                }
+                Button(onClick = onRetryNow) {
+                    Text(stringResource(R.string.retry_waiting_start))
+                }
+            }
         }
     }
 }
