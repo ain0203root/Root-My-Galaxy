@@ -748,8 +748,13 @@ name, which is the point.
   modules it is meant to load have to be **mounted** (see [KernelSU readiness](#kernelsu-readiness)),
   and the modules that inject *into* Zygote — Zygisk Next's `zn-daemon` and LSPosed's `lspd`, each
   only when its module is installed and enabled — have to be **running**, because a Zygote created
-  before those services come up returns without them. That wait is bounded, so the child always
-  answers inside the window the app holds open for it.
+  before those services come up returns without them. That wait is bounded, and the app's own window
+  is **sized from that bound** rather than set beside it — a wait counted in iterations and a window
+  counted in seconds are the same thing only by accident, and here they disagreed: ten seconds of
+  polling against a twenty-second wait, so a refusal that had already been written was reported as
+  silence, and the child went on to act after the app had stopped listening. Whichever module is
+  missing is named in the refusal too, because that is the child's own reading and the sentence around
+  it is the app's.
 - **KernelSU soft reboot** hands the transition to the installed `ksud`, whose own command table
   lists `soft-reboot` as *Emulate system reboot*: it stops and restarts the userspace and walks the
   module lifecycle in its normal order. It takes a per-boot lock carrying the boot id and the owner's
@@ -783,9 +788,13 @@ itself that it is root, that the boot id has not changed under it, and — for t
 Zygote is actually running, and then writes an acknowledgement the app reads back. A successful fork
 is deliberately not an action: an action the child did not acknowledge is reported as a failure,
 because the app must never call something scheduled that never happened. The child's own worst case
-is bounded to stay inside the window the app waits in, so the reverse cannot happen either — a
-daemon that has not returned is stopped and reported rather than left to fire a userspace transition
-the app already gave up on.
+is bounded to stay inside the window the app waits in — the window is derived from it, so the two
+cannot drift apart — and **being written down is not being heard**: the app removes the
+acknowledgement as it reads it, so the child checks that it is gone before doing anything
+irreversible. An acknowledgement still sitting there means the app gave up or died, and a framework
+restart or a reboot after the user has been told the action failed is the worst version of this bug.
+The reverse cannot happen either — a daemon that has not returned is stopped and reported rather than
+left to fire a userspace transition the app already gave up on.
 
 ## Keeping up with the upstream fork
 

@@ -69,7 +69,28 @@ class RootRecoveryTest {
         val outcome = RootRecovery.parseHandoff("error:boot-changed")
 
         assertFalse(outcome.accepted)
-        assertEquals("boot changed", outcome.detail)
+        // The child's token is a name for a check; what the user reads has to say what it means for
+        // the phone, which is why the app owns the words.
+        assertEquals(
+            "The phone rebooted before the action could run, so it was abandoned",
+            outcome.detail,
+        )
+    }
+
+    @Test
+    fun `a refusal the app does not know is still reported, and its detail is kept`() {
+        // A child from a newer build than this app must not be silenced by the gap.
+        assertEquals("some new check", RootRecovery.refusalDetail("some-new-check"))
+        assertEquals(
+            "A module that injects into Zygote is enabled but its service is not running, so a restart " +
+                "now would bring the framework back without it (zygisksu)",
+            RootRecovery.refusalDetail("module-services-not-ready:zygisksu"),
+        )
+        assertEquals(
+            "A module that injects into Zygote is enabled but its service is not running, so a restart " +
+                "now would bring the framework back without it (zygisksu zygisk_lsposed)",
+            RootRecovery.parseHandoff("error:module-services-not-ready:zygisksu zygisk_lsposed").detail,
+        )
     }
 
     @Test
@@ -172,7 +193,14 @@ class RootRecoveryTest {
         // framework back without them, which is the opposite of what the restart is for.
         assertTrue(script.contains("zygisksu:zn-daemon"))
         assertTrue(script.contains("zygisk_lsposed:lspd"))
-        assertTrue(script.contains("[ -z \"\$rmg_missing_services\" ] || reject_handoff 'module-services-not-ready'"))
+        // And it names which module was missing, because that is the part the app cannot work out for
+        // itself: the sentence around it lives in the app, the ids live here.
+        assertTrue(
+            script.contains(
+                "[ -z \"\$rmg_missing_services\" ] || " +
+                    "reject_handoff \"module-services-not-ready:\${rmg_missing_services# }\"",
+            ),
+        )
     }
 
     @Test
@@ -245,16 +273,73 @@ class RootRecoveryTest {
 
     @Test
     fun `a soft reboot always answers inside the window the app waits in`() {
-        val script = RootRecovery.softRebootScript(BOOT, ACCEPTED)
-
-        val launcherWindowSeconds = RootRecovery.softRebootAcceptWindowSeconds
-        val bootWait = numberOf(script, "while \\[ \"\\\$i\" -lt (\\d+) \\]")
-        val daemonWatch = numberOf(script, "\\[ \"\\\$n\" -lt (\\d+) \\]")
+        val windowSeconds = windowSecondsFor(
+            script = RootRecovery.softRebootScript(BOOT, ACCEPTED),
+            attempts = RootRecovery.softRebootAcceptPollAttempts,
+        )
 
         // The child's own worst case has to fit in the caller's, or the app reports a failure while
-        // the child is still on its way to doing what was asked.
-        assertTrue(bootWait + daemonWatch < launcherWindowSeconds)
+        // the child is still on its way to doing what was asked. The child counts iterations and the
+        // app counts seconds, so its own two loops are converted here rather than compared as counts -
+        // which is the comparison that let the restart's window pass this test while being half the
+        // length of the wait behind it.
+        assertTrue(
+            "window ${windowSeconds}s against the child's " +
+                "${RootRecovery.softRebootChildDeadlineSeconds}s",
+            windowSeconds > RootRecovery.softRebootChildDeadlineSeconds,
+        )
     }
+
+    @Test
+    fun `the restart's window outlasts the wait its child does before it can answer`() {
+        val windowSeconds = windowSecondsFor(
+            script = RootRecovery.restartZygoteScript(BOOT, ACCEPTED),
+            attempts = RootRecovery.restartZygoteAcceptPollAttempts,
+        )
+
+        assertTrue(
+            "window ${windowSeconds}s against the child's " +
+                "${RootRecovery.restartZygoteChildDeadlineSeconds}s",
+            windowSeconds > RootRecovery.restartZygoteChildDeadlineSeconds,
+        )
+        // The window this action shipped with was exactly that bug: ten seconds of polling against a
+        // child that cannot answer before twenty, so its refusal arrived after the app stopped
+        // listening and was reported as silence instead.
+        assertTrue(
+            RootRecovery.ACCEPT_POLL_ATTEMPTS * RootRecovery.ACCEPT_POLL_INTERVAL_SECONDS <
+                RootRecovery.restartZygoteChildDeadlineSeconds,
+        )
+    }
+
+    @Test
+    fun `no action acts after the app has given up on it`() {
+        val scripts = listOf(
+            RootRecovery.restartZygoteScript(BOOT, ACCEPTED),
+            RootRecovery.softRebootScript(BOOT, ACCEPTED),
+            RootRecovery.rebootScript(BOOT, ACCEPTED),
+        )
+
+        scripts.forEach { script ->
+            // Being written down is not being heard: the app removes the acknowledgement as it reads
+            // it, so one still on disk means nobody read it and the action must not happen.
+            assertTrue(script.contains("rmg_handoff_consumed()"))
+            val published = script.indexOf("publish_handoff \"\$ACCEPTED_VALUE\"")
+            assertTrue(published > 0)
+            assertTrue(script.indexOf("rmg_handoff_consumed ||", published) > published)
+        }
+    }
+
+    /** The window an action is launched with, counted the way the launcher counts its own polls. */
+    private fun windowSecondsFor(script: String, attempts: Int): Double = numberOf(
+        RootRecovery.detachedLaunchCommand(
+            script = script,
+            scriptPath = "/data/local/tmp/x.sh",
+            logPath = "/data/local/tmp/x.log",
+            acceptedPath = ACCEPTED,
+            acceptPollAttempts = attempts,
+        ),
+        "i\" -lt (\\d+)",
+    ) * RootRecovery.ACCEPT_POLL_INTERVAL_SECONDS
 
     @Test
     fun `a daemon that has not returned is stopped, never left to fire later`() {
@@ -287,8 +372,14 @@ class RootRecoveryTest {
         assertTrue(script.contains("taking over a lock left by a keeper that is no longer running"))
     }
 
+    /**
+     * The last value [pattern] captures.
+     *
+     * Last, not first, for a launcher command: the script it embeds has waiting loops of its own, and
+     * the one the launcher counts its polls with comes after all of them.
+     */
     private fun numberOf(script: String, pattern: String): Int =
-        Regex(pattern).find(script)?.groupValues?.get(1)?.toInt()
+        Regex(pattern).findAll(script).lastOrNull()?.groupValues?.get(1)?.toInt()
             ?: throw AssertionError("not found in the script: $pattern")
 
     @Test

@@ -24,10 +24,20 @@ internal val KNOWN_MODULE_SERVICES = listOf(
 )
 
 /**
- * How long the wait is bounded to: longer than a cold start of these services, short enough that the
- * child answers inside the window the app holds open for it.
+ * How long the wait is bounded to: longer than a cold start of these services, and a bound the app's own
+ * acknowledgement window is sized from rather than assumed to fit inside.
  */
 internal const val MODULE_SERVICE_WAIT_SECONDS = 20
+
+/**
+ * What one iteration of that wait can cost, rather than the second it sleeps.
+ *
+ * Each pass re-reads the process table - one `ps` and one `grep` per module - and on a loaded device
+ * those cost more than the sleep does. It is stated here because the app sizes its own window from
+ * this wait, and the two are counted differently: the child counts iterations, the app measures
+ * wall-clock time.
+ */
+internal const val MODULE_SERVICE_WAIT_ITERATION_ALLOWANCE_SECONDS = 1.5
 
 /**
  * The shell that waits on the device for [services], leaving the still-missing module ids in

@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import java.io.File
+import kotlin.math.ceil
 
 /** What a recovery action ended as: whether it was accepted, and what to tell the user. */
 internal data class RecoveryOutcome(
@@ -87,26 +88,149 @@ internal object RootRecovery {
 
     private const val ACCEPTED_MARKER = "RMG_RECOVERY_ACCEPTED"
     internal const val ACCEPT_POLL_ATTEMPTS = 100
-    internal const val ACCEPT_POLL_INTERVAL_SEC = "0.1"
 
     /**
-     * How long the app holds the channel open for the soft reboot, which is the window the child's
-     * own worst case has to fit inside.
+     * The shell's own wait between polls, as the number it is written as and as the interval it is.
+     *
+     * Both forms exist because one is a shell literal and the other is arithmetic: an iteration costs
+     * *at least* this, since the launcher spawns `cat`, `rm` and `[` as well as sleeping.
      */
-    internal val softRebootAcceptWindowSeconds: Double
-        get() = ACCEPT_POLL_ATTEMPTS * 2 * ACCEPT_POLL_INTERVAL_SEC.toDouble()
+    internal const val ACCEPT_POLL_INTERVAL_SECONDS = 0.1
+    internal val ACCEPT_POLL_INTERVAL_SEC: String = ACCEPT_POLL_INTERVAL_SECONDS.toString()
+
+    /** Slack between the child's own deadline and the point the app gives up on it. */
+    private const val HANDOFF_SLACK_SECONDS = 5.0
+
+    /**
+     * How many polls a child whose own deadline is [childDeadlineSeconds] has to be given.
+     *
+     * The rule is that the window an action is launched with outlasts the child's own worst case, and
+     * the trap is that the two are written in different units: the child counts *iterations* of its own
+     * waits while the window is measured in wall-clock seconds here. Sized independently they disagreed,
+     * and the restart's did: its child waits up to [MODULE_SERVICE_WAIT_SECONDS] seconds before it can
+     * report a missing module service, and the app gave up after ten, so a refusal that had already been
+     * written arrived as "did not acknowledge the request" - and the child then went on to act on an
+     * action the app had reported as failed.
+     *
+     * Deriving the window from the child's deadline is what keeps them in step. An iteration costs at
+     * least [ACCEPT_POLL_INTERVAL_SECONDS], so the count computed here is a *lower bound* on the real
+     * window: the app never gives up early, only late.
+     */
+    internal fun acceptPollAttemptsFor(childDeadlineSeconds: Double): Int =
+        ceil((childDeadlineSeconds + HANDOFF_SLACK_SECONDS) / ACCEPT_POLL_INTERVAL_SECONDS).toInt()
+
+    /** What the restart child's checks other than its wait can cost. */
+    private const val RESTART_CHILD_READS_SECONDS = 3.0
+
+    /**
+     * The restart child's own worst case before it answers *at all*: the bounded wait for the module
+     * services, whose iterations cost a reading of the process table each, and the reads around it.
+     */
+    internal val restartZygoteChildDeadlineSeconds: Double
+        get() = MODULE_SERVICE_WAIT_SECONDS * MODULE_SERVICE_WAIT_ITERATION_ALLOWANCE_SECONDS +
+            RESTART_CHILD_READS_SECONDS
+
+    /** The window the restart is launched with, from [restartZygoteChildDeadlineSeconds]. */
+    internal val restartZygoteAcceptPollAttempts: Int
+        get() = acceptPollAttemptsFor(restartZygoteChildDeadlineSeconds)
+
+    /** The soft reboot child's own bounded waits, which its window is sized from. */
+    internal const val SOFT_REBOOT_BOOT_WAIT_ITERATIONS = 10
+    internal const val SOFT_REBOOT_DAEMON_WATCH_ITERATIONS = 8
+
+    /** What the soft reboot child's checks other than its two waits can cost. */
+    private const val SOFT_REBOOT_CHILD_READS_SECONDS = 3.0
+
+    /** The soft reboot child's own worst case, in the same shape as the restart's. */
+    internal val softRebootChildDeadlineSeconds: Double
+        get() = (SOFT_REBOOT_BOOT_WAIT_ITERATIONS + SOFT_REBOOT_DAEMON_WATCH_ITERATIONS) *
+            MODULE_SERVICE_WAIT_ITERATION_ALLOWANCE_SECONDS + SOFT_REBOOT_CHILD_READS_SECONDS
+
+    /** The window the soft reboot is launched with, from [softRebootChildDeadlineSeconds]. */
+    internal val softRebootAcceptPollAttempts: Int
+        get() = acceptPollAttemptsFor(softRebootChildDeadlineSeconds)
 
     /** A detached child's own words, read back from the acknowledgement. */
     internal fun parseHandoff(output: String): RecoveryOutcome {
         val lines = output.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
         if (lines.any { it == ACCEPTED_MARKER }) return RecoveryOutcome(accepted = true, detail = "")
-        val childError = lines.firstOrNull { it.startsWith("error:") }
-            ?.removePrefix("error:")
-            ?.replace('-', ' ')
+        val childError = lines.firstOrNull { it.startsWith("error:") }?.removePrefix("error:")
         return RecoveryOutcome(
             accepted = false,
-            detail = childError ?: lines.lastOrNull() ?: "The recovery action did not answer",
+            detail = childError?.let(::refusalDetail)
+                ?: lines.lastOrNull()
+                ?: "The recovery action did not answer",
         )
+    }
+
+    /**
+     * What a child's refusal means, in words about the phone rather than the name of a check.
+     *
+     * The child speaks in tokens - `module-services-not-ready` - because a shell script has to keep
+     * saying the same thing while this app's wording changes, and because the token is what identifies
+     * the case. The explanation is the app's side of it, and it is here, next to the scripts, because a
+     * token like that one needs a sentence: the modules are installed and enabled, and what is wrong is
+     * that restarting now would bring the framework back without them.
+     *
+     * Anything after a colon is the child's own detail and is kept as it wrote it, because which module
+     * is missing is something only the child knows.
+     */
+    internal fun refusalDetail(refusal: String): String {
+        val token = refusal.substringBefore(':').trim()
+        val detail = refusal.substringAfter(':', "").trim()
+        val reason = HANDOFF_REASONS[token] ?: token.replace('-', ' ')
+        return if (detail.isEmpty()) reason else "$reason ($detail)"
+    }
+
+    private val HANDOFF_REASONS = mapOf(
+        "not-root" to "The shell that would run the action was not root",
+        "boot-changed" to "The phone rebooted before the action could run, so it was abandoned",
+        "zygote-not-running" to "Android's Zygote service is not running, so there is no framework to restart",
+        "zygote-secondary-restart-failed" to "init refused to restart the secondary Zygote",
+        "modules-not-mounted" to "No KernelSU module is mounted, so a restart would come back with nothing new",
+        "module-services-not-ready" to
+            "A module that injects into Zygote is enabled but its service is not running, so a restart " +
+                "now would bring the framework back without it",
+        "installed-ksud-missing" to
+            "The installed KernelSU daemon is missing, so KernelSU's own soft reboot cannot be asked for",
+        "another-soft-reboot-owns-this-boot" to "A soft reboot this app started is already running for this boot",
+        "lock-failed" to "Another soft reboot holds this boot's lock",
+        "boot-not-completed" to "Android had not finished booting, so there was nothing to restart in order",
+        "ksud-soft-reboot-timed-out" to
+            "KernelSU's soft reboot did not return in time, so it was stopped rather than left to fire later",
+        "reboot-command-missing" to "This device has no reboot command to run",
+    )
+
+    /** How long a child waits for the app to read its handoff before giving up on being heard. */
+    private const val HANDOFF_CONSUMED_WAIT_SECONDS = 3.0
+    private const val HANDOFF_CONSUMED_POLL_SECONDS = 0.2
+
+    /**
+     * The child's own check that its verdict was read, which is not the same as having been written.
+     *
+     * The app's launcher removes the acknowledgement as it reads it, so an acknowledgement that is
+     * still on disk after the child publishes one means nobody read it: the app gave up waiting or
+     * died. Both of the dangerous outcomes are avoided by not acting - a framework restart or a reboot
+     * that happens after the user was told the action failed is the worst version of this bug, and the
+     * window is bounded so a child whose app is gone always exits.
+     *
+     * It is a definition rather than a guard so each action can decide what "not heard" means for it:
+     * the two that change the running system abort, and the soft reboot's own transition has already
+     * been handed to the daemon by that point, so it only declines to report itself as accepted.
+     */
+    internal fun handoffConsumedSnippet(): String {
+        val iterations = (HANDOFF_CONSUMED_WAIT_SECONDS / HANDOFF_CONSUMED_POLL_SECONDS).toInt()
+        return """
+        rmg_handoff_consumed() {
+            rmg_handoff_waited=0
+            while [ "${'$'}rmg_handoff_waited" -lt $iterations ]; do
+                [ -e "${'$'}ACCEPTED" ] || return 0
+                sleep $HANDOFF_CONSUMED_POLL_SECONDS
+                rmg_handoff_waited=${'$'}((rmg_handoff_waited + 1))
+            done
+            return 1
+        }
+        """.trimIndent()
     }
 
     /** Asks the installed daemon what it supports; null when there is no daemon to ask. */
@@ -146,6 +270,9 @@ internal object RootRecovery {
         logPath = "/data/local/tmp/rmg-restart-zygote.log",
         acceptedPath = "/data/local/tmp/.rmg-restart-zygote-accepted",
         script = restartZygoteScript(bootToken, "/data/local/tmp/.rmg-restart-zygote-accepted"),
+        // Outlasts the child's own wait for the module services, so a refusal is read as a refusal
+        // rather than as silence.
+        acceptPollAttempts = restartZygoteAcceptPollAttempts,
     )
     }
 
@@ -175,7 +302,7 @@ internal object RootRecovery {
             logPath = "/data/local/tmp/rmg-soft-reboot.log",
             acceptedPath = "/data/local/tmp/.rmg-soft-reboot-accepted",
             script = softRebootScript(bootToken, "/data/local/tmp/.rmg-soft-reboot-accepted"),
-            acceptPollAttempts = ACCEPT_POLL_ATTEMPTS * 2,
+            acceptPollAttempts = softRebootAcceptPollAttempts,
         )
     }
 
@@ -294,6 +421,7 @@ internal object RootRecovery {
             rm -f -- "${'$'}0"
             exit 0
         }
+        ${handoffConsumedSnippet()}
 
         [ "${'$'}(id -u 2>/dev/null)" = "0" ] || reject_handoff 'not-root'
         [ "${'$'}(current_boot)" = "${'$'}EXPECTED_BOOT" ] || reject_handoff 'boot-changed'
@@ -311,13 +439,23 @@ internal object RootRecovery {
         # then do the opposite of what it was asked for. Bounded, so this always answers inside the
         # window the app is waiting in.
         ${moduleServiceWaitSnippet()}
-        [ -z "${'$'}rmg_missing_services" ] || reject_handoff 'module-services-not-ready'
+        # Which module is missing is the child's to report and the app's to explain: the ids are the
+        # child's own readings, and a bare token would leave the user with a check's name instead of
+        # the name of the module to look at.
+        [ -z "${'$'}rmg_missing_services" ] || reject_handoff "module-services-not-ready:${'$'}{rmg_missing_services# }"
 
         if [ "${'$'}(getprop init.svc.zygote_secondary 2>/dev/null)" = "running" ]; then
             setprop ctl.restart zygote_secondary || reject_handoff 'zygote-secondary-restart-failed'
         fi
 
         publish_handoff "${'$'}ACCEPTED_VALUE"
+        # Being heard is not the same as being acknowledged: the app removes the acknowledgement as it
+        # reads it, so one still sitting there means the app is gone - and an action the user has
+        # already been told failed must not go on to restart the framework under them.
+        rmg_handoff_consumed || {
+            rm -f -- "${'$'}0"
+            exit 0
+        }
 
         sleep 0.75
         rm -f -- "${'$'}0"
@@ -364,6 +502,7 @@ internal object RootRecovery {
             rm -f -- "${'$'}0"
             exit 0
         }
+        ${handoffConsumedSnippet()}
 
         [ "${'$'}(id -u 2>/dev/null)" = "0" ] || reject_handoff 'not-root'
         [ "${'$'}(current_boot)" = "${'$'}EXPECTED_BOOT" ] || reject_handoff 'boot-changed'
@@ -389,7 +528,7 @@ internal object RootRecovery {
         trap cleanup EXIT INT TERM
 
         i=0
-        while [ "${'$'}i" -lt 10 ]; do
+        while [ "${'$'}i" -lt $SOFT_REBOOT_BOOT_WAIT_ITERATIONS ]; do
             [ "${'$'}(getprop sys.boot_completed 2>/dev/null)" = "1" ] && break
             i=${'$'}((i + 1))
             sleep 1
@@ -408,7 +547,7 @@ internal object RootRecovery {
         "${'$'}KSUD" soft-reboot >>"${'$'}KSUD_OUT" 2>&1 &
         KSUD_PID=${'$'}!
         n=0
-        while kill -0 "${'$'}KSUD_PID" 2>/dev/null && [ "${'$'}n" -lt 8 ]; do
+        while kill -0 "${'$'}KSUD_PID" 2>/dev/null && [ "${'$'}n" -lt $SOFT_REBOOT_DAEMON_WATCH_ITERATIONS ]; do
             n=${'$'}((n + 1))
             sleep 1
         done
@@ -426,6 +565,10 @@ internal object RootRecovery {
         # watched rather than plainly: a daemon that has not returned is stopped and reported, because
         # a transition that starts after the app gave up on it would be an action nobody asked for.
         publish_handoff "${'$'}ACCEPTED_VALUE"
+        # The daemon hands the transition to a detached worker and has already been told to go; what
+        # this guards is the app's own accounting, so a transition nobody read is not one this app
+        # reports as scheduled. The cleanup below still runs either way.
+        rmg_handoff_consumed || true
         log "KernelSU native soft reboot accepted"
     """.trimIndent() + "\n"
 
@@ -445,6 +588,7 @@ internal object RootRecovery {
             rm -f -- "${'$'}0"
             exit 0
         }
+        ${handoffConsumedSnippet()}
 
         [ "${'$'}(id -u 2>/dev/null)" = "0" ] || reject_handoff 'not-root'
         [ "${'$'}(current_boot)" = "${'$'}EXPECTED_BOOT" ] || reject_handoff 'boot-changed'
@@ -452,6 +596,11 @@ internal object RootRecovery {
 
         sync
         publish_handoff "${'$'}ACCEPTED_VALUE"
+        # The same rule the other two actions follow: a reboot nobody read is not a reboot to perform.
+        rmg_handoff_consumed || {
+            rm -f -- "${'$'}0"
+            exit 0
+        }
 
         sleep 0.75
         rm -f -- "${'$'}0"
