@@ -787,6 +787,37 @@ is bounded to stay inside the window the app waits in, so the reverse cannot hap
 daemon that has not returned is stopped and reported rather than left to fire a userspace transition
 the app already gave up on.
 
+## Keeping up with the upstream fork
+
+This app is a fork of a fork: `Root-My-Galaxy` upstream, and `Root-My-Galaxy-Extended` on top of it, whose
+changes have been the source of most of the runtime hardening here. When it moves, the question is
+whether a change is a fix this app needs or a production-shaped decision this app has deliberately not
+made. The two are worth telling apart explicitly, because one of them already caught a real bug:
+
+**Ported: the silence watchdog.** The root helper is quiet *by design* while a scheduler-sensitive
+payload is alive — it prints nothing on the transport until the payload exits — so the ninety-second
+silence limit this app shipped was ending healthy runs. The value is now the whole-run ceiling (fifteen
+minutes), where the watchdog cannot fire before the deadline that already exists, and the offers start
+above the value that was measured killing runs rather than at it. A test pins the default, so it cannot
+quietly drift back.
+
+**Ported: the updater stands down during a run.** A check or a download next to an exploit is network,
+CPU and possibly a package install prompt that the run did not ask for. Extended's production build went
+further and made its updater inert outright; this app keeps the feature and refuses it while a run is in
+flight, which is the narrower version of the same rule — the automatic check is not made, the update card
+comes off the screen, and an explicit request says why instead of doing nothing.
+
+**Not ported: bundling the payload into the APK.** Extended's production build carries its own validated
+payload snapshot and resolves nothing over the network. That is a real trade — no feed, no drift, no
+traceability — and this app is built the other way on purpose: every run is resolved from a payload
+source pinned to a commit, and the run history records which source and revision served it. Bundling
+would mean the app could not say where its payload came from, and a fix in the feed would need an app
+release. The device support Extended adds with a fresh snapshot reaches this app through the feed
+instead, with no release needed.
+
+**Not ported: their release plumbing.** The production-bundle build step, the preflight that validates
+one, `FUNDING.yml` and their release notes are about shipping *their* artifact.
+
 ## Build identity
 
 Two builds of the same version are otherwise indistinguishable once installed, so every build

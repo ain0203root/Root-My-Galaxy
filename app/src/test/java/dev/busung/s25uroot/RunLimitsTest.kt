@@ -16,12 +16,33 @@ import org.junit.Test
 class RunLimitsTest {
 
     @Test
-    fun `the defaults are what the app has been shipping`() {
+    fun `the defaults are the shipped ones`() {
         val ceilings = RunLimits.defaultCeilings(freshSession = false)
 
         assertEquals(900_000L, ceilings.totalMillis)
-        assertEquals(90_000L, ceilings.stallMillis)
         assertEquals(120_000L, ceilings.helperMillis)
+    }
+
+    /**
+     * The silence limit cannot fire before the whole-run deadline, which is the point.
+     *
+     * This is the regression the upstream baseline found the hard way: a ninety-second watchdog over a
+     * payload whose root helper is deliberately quiet killed healthy runs, and the value it settled on is
+     * the run's own ceiling. A shorter default here would be that bug returning, so it is pinned rather
+     * than left to whoever edits the constant next.
+     */
+    @Test
+    fun `the shipped silence limit sits at the whole-run ceiling`() {
+        val ceilings = RunLimits.defaultCeilings(freshSession = false)
+
+        assertEquals(RunLimits.DEFAULT_TOTAL_SECONDS * 1_000L, ceilings.stallMillis)
+        assertTrue(ceilings.stallMillis >= ceilings.totalMillis)
+    }
+
+    /** Nothing is offered below the value that was measured killing healthy runs. */
+    @Test
+    fun `no offer is short enough to kill a quiet but healthy payload`() {
+        assertTrue(RunLimits.allowedStallSeconds.min() >= 120)
     }
 
     @Test
@@ -63,8 +84,15 @@ class RunLimitsTest {
     @Test
     fun `a stored value that is not offered resolves to the nearest one`() {
         assertEquals(900, RunLimits.normalizeTotalSeconds(1000))
-        assertEquals(90, RunLimits.normalizeStallSeconds(100))
+        assertEquals(180, RunLimits.normalizeStallSeconds(200))
         assertEquals(120, RunLimits.normalizeHelperSeconds(150))
+    }
+
+    /** A ninety-second limit stored by an older build does not survive as one. */
+    @Test
+    fun `a stored silence limit below the offers resolves upward to the shortest offer`() {
+        assertEquals(120, RunLimits.normalizeStallSeconds(90))
+        assertEquals(120, RunLimits.normalizeStallSeconds(0))
     }
 
     @Test

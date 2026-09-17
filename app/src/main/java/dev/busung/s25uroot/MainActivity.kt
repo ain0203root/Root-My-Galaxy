@@ -537,8 +537,19 @@ private fun RootApp(
     val scope = rememberCoroutineScope()
     var updateStatus by remember { mutableStateOf<UpdateStatus>(UpdateStatus.Idle) }
     var updateCardDismissed by remember { mutableStateOf(false) }
+    // The updater stands down while a run is in flight, and says so when it is asked.
+    //
+    // A run's delicate part is the payload's own timing, and an update check or a download beside it is
+    // network, CPU and - if it succeeds - a package install prompt, none of which the run asked for. The
+    // validated baseline this app's runtime is measured against keeps its own updater inert for exactly
+    // this reason; keeping the feature and refusing to use it during a run is the narrower version of
+    // that, and the honest one for an app that does ship update notifications.
+    val runInFlight = installState.busy
+    var updateRefusedDuringRun by remember { mutableStateOf(false) }
     val checkForUpdate: () -> Unit = {
-        if (!updateStatus.busy) {
+        if (runInFlight) {
+            updateRefusedDuringRun = true
+        } else if (!updateStatus.busy) {
             updateStatus = UpdateStatus.Checking
             scope.launch {
                 val info = AppUpdater.fetchLatestRelease()
@@ -590,7 +601,9 @@ private fun RootApp(
     }
     val startDownload: (UpdateInfo) -> Unit = { info ->
         val apkUrl = info.apkUrl
-        if (apkUrl == null) {
+        if (runInFlight) {
+            updateRefusedDuringRun = true
+        } else if (apkUrl == null) {
             AppUpdater.openReleasesPage(context)
         } else {
             updateStatus = UpdateStatus.Downloading(info, 0f)
@@ -606,7 +619,29 @@ private fun RootApp(
             }
         }
     }
-    LaunchedEffect(Unit) { checkForUpdate() }
+    // Not asked for at all while a run is in flight: an automatic check the user did not request is the
+    // last thing that should reach the network next to an exploit, and the card can wait for the run.
+    LaunchedEffect(Unit) { if (!installState.busy) checkForUpdate() }
+
+    if (updateRefusedDuringRun) {
+        AlertDialog(
+            onDismissRequest = { updateRefusedDuringRun = false },
+            icon = { Icon(Icons.Rounded.CloudOff, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.34f)
+                Text(stringResource(R.string.updater_run_in_progress_title))
+            },
+            text = { Text(stringResource(R.string.updater_run_in_progress)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    updateRefusedDuringRun = false
+                }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
+    }
 
     if (showTargetPicker) {
         TargetSelectionSheet(
@@ -946,7 +981,11 @@ private fun OverviewPage(
         }
         if (
             !updateCardDismissed &&
-            updateStatus.info != null
+            updateStatus.info != null &&
+            // While a run is in flight the card is off the screen rather than unresponsive: an offer to
+            // update is not something to weigh next to a run, and a dimmed button would only invite a tap
+            // that cannot be honoured.
+            !installState.busy
         ) {
             item {
                 UpdateCard(

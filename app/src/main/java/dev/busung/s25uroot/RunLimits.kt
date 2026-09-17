@@ -50,10 +50,26 @@ internal data class RunLimitsSettings(
  */
 internal object RunLimits {
 
-    /** What a run gets unless it is told otherwise: the values this app has been shipping. */
-    const val DEFAULT_STALL_SECONDS = 90
+    /** What a run gets unless it is told otherwise. */
     const val DEFAULT_TOTAL_SECONDS = 900
     const val DEFAULT_HELPER_SECONDS = 120
+
+    /**
+     * The shipped silence limit, at the whole-run ceiling rather than below it.
+     *
+     * It used to be ninety seconds, and that was wrong: the root helper is quiet *by design* while a
+     * scheduler-sensitive payload is alive - it prints nothing on the transport until the payload
+     * exits - so a silence-based watchdog shorter than the run itself ends healthy runs. The validated
+     * baseline this app's runtime is measured against found the same thing the expensive way and settled
+     * on fifteen minutes, which is exactly [DEFAULT_TOTAL_SECONDS]: at this value the watchdog cannot
+     * fire before the whole-run deadline that is already there, so the app stops guessing about silence
+     * and lets the payload finish.
+     *
+     * It stays a setting, because a device where a payload really has hung is a device whose owner may
+     * want a shorter leash - but the *default* is pinned by a test so it cannot quietly drift back down
+     * to a value that kills working runs.
+     */
+    const val DEFAULT_STALL_SECONDS = 900
 
     /**
      * The floor under a fresh-session profile's whole-run ceiling.
@@ -66,7 +82,9 @@ internal object RunLimits {
     const val FRESH_SESSION_FLOOR_SECONDS = 3600
 
     /** What the settings offer. Rounded to these rather than free-form, as [BootSettle] does. */
-    val allowedStallSeconds = listOf(30, 60, 90, 120, 180, 300)
+    // The offers start above the value that was found to kill healthy runs, so the menu cannot be read
+    // as an invitation to go there.
+    val allowedStallSeconds = listOf(120, 180, 300, 600, 900)
     val allowedTotalSeconds = listOf(300, 600, 900, 1200, 1800, 3600, 5400, 7200)
     val allowedHelperSeconds = listOf(30, 60, 120, 180, 300, 600)
 

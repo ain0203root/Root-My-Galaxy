@@ -374,7 +374,7 @@
     <string name="run_limits_total">Whole run</string>
     <string name="run_limits_total_note">How long one run may take before the app gives up on it. A fresh-session profile is never cut below the app\'s own hour, because those hand their pacing to the payload.</string>
     <string name="run_limits_stall">Silence before the payload is stalled</string>
-    <string name="run_limits_stall_note">A payload that prints nothing for this long is treated as stalled. Not applied to a fresh-session profile, which is silent by nature while it scans.</string>
+    <string name="run_limits_stall_note">A payload that prints nothing for this long is treated as stalled. The root helper is quiet by design while a scheduler-sensitive payload is alive, so a short limit can end a healthy run - the default sits at the whole-run ceiling, where it can never fire first. Not applied to a fresh-session profile at all.</string>
     <string name="run_limits_helper">One helper command</string>
     <string name="run_limits_helper_note">How long a single helper command may run. Internal, and rarely the reason a run stops.</string>
     <string name="run_limits_payload_note">How the exploit is attempted - how many tries, how long each gets, which way it looks for the slide - is decided by the payload profile in the feed and handed over as the variables on the run plan. Those are not settings here: they belong to the payload that does the work.</string>
@@ -481,6 +481,8 @@
     <string name="updater_available_body_short">%1$s is available</string>
     <string name="updater_button_download">Download &amp; Install</string>
     <string name="updater_downloading">Downloading…</string>
+    <string name="updater_run_in_progress_title">A run is in progress</string>
+    <string name="updater_run_in_progress">The app leaves the network, the download and the package installer alone while a run is in flight, so nothing competes with the payload\'s own timing. Check for updates again once the run has finished.</string>
     <string name="updater_download_failed">Download failed</string>
     <string name="updater_check">Check for updates</string>
     <string name="updater_checking">Checking for updates…</string>
