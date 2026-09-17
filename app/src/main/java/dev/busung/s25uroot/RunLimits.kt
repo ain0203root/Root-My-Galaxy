@@ -127,6 +127,20 @@ internal object RunLimits {
     fun defaultCeilings(freshSession: Boolean): RunCeilings =
         resolve(DEFAULT_STALL_SECONDS, DEFAULT_TOTAL_SECONDS, DEFAULT_HELPER_SECONDS, freshSession)
 
+    /** The shipped value for one of the three, which is what a reset puts back. */
+    fun defaultSeconds(limit: RunLimit): Int = when (limit) {
+        RunLimit.Total -> DEFAULT_TOTAL_SECONDS
+        RunLimit.Stall -> DEFAULT_STALL_SECONDS
+        RunLimit.Helper -> DEFAULT_HELPER_SECONDS
+    }
+
+    /** The shipped values as one object, for a reset and for the app's own starting state. */
+    fun defaults(): RunLimitsSettings = RunLimitsSettings(
+        totalSeconds = DEFAULT_TOTAL_SECONDS,
+        stallSeconds = DEFAULT_STALL_SECONDS,
+        helperSeconds = DEFAULT_HELPER_SECONDS,
+    )
+
     /** What the settings offer for one of the three. */
     fun options(limit: RunLimit): List<Int> = when (limit) {
         RunLimit.Total -> allowedTotalSeconds

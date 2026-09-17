@@ -2146,6 +2146,19 @@ private fun SettingsPage(
         RunLimitsDialog(
             limits = runLimits,
             onChanged = onRunLimitChanged,
+            // Put through the same callback the menu uses, once per ceiling: a reset is three ordinary
+            // changes, and going around the path that persists and re-reads them would be a second way
+            // for the stored values to be written.
+            onReset = {
+                RunLimit.entries.forEach { limit ->
+                    onRunLimitChanged(limit, RunLimits.defaultSeconds(limit))
+                }
+                Toast.makeText(
+                    context,
+                    context.getString(R.string.run_limits_reset_done),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            },
             onDismiss = { showRunLimitsDialog = false },
         )
     }
@@ -2486,9 +2499,13 @@ private fun SettingsPage(
                 SettingsCard(
                     icon = Icons.Rounded.Timer,
                     title = stringResource(R.string.settings_run_limits),
+                    // Short enough for the two lines beside it: the long version of this sentence wrapped
+                    // the row to nine lines, which is what a value with its own width does to the column
+                    // it is measured against.
                     description = stringResource(R.string.settings_run_limits_summary),
-                    // The two a person actually moves, since the third is internal and the helper row
-                    // would be noise on a settings line.
+                    // One ceiling per line, each with its own label: the two read as a pair, and neither
+                    // has to be guessed at from a single run-together phrase. The helper limit is not
+                    // here - it is internal, and it belongs in the dialog with the other two.
                     value = stringResource(
                         R.string.settings_run_limits_value,
                         RunLimits.label(runLimits.totalSeconds),
@@ -3371,6 +3388,7 @@ private fun RunPlanDialog(
 private fun RunLimitsDialog(
     limits: RunLimitsSettings,
     onChanged: (RunLimit, Int) -> Unit,
+    onReset: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val view = LocalView.current
@@ -3425,6 +3443,16 @@ private fun RunLimitsDialog(
                 onDismiss()
             }) {
                 Text(stringResource(R.string.action_close))
+            }
+        },
+        // In the dismiss slot, which is where the "other" action belongs: it is not the way out of the
+        // dialog, and it is the one thing here that changes more than the value just tapped.
+        dismissButton = {
+            TextButton(onClick = {
+                clickHaptic(view)
+                onReset()
+            }) {
+                Text(stringResource(R.string.run_limits_reset))
             }
         },
     )

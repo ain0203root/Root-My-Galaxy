@@ -118,6 +118,37 @@ class RunLimitsTest {
         }
     }
 
+    /**
+     * A reset is the defaults, per ceiling and as a set.
+     *
+     * The dialog resets by putting each ceiling back through the ordinary change path, so what this pins
+     * is that those three writes land exactly where an untouched install starts.
+     */
+    @Test
+    fun `resetting every ceiling puts the run back to the shipped ones`() {
+        val defaults = RunLimits.defaults()
+
+        RunLimit.entries.forEach { limit ->
+            assertEquals(
+                "$limit's default is not what a reset writes",
+                RunLimits.defaultSeconds(limit),
+                when (limit) {
+                    RunLimit.Total -> defaults.totalSeconds
+                    RunLimit.Stall -> defaults.stallSeconds
+                    RunLimit.Helper -> defaults.helperSeconds
+                },
+            )
+        }
+        assertEquals(
+            RunLimits.defaultCeilings(freshSession = false),
+            RunLimits.resolve(defaults, freshSession = false),
+        )
+        assertEquals(
+            RunLimits.defaultCeilings(freshSession = true),
+            RunLimits.resolve(defaults, freshSession = true),
+        )
+    }
+
     /** What the settings row and the plan show, so a value reads the same in both places. */
     @Test
     fun `labels say what they mean`() {
