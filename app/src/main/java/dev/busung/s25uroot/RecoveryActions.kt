@@ -4,8 +4,15 @@ import android.content.Context
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Which post-root repair action is being run. */
+/**
+ * Which post-root repair action is being run.
+ *
+ * Ordered by what each one costs, which is also the order the settings list shows them in: a module
+ * reload changes nothing that is running, a framework restart closes every app, and the reboot ends
+ * the session. The cheapest one is first because it is the one worth trying before the others.
+ */
 internal enum class RecoveryTool {
+    ReloadModules,
     RestartZygote,
     SoftReboot,
     RebootAndUnroot,
@@ -57,13 +64,23 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
                         refusalDetail,
                     )
                 }
+                // Read once for both actions that depend on it: the daemon is the same binary
+                // either way, and asking it twice would be two answers to one question.
+                val capabilities by lazy {
+                    RootRecovery.capabilities(rootShell) ?: KsudCapabilities()
+                }
                 when (tool) {
+                    RecoveryTool.ReloadModules -> RootRecovery.reloadModules(
+                        shell = rootShell,
+                        bootToken = bootToken,
+                        capabilities = capabilities,
+                    )
                     RecoveryTool.RestartZygote ->
                         RootRecovery.restartZygote(rootShell, bootToken)
                     RecoveryTool.SoftReboot -> RootRecovery.softReboot(
                         shell = rootShell,
                         bootToken = bootToken,
-                        capabilities = RootRecovery.capabilities(rootShell) ?: KsudCapabilities(),
+                        capabilities = capabilities,
                     )
                     RecoveryTool.RebootAndUnroot -> {
                         // Cleared before the reboot is asked for, and put back if the request is

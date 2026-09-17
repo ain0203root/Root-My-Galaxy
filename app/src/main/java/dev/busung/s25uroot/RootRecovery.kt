@@ -150,6 +150,29 @@ internal object RootRecovery {
     internal val softRebootAcceptPollAttempts: Int
         get() = acceptPollAttemptsFor(softRebootChildDeadlineSeconds)
 
+    /**
+     * How many iterations the reload child watches the daemon's own `late-load` for.
+     *
+     * Generous where the soft reboot's watch is short, because the two wait on different things: a
+     * soft reboot hands a userspace transition to a detached worker and returns, while a late-load
+     * *is* the work - it re-runs the stage scripts, loads `system.prop` and walks the metamodule mount
+     * script in the foreground, and a device with modules that do work in those stages is the normal
+     * case rather than a slow one.
+     */
+    internal const val RELOAD_DAEMON_WATCH_ITERATIONS = 45
+
+    /** What the reload child's checks other than its watch can cost. */
+    private const val RELOAD_CHILD_READS_SECONDS = 3.0
+
+    /** The reload child's own worst case before it answers at all, in the restart's shape. */
+    internal val reloadModulesChildDeadlineSeconds: Double
+        get() = RELOAD_DAEMON_WATCH_ITERATIONS * MODULE_SERVICE_WAIT_ITERATION_ALLOWANCE_SECONDS +
+            RELOAD_CHILD_READS_SECONDS
+
+    /** The window the reload is launched with, from [reloadModulesChildDeadlineSeconds]. */
+    internal val reloadModulesAcceptPollAttempts: Int
+        get() = acceptPollAttemptsFor(reloadModulesChildDeadlineSeconds)
+
     /** A detached child's own words, read back from the acknowledgement. */
     internal fun parseHandoff(output: String): RecoveryOutcome {
         val lines = output.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
@@ -199,6 +222,18 @@ internal object RootRecovery {
         "ksud-soft-reboot-timed-out" to
             "KernelSU's soft reboot did not return in time, so it was stopped rather than left to fire later",
         "reboot-command-missing" to "This device has no reboot command to run",
+        "daemon-has-no-late-load" to
+            "The installed KernelSU has no late-load command, so it cannot re-apply the module lifecycle",
+        "another-reload-owns-this-boot" to "A module reload this app started is already running for this boot",
+        "ksud-stage-copy-failed" to "The installed KernelSU daemon could not be staged for the reload",
+        "ksud-stage-chmod-failed" to "The staged copy of the KernelSU daemon could not be made executable",
+        "ksud-stage-hash-mismatch" to
+            "The staged copy of the KernelSU daemon did not match the installed one, so nothing was reloaded",
+        "ksud-late-load-timed-out" to
+            "KernelSU's late-load did not return in time, so it was stopped rather than left running",
+        "modules-still-not-mounted" to
+            "The modules are still not mounted after the reload, so re-applying the lifecycle did not " +
+                "change anything",
     )
 
     /** How long a child waits for the app to read its handoff before giving up on being heard. */
@@ -570,6 +605,158 @@ internal object RootRecovery {
         # reports as scheduled. The cleanup below still runs either way.
         rmg_handoff_consumed || true
         log "KernelSU native soft reboot accepted"
+    """.trimIndent() + "\n"
+
+    /**
+     * Re-applies the module lifecycle without touching the kernel module, the daemon or the framework.
+     *
+     * This is the one action that costs the user nothing: no app closes, the screen does not change,
+     * and the daemon that was already verified is asked again rather than replaced. It exists because
+     * mounting and running are different things - a module whose mounts are in place but whose
+     * `late-load` stage has not run is not doing anything yet, and re-running those stages is the
+     * cheap way to find out whether that was the problem before spending a framework restart on it.
+     *
+     * Safe to ask for because of what the daemon does on a second call: a late-load into a kernel that
+     * already carries KernelSU skips the kernel module entirely - it says so and carries on - and goes
+     * straight to the parts this reload is for. Nothing here can load a second module, and nothing here
+     * stages a daemon other than the one already installed.
+     */
+    suspend fun reloadModules(
+        shell: (String) -> ShizukuController.ShellResult,
+        bootToken: String,
+        capabilities: KsudCapabilities,
+    ): RecoveryOutcome {
+        if (!capabilities.lateLoad) {
+            return RecoveryOutcome(
+                accepted = false,
+                detail = "The installed KernelSU has no late-load command",
+            )
+        }
+        return runDetached(
+            shell = shell,
+            scriptPath = "/data/local/tmp/rmg-reload-modules.sh",
+            logPath = "/data/local/tmp/rmg-reload-modules.log",
+            acceptedPath = "/data/local/tmp/.rmg-reload-modules-accepted",
+            script = reloadModulesScript(bootToken, "/data/local/tmp/.rmg-reload-modules-accepted"),
+            acceptPollAttempts = reloadModulesAcceptPollAttempts,
+        )
+    }
+
+    /**
+     * The reload's own side of the contract: root, this boot, an installed daemon that has the
+     * command, and the module mounts read back afterwards.
+     *
+     * The stage file is written before the daemon is asked for anything. A late-load consumes
+     * `/data/local/tmp/.ksud-stage` - it copies the daemon out of it before the load changes this
+     * process's security context - and refuses to start without one, so a reload that skipped this
+     * would fail in the daemon's words for a reason that has nothing to do with the modules. The copy
+     * is the *installed* daemon and is compared byte for byte with it, which is what keeps this action
+     * from ever introducing a second build of the daemon the verified load installed.
+     *
+     * The mounts are read before and after rather than only after. A count that is short afterwards is
+     * only this action's failure if the reload did not improve it: a device whose metamodule mounts
+     * cannot be applied at all has a short count before the reload too, and refusing there would report
+     * the phone's own limit as a failed action - while a count that *fell* is something this action
+     * did, and it has to say so.
+     */
+    internal fun reloadModulesScript(bootToken: String, acceptedPath: String): String = """
+        #!/system/bin/sh
+        EXPECTED_BOOT=${shellQuote(bootToken)}
+        ACCEPTED=${shellQuote(acceptedPath)}
+        ACCEPTED_VALUE='$ACCEPTED_MARKER'
+        LOCK='/data/local/tmp/.rmg-reload-modules-owner'
+        KSUD_OUT='/data/local/tmp/rmg-reload-modules-ksud.log'
+        KSUD=$KSUD_PATH
+        STAGE='/data/local/tmp/.ksud-stage'
+
+        log() { echo "[reload] ${'$'}(date +%s 2>/dev/null) ${'$'}*"; }
+        current_boot() { cat /proc/sys/kernel/random/boot_id 2>/dev/null; }
+        publish_handoff() {
+            printf '%s\n' "${'$'}1" > "${'$'}ACCEPTED" || exit 79
+            chmod 0666 "${'$'}ACCEPTED" 2>/dev/null || true
+        }
+        reject_handoff() {
+            publish_handoff "error:${'$'}1"
+            rm -f -- "${'$'}0"
+            exit 0
+        }
+        ${handoffConsumedSnippet()}
+
+        [ "${'$'}(id -u 2>/dev/null)" = "0" ] || reject_handoff 'not-root'
+        [ "${'$'}(current_boot)" = "${'$'}EXPECTED_BOOT" ] || reject_handoff 'boot-changed'
+        [ -x "${'$'}KSUD" ] || reject_handoff 'installed-ksud-missing'
+        # Checked here as well as app-side: this is where the command actually has to run, and a
+        # daemon that cannot do it should say so itself rather than fail with a usage message.
+        "${'$'}KSUD" --help 2>&1 | grep -q late-load || reject_handoff 'daemon-has-no-late-load'
+
+        if ! mkdir "${'$'}LOCK" 2>/dev/null; then
+            LOCK_BOOT="${'$'}(cat "${'$'}LOCK/boot_id" 2>/dev/null)"
+            LOCK_PID="${'$'}(cat "${'$'}LOCK/pid" 2>/dev/null)"
+            if [ "${'$'}LOCK_BOOT" = "${'$'}EXPECTED_BOOT" ] && [ -n "${'$'}LOCK_PID" ] && \
+               kill -0 "${'$'}LOCK_PID" 2>/dev/null; then
+                reject_handoff 'another-reload-owns-this-boot'
+            fi
+            rm -rf -- "${'$'}LOCK" 2>/dev/null
+            mkdir "${'$'}LOCK" 2>/dev/null || reject_handoff 'lock-failed'
+        fi
+        printf '%s\n' "${'$'}EXPECTED_BOOT" > "${'$'}LOCK/boot_id" 2>/dev/null
+        printf '%s\n' "${'$'}${'$'}" > "${'$'}LOCK/pid" 2>/dev/null
+        cleanup() { rm -rf -- "${'$'}LOCK" 2>/dev/null; }
+        trap cleanup EXIT INT TERM
+
+        rm -f -- "${'$'}STAGE"
+        /system/bin/cp "${'$'}KSUD" "${'$'}STAGE" || reject_handoff 'ksud-stage-copy-failed'
+        chmod 0755 "${'$'}STAGE" || reject_handoff 'ksud-stage-chmod-failed'
+        INSTALLED_HASH="${'$'}(sha256sum "${'$'}KSUD" 2>/dev/null)"
+        INSTALLED_HASH="${'$'}{INSTALLED_HASH%% *}"
+        STAGE_HASH="${'$'}(sha256sum "${'$'}STAGE" 2>/dev/null)"
+        STAGE_HASH="${'$'}{STAGE_HASH%% *}"
+        [ -n "${'$'}INSTALLED_HASH" ] && [ "${'$'}INSTALLED_HASH" = "${'$'}STAGE_HASH" ] || reject_handoff 'ksud-stage-hash-mismatch'
+
+        ${KernelSuReadiness.variables()}
+        rmg_got_before=${'$'}rmg_got
+
+        # The daemon's own account of what it did is what a failure has to show: `late-load` prints
+        # each stage it walks, and a bare exit code sends the user looking for a cause it already wrote.
+        : > "${'$'}KSUD_OUT" 2>/dev/null || true
+        chmod 0666 "${'$'}KSUD_OUT" 2>/dev/null || true
+        ksud_words() { tail -n 1 "${'$'}KSUD_OUT" 2>/dev/null | tr -d '\"' | cut -c 1-160; }
+
+        log "re-applying the module lifecycle through the installed daemon"
+        "${'$'}KSUD" late-load >>"${'$'}KSUD_OUT" 2>&1 &
+        KSUD_PID=${'$'}!
+        n=0
+        while kill -0 "${'$'}KSUD_PID" 2>/dev/null && [ "${'$'}n" -lt $RELOAD_DAEMON_WATCH_ITERATIONS ]; do
+            n=${'$'}((n + 1))
+            sleep 1
+        done
+        if kill -0 "${'$'}KSUD_PID" 2>/dev/null; then
+            kill "${'$'}KSUD_PID" 2>/dev/null
+            wait "${'$'}KSUD_PID" 2>/dev/null
+            reject_handoff "ksud-late-load-timed-out ${'$'}(ksud_words)"
+        fi
+        wait "${'$'}KSUD_PID"
+        RC=${'$'}?
+        [ "${'$'}RC" = "0" ] || reject_handoff "ksud-late-load-failed-rc-${'$'}RC ${'$'}(ksud_words)"
+
+        # The daemon's exit code says its stages finished, not that anything is mounted, and the mounts
+        # are what this action exists to re-apply - so they are read back here, in the same reading the
+        # restart refuses on, and a count that stayed short is reported with its numbers.
+        ${KernelSuReadiness.variables()}
+        if [ "${'$'}rmg_ns" != unavailable ] && [ "${'$'}rmg_got" -lt "${'$'}rmg_want" ] && \
+           [ "${'$'}rmg_got" -le "${'$'}rmg_got_before" ]; then
+            # The counts ride along after the colon, which is the part [refusalDetail] keeps as the
+            # child wrote it: the sentence beside them is the app's, and which numbers decided it is
+            # the child's.
+            reject_handoff "modules-still-not-mounted:want=${'$'}{rmg_want} got=${'$'}{rmg_got} before=${'$'}{rmg_got_before}"
+        fi
+
+        publish_handoff "${'$'}ACCEPTED_VALUE"
+        # Nothing below changes the system, so a reload nobody read is only a reload this app does not
+        # get to report as scheduled - which is why it does not abort here as the two restarting
+        # actions do.
+        rmg_handoff_consumed || true
+        log "module lifecycle re-applied"
     """.trimIndent() + "\n"
 
     /** `sync` first, so what the app persisted before the reboot is on disk when it happens. */

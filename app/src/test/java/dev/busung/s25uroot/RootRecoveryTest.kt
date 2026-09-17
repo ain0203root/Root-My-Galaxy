@@ -393,9 +393,113 @@ class RootRecoveryTest {
         assertTrue(script.contains("boot-changed"))
     }
 
+    // --- the module reload -------------------------------------------------------------------------
+
+    @Test
+    fun `the reload re-applies the module lifecycle through the installed daemon`() {
+        val script = RootRecovery.reloadModulesScript(BOOT, ACCEPTED)
+
+        assertTrue(script.contains("\"\$KSUD\" late-load"))
+        assertTrue(script.contains("KSUD=/data/adb/ksud"))
+        assertTrue(script.contains("[ -x \"\$KSUD\" ] || reject_handoff 'installed-ksud-missing'"))
+        // Nothing is loaded into the kernel from here and no second daemon is introduced: the module
+        // is already in the kernel, and the daemon is the one the verified load installed. Loading a
+        // module and staging a daemon are the soft reboot's business, not this action's.
+        assertFalse(script.contains("insmod"))
+        assertFalse(script.contains("allow_shell"))
+        assertFalse(script.contains("/data/local/tmp/ksud"))
+    }
+
+    @Test
+    fun `the reload stages the installed daemon byte for byte before it asks for anything`() {
+        val script = RootRecovery.reloadModulesScript(BOOT, ACCEPTED)
+
+        val staged = script.indexOf("/system/bin/cp \"\$KSUD\" \"\$STAGE\"")
+        val run = script.indexOf("\"\$KSUD\" late-load")
+        assertTrue(staged > 0 && run > staged)
+        // The daemon consumes the stage file, so a reload without one fails inside the daemon for a
+        // reason that has nothing to do with the modules.
+        assertTrue(script.contains("STAGE='/data/local/tmp/.ksud-stage'"))
+        // A copy that does not match the installed daemon is refused rather than run.
+        assertTrue(script.contains("ksud-stage-hash-mismatch"))
+    }
+
+    @Test
+    fun `the reload refuses a daemon that cannot do it`() {
+        val script = RootRecovery.reloadModulesScript(BOOT, ACCEPTED)
+
+        assertTrue(script.contains("grep -q late-load || reject_handoff 'daemon-has-no-late-load'"))
+    }
+
+    @Test
+    fun `the reload reports a short mount count only when it did not improve it`() {
+        val script = RootRecovery.reloadModulesScript(BOOT, ACCEPTED)
+
+        // Read before and after: a count that was already short is the phone's own limit and not this
+        // action's failure, while a count that fell is something this action did.
+        assertTrue(script.contains("rmg_got_before=\$rmg_got"))
+        assertTrue(script.contains("[ \"\$rmg_got\" -le \"\$rmg_got_before\" ]"))
+        assertTrue(script.contains("modules-still-not-mounted:want=\${rmg_want} got=\${rmg_got}"))
+        // And the reading is the shared one, so "what should be mounted" is one rule.
+        assertTrue(script.contains("RMG_MODULE_MOUNTS").not())
+        assertTrue(script.contains("rmg_want=0"))
+    }
+
+    @Test
+    fun `a short mount count is explained with the numbers it was decided on`() {
+        val outcome = RootRecovery.parseHandoff(
+            "error:modules-still-not-mounted:want=2 got=1 before=1",
+        )
+
+        assertFalse(outcome.accepted)
+        assertTrue(outcome.detail.startsWith("The modules are still not mounted"))
+        assertTrue(outcome.detail.contains("want=2 got=1 before=1"))
+    }
+
+    @Test
+    fun `only one reload owns a kernel boot`() {
+        val script = RootRecovery.reloadModulesScript(BOOT, ACCEPTED)
+
+        assertTrue(script.contains("another-reload-owns-this-boot"))
+        assertTrue(script.contains("LOCK='/data/local/tmp/.rmg-reload-modules-owner'"))
+        // Its own lock: a reload and a soft reboot are different actions and must not exclude each
+        // other by sharing one owner file.
+        assertFalse(script.contains(".rmg-soft-reboot-owner"))
+    }
+
+    @Test
+    fun `the reload window outlasts the child's own watch`() {
+        // The rule the restart's window was fixed for, applied to the action with the longest wait:
+        // the window is longer than the child's worst case, and an iteration of the app's poll costs
+        // at least ACCEPT_POLL_INTERVAL_SECONDS.
+        val childDeadline = RootRecovery.reloadModulesChildDeadlineSeconds
+
+        assertTrue(childDeadline >= RootRecovery.RELOAD_DAEMON_WATCH_ITERATIONS.toDouble())
+        assertTrue(
+            RootRecovery.reloadModulesAcceptPollAttempts.toDouble() *
+                RootRecovery.ACCEPT_POLL_INTERVAL_SECONDS > childDeadline,
+        )
+    }
+
+    @Test
+    fun `the actions are listed cheapest first`() {
+        // The order is what the settings screen shows, and it is the order worth trying them in: a
+        // reload closes nothing, a framework restart closes every app, and the reboot ends the session.
+        assertEquals(
+            listOf(
+                RecoveryTool.ReloadModules,
+                RecoveryTool.RestartZygote,
+                RecoveryTool.SoftReboot,
+                RecoveryTool.RebootAndUnroot,
+            ),
+            RecoveryTool.entries.toList(),
+        )
+    }
+
     @Test
     fun `every action is scoped to the kernel boot it was asked for`() {
         val scripts = listOf(
+            RootRecovery.reloadModulesScript(BOOT, ACCEPTED),
             RootRecovery.restartZygoteScript(BOOT, ACCEPTED),
             RootRecovery.softRebootScript(BOOT, ACCEPTED),
             RootRecovery.rebootScript(BOOT, ACCEPTED),

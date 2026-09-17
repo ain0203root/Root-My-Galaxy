@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Shield
 import androidx.compose.material.icons.rounded.Warning
@@ -267,36 +268,42 @@ internal fun RecoveryActionButton(
 }
 
 private fun RecoveryTool.icon(): ImageVector = when (this) {
+    RecoveryTool.ReloadModules -> Icons.Rounded.Refresh
     RecoveryTool.RestartZygote -> Icons.Rounded.RestartAlt
     RecoveryTool.SoftReboot -> Icons.Rounded.Memory
     RecoveryTool.RebootAndUnroot -> Icons.Rounded.Warning
 }
 
 private fun RecoveryTool.titleRes(): Int = when (this) {
+    RecoveryTool.ReloadModules -> R.string.recovery_reload_modules
     RecoveryTool.RestartZygote -> R.string.recovery_restart_zygote
     RecoveryTool.SoftReboot -> R.string.recovery_soft_reboot
     RecoveryTool.RebootAndUnroot -> R.string.recovery_reboot_unroot
 }
 
 private fun RecoveryTool.summaryRes(): Int = when (this) {
+    RecoveryTool.ReloadModules -> R.string.recovery_reload_modules_summary
     RecoveryTool.RestartZygote -> R.string.recovery_restart_zygote_summary
     RecoveryTool.SoftReboot -> R.string.recovery_soft_reboot_summary
     RecoveryTool.RebootAndUnroot -> R.string.recovery_reboot_unroot_summary
 }
 
 private fun RecoveryTool.confirmRes(): Int = when (this) {
+    RecoveryTool.ReloadModules -> R.string.recovery_confirm_reload_modules
     RecoveryTool.RestartZygote -> R.string.recovery_confirm_restart_zygote
     RecoveryTool.SoftReboot -> R.string.recovery_confirm_soft_reboot
     RecoveryTool.RebootAndUnroot -> R.string.recovery_confirm_reboot_unroot
 }
 
 private fun RecoveryTool.actionRes(): Int = when (this) {
+    RecoveryTool.ReloadModules -> R.string.recovery_action_reload_modules
     RecoveryTool.RestartZygote -> R.string.recovery_action_restart_zygote
     RecoveryTool.SoftReboot -> R.string.recovery_action_soft_reboot
     RecoveryTool.RebootAndUnroot -> R.string.recovery_action_reboot_unroot
 }
 
 private fun RecoveryTool.acceptedRes(): Int = when (this) {
+    RecoveryTool.ReloadModules -> R.string.recovery_modules_reloaded
     RecoveryTool.RebootAndUnroot -> R.string.recovery_reboot_scheduled
     else -> R.string.recovery_scheduled
 }

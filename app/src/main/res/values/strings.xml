@@ -430,6 +430,11 @@
     <string name="recovery_confirm_restart_zygote">Restart the Android runtime now? Everything that is open will close, and the screen will go back to the lock screen.</string>
     <string name="recovery_confirm_soft_reboot">Let KernelSU restart the userspace now? Everything that is open will close, and the modules are walked through their normal order.</string>
     <string name="recovery_confirm_reboot_unroot">Turn root on boot off and restart the phone? Root is loaded per boot, so it will be gone when the phone comes back and you will have to root it again.</string>
+    <string name="recovery_confirm_reload_modules">Re-apply the KernelSU module lifecycle now? Stage scripts, system.prop and the module mounts are run again. Nothing that is open is closed.</string>
+    <string name="recovery_action_reload_modules">Reload modules</string>
+    <string name="recovery_reload_modules">Reload modules</string>
+    <string name="recovery_reload_modules_summary">Run KernelSU\'s own module lifecycle again through the installed daemon, without restarting anything: for a module whose mounts are in place but whose stage scripts have not run</string>
+    <string name="recovery_modules_reloaded">Module lifecycle re-applied. Nothing was restarted.</string>
     <string name="recovery_action_restart_zygote">Restart Zygote</string>
     <string name="recovery_action_soft_reboot">Soft reboot</string>
     <string name="recovery_action_reboot_unroot">Reboot and unroot</string>
