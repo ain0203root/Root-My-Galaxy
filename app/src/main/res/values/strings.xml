@@ -41,12 +41,13 @@
     <string name="settings_payload_mode_summary_offline">Use the last payload that completed a verified run, with no network at all</string>
     <string name="settings_cached_payload">Cached payload</string>
     <string name="settings_cached_payload_none">Nothing cached yet</string>
-    <string name="settings_cached_payload_summary">What an offline run may use. Written only after a run installs KernelSU successfully.</string>
+    <string name="settings_cached_payload_summary">Verified files an offline run may use</string>
     <string name="cached_payload_title">Cached payload</string>
+    <string name="cached_payload_device">Device</string>
     <string name="cached_payload_profile">Target</string>
     <string name="cached_payload_exploit_sha">Exploit SHA-256</string>
     <string name="cached_payload_kernelsu_sha">KernelSU SHA-256</string>
-    <string name="cached_payload_note">Every digest is checked again before a run uses it, so what runs is what was verified.</string>
+    <string name="cached_payload_note">Written only after a run installs KernelSU successfully, and every digest is checked again before a run uses it, so what runs is what was verified.</string>
     <string name="cached_payload_no_digest">Not stated by the feed</string>
     <string name="cached_payload_forget">Forget it</string>
     <string name="status_loading_cached">Loading the cached payload</string>

@@ -2385,7 +2385,14 @@ private fun SettingsPage(
                     icon = Icons.Rounded.CloudOff,
                     title = stringResource(R.string.settings_cached_payload),
                     description = stringResource(R.string.settings_cached_payload_summary),
-                    value = cached?.profileId ?: stringResource(R.string.settings_cached_payload_none),
+                    // The profile's *name*, not its id. An id like
+                    // "galaxy-s25-series-2026-06-07" is an identifier - it has no spaces to wrap at,
+                    // so it took both lines the value is allowed and left the description a column
+                    // two words wide. The name says which device this is cached for, and the id is
+                    // still stated in full in the dialog, which is where a precise string belongs.
+                    value = cached?.displayName?.takeIf { it.isNotBlank() }
+                        ?: cached?.profileId
+                        ?: stringResource(R.string.settings_cached_payload_none),
                     position = SettingsCardPosition.Middle,
                     onClick = {
                         clickHaptic(view)
@@ -3208,6 +3215,10 @@ private fun CachedPayloadDialog(
                 if (cached == null) {
                     Text(stringResource(R.string.settings_cached_payload_none))
                 } else {
+                    // The name first and the id under it, which together are what the settings row
+                    // used to carry on one line of value - and the id is here in full, in the place
+                    // where a long precise string costs nothing.
+                    RunPlanRow(stringResource(R.string.cached_payload_device), cached.displayName)
                     RunPlanRow(stringResource(R.string.cached_payload_profile), cached.profileId)
                     RunPlanRow(
                         stringResource(R.string.cached_payload_exploit_sha),
