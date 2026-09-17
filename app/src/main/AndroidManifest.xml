@@ -25,6 +25,14 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
 
+    <!--
+        KernelSU-Next's spoofed manager build rewrites its package to three random words, so no name
+        in this list can cover it and the app has to look for one by what it carries instead. Needs
+        this app to see packages it has not asked about by name; it is a sideloaded root tool, so
+        nothing here is subject to a store's policy on it.
+    -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+
     <queries>
         <package android:name="me.weishu.kernelsu" />
         <!--

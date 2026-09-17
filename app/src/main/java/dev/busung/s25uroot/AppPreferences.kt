@@ -39,6 +39,7 @@ object AppPreferences {
     private const val LOAD_KERNEL_SU = "load_kernel_su"
     private const val KERNEL_SU_FLAVOR = "kernel_su_flavor"
     private const val MANAGER_VERSION_PREFIX = "manager_version_"
+    private const val MANAGER_PACKAGE_PREFIX = "manager_package_"
     private const val LOADED_FLAVOR = "loaded_flavor"
     private const val LOADED_FLAVOR_BOOT = "loaded_flavor_boot"
     private const val SHIZUKU_MODE = "shizuku_mode"
@@ -218,6 +219,25 @@ object AppPreferences {
         val editor = prefs(context).edit()
         val key = MANAGER_VERSION_PREFIX + flavor.id
         if (version.isNullOrBlank()) editor.remove(key) else editor.putString(key, version.trim())
+        editor.apply()
+    }
+
+    /**
+     * The package the app should open for [flavor], when the user named one.
+     *
+     * Stored because a manager's package cannot always be known ahead of time: KernelSU-Next's
+     * spoofed build rewrites its own to three random words on every release, so the only thing that
+     * can address it is a choice made on the phone that has it installed.
+     */
+    fun managerPackage(context: Context, flavor: KernelSuFlavor): String? =
+        prefs(context).getString(MANAGER_PACKAGE_PREFIX + flavor.id, null)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+
+    fun setManagerPackage(context: Context, flavor: KernelSuFlavor, packageName: String?) {
+        val editor = prefs(context).edit()
+        val key = MANAGER_PACKAGE_PREFIX + flavor.id
+        if (packageName.isNullOrBlank()) editor.remove(key) else editor.putString(key, packageName.trim())
         editor.apply()
     }
 

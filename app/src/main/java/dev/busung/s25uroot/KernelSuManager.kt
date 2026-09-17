@@ -2,36 +2,118 @@ package dev.busung.s25uroot
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.net.Uri
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
+/** A manager this app found on the phone, whether or not its package is the published one. */
+internal data class InstalledManager(
+    val packageName: String,
+    val label: String,
+    /** The flavour its package name or its label claims, or null when neither says. */
+    val flavor: KernelSuFlavor?,
+    /** Whether its package is not the one its project publishes. */
+    val spoofed: Boolean,
+)
+
+/** What a package name and an app label say about which manager this is. */
+internal data class ManagerIdentity(
+    val flavor: KernelSuFlavor?,
+    val spoofed: Boolean,
+)
+
 /**
- * The KernelSU manager app: what the app offers to install, and opening what is already there.
+ * Which project an installed manager belongs to, from the two things it carries.
+ *
+ * The package name is authoritative when it is one either project publishes. When it is not, the
+ * label is the only remaining signal, and a label that says neither leaves the flavour unknown rather
+ * than guessed: a package that carries a KernelSU daemon is still a manager worth offering, and
+ * attributing it to the wrong project would put it in the wrong flavour's row.
+ *
+ * Pure, because the case this exists for is the odd one. KernelSU-Next's spoofed manager build
+ * rewrites its package to three random words every time it is built, so that name can never be a
+ * constant in this app and the label is what is left.
+ */
+internal fun identifyManager(packageName: String, label: String): ManagerIdentity {
+    val published = KernelSuFlavor.entries.firstOrNull {
+        it.managerPackage.equals(packageName.trim(), ignoreCase = true)
+    }
+    if (published != null) return ManagerIdentity(published, spoofed = false)
+
+    val words = label.lowercase().replace('-', ' ').replace('_', ' ')
+    return when {
+        "next" in words -> ManagerIdentity(KernelSuFlavor.KernelSuNext, spoofed = true)
+        "kernelsu" in words || "kernel su" in words -> ManagerIdentity(KernelSuFlavor.KernelSu, spoofed = true)
+        else -> ManagerIdentity(null, spoofed = true)
+    }
+}
+
+/**
+ * The KernelSU manager app: which one is on the phone, what the app offers to install, and opening it.
  *
  * The manager is not part of the payload. It is a plain app that talks to the loaded module over
  * KernelSU's socket, so it can be any version and can be replaced at any time without touching the
- * kernel - which is exactly why nothing here refuses a version it did not choose. The app offers one
- * release unprompted and otherwise does what the user asks, including asking upstream for a version
- * it has never heard of.
+ * kernel - which is why nothing here refuses a version it did not choose, and why the apk is found
+ * by what it carries rather than by a name this app would have to know in advance.
  */
 internal object KernelSuManager {
-    /** Whether [flavor]'s manager is installed. */
+    /** The manager the app will open for [flavor], or null when none is installed. */
+    fun installedFor(context: Context, flavor: KernelSuFlavor): InstalledManager? {
+        // A package the user named wins, because that is the only way a build whose name changes on
+        // every release can be addressed at all.
+        AppPreferences.managerPackage(context, flavor)?.let { named ->
+            if (isLaunchable(context, named)) {
+                return InstalledManager(named, labelOf(context, named), flavor, spoofed = true)
+            }
+        }
+        if (isLaunchable(context, flavor.managerPackage)) {
+            return InstalledManager(
+                packageName = flavor.managerPackage,
+                label = labelOf(context, flavor.managerPackage),
+                flavor = flavor,
+                spoofed = false,
+            )
+        }
+        // Nothing under a published name, so look for one under any name. A plain build is preferred
+        // over a spoofed one only when both are present, which is a tie nobody has.
+        val found = installedManagers(context).filter { it.flavor == flavor }
+        return found.firstOrNull { !it.spoofed } ?: found.firstOrNull()
+    }
+
     fun isInstalled(context: Context, flavor: KernelSuFlavor): Boolean =
-        runCatching {
-            context.packageManager.getLaunchIntentForPackage(flavor.managerPackage) != null
-        }.getOrDefault(false)
+        installedFor(context, flavor) != null
+
+    /** The package the app will open for [flavor], installed or not. */
+    fun packageFor(context: Context, flavor: KernelSuFlavor): String =
+        installedFor(context, flavor)?.packageName ?: flavor.managerPackage
 
     /**
-     * Which flavour's manager is on the phone, when exactly one of them is.
+     * Every installed app that carries a KernelSU daemon.
      *
-     * An observation rather than a decision: the two managers can both be installed, and a phone can
-     * have a manager while the other flavour is the one loaded. Only one answer is useful here, so
-     * two managers answer null and the caller says nothing rather than guessing.
+     * The daemon is the marker: a manager ships `libksud.so`, because the manager is what runs `ksud`
+     * on the phone. It is what makes a spoofed build findable at all, since its package name is
+     * rewritten to something different every time it is released.
+     *
+     * Needs `QUERY_ALL_PACKAGES` to see an app that is not already named in the manifest's `queries`,
+     * which no fixed list can do for a name that changes per build.
      */
-    fun installedFlavor(context: Context): KernelSuFlavor? =
-        KernelSuFlavor.entries.singleOrNull { isInstalled(context, it) }
+    fun installedManagers(context: Context): List<InstalledManager> {
+        val manager = context.packageManager
+        return runCatching {
+            manager.getInstalledPackages(0).mapNotNull { installed ->
+                val app = installed.applicationInfo ?: return@mapNotNull null
+                if (app.packageName == context.packageName) return@mapNotNull null
+                if (!carriesDaemon(app)) return@mapNotNull null
+                if (!isLaunchable(context, app.packageName)) return@mapNotNull null
+                val label = labelOf(context, app.packageName)
+                val identity = identifyManager(app.packageName, label)
+                InstalledManager(app.packageName, label, identity.flavor, identity.spoofed)
+            }.sortedWith(compareBy({ it.spoofed }, { it.label }))
+        }.getOrDefault(emptyList())
+    }
 
     /**
      * The release the app offers for [flavor]: the version the user named, or the flavour's default.
@@ -53,12 +135,15 @@ internal object KernelSuManager {
      * for.
      */
     fun open(context: Context, flavor: KernelSuFlavor, onMessage: (String) -> Unit) {
-        val launch = runCatching {
-            context.packageManager.getLaunchIntentForPackage(flavor.managerPackage)
-        }.getOrNull()
-        if (launch != null) {
-            context.startActivity(launch)
-            return
+        val installed = installedFor(context, flavor)
+        if (installed != null) {
+            val launch = runCatching {
+                context.packageManager.getLaunchIntentForPackage(installed.packageName)
+            }.getOrNull()
+            if (launch != null) {
+                context.startActivity(launch)
+                return
+            }
         }
         val named = AppPreferences.managerVersion(context, flavor)
         if (named == null || named == flavor.defaultManagerVersion) {
@@ -83,10 +168,32 @@ internal object KernelSuManager {
      * carries a build number (`KernelSU_v3.2.5_32525-release.apk`) that the version does not.
      */
     fun resolve(context: Context, flavor: KernelSuFlavor, version: String): ManagerRelease? {
-        val url = managerReleaseApiUrl(flavor, version)
-        val body = runCatching { downloadText(url) }.getOrNull() ?: return null
+        val body = runCatching { downloadText(managerReleaseApiUrl(flavor, version)) }.getOrNull()
+            ?: return null
         val apk = managerApkInRelease(body) ?: return null
         return ManagerRelease(flavor = flavor, version = version, url = apk)
+    }
+
+    /** Whether a package is installed and has something to open. */
+    private fun isLaunchable(context: Context, packageName: String): Boolean =
+        runCatching {
+            context.packageManager.getLaunchIntentForPackage(packageName) != null
+        }.getOrDefault(false)
+
+    private fun labelOf(context: Context, packageName: String): String = runCatching {
+        val info = context.packageManager.getApplicationInfo(packageName, 0)
+        context.packageManager.getApplicationLabel(info).toString()
+    }.getOrDefault(packageName)
+
+    /**
+     * Whether an app carries the KernelSU daemon.
+     *
+     * Read from the app's own native library directory, which is where an installed manager's
+     * `libksud.so` lands, and which covers both projects: their managers embed `ksud` the same way.
+     */
+    private fun carriesDaemon(info: ApplicationInfo): Boolean {
+        val directory = info.nativeLibraryDir ?: return false
+        return runCatching { File(directory, DAEMON_LIBRARY).isFile }.getOrDefault(false)
     }
 
     private fun view(context: Context, url: String) {
@@ -128,6 +235,9 @@ internal object KernelSuManager {
 
     private fun managerReleaseApiUrl(flavor: KernelSuFlavor, version: String): String =
         "https://api.github.com/repos/${flavor.repository}/releases/tags/v$version"
+
+    /** The name every manager's embedded daemon has once it is installed. */
+    private const val DAEMON_LIBRARY = "libksud.so"
 
     /** A releases answer is a few KB; the ceiling only bounds memory on a wrong URL. */
     private const val MAX_RELEASE_BYTES = 1024 * 1024
