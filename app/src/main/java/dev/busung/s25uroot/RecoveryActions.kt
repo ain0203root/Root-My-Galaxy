@@ -136,11 +136,18 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
                     RootRecovery.capabilities(rootShell) ?: KsudCapabilities()
                 }
                 when (tool) {
-                    RecoveryTool.ReloadModules -> RootRecovery.reloadModules(
-                        shell = rootShell,
-                        bootToken = bootToken,
-                        capabilities = capabilities,
-                    )
+                    // A reload is the same shape of change as a load, and the manager that was open
+                    // while it happened is showing the state from before it: this is the screen
+                    // someone reaches for when the manager says the modules are not there.
+                    RecoveryTool.ReloadModules -> {
+                        val reload = RootRecovery.reloadModules(
+                            shell = rootShell,
+                            bootToken = bootToken,
+                            capabilities = capabilities,
+                        )
+                        if (reload.accepted) KernelSuManagerRefresh.afterLoad(context)
+                        reload
+                    }
                     RecoveryTool.RestartZygote ->
                         RootRecovery.restartZygote(rootShell, bootToken)
                     RecoveryTool.SoftReboot -> RootRecovery.softReboot(

@@ -1351,6 +1351,13 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         // later run of the other flavour refuse with a restart instead of failing inside the loader.
         AppPreferences.setLoadedFlavor(app, payloads.profile.flavor, AutoRootSupport.currentBootToken())
         storeInstallReceipt()
+        // The load is done, and a manager that was open while it happened is still showing what it read
+        // before it. Stopping it is what makes the next open report the module this run just loaded,
+        // rather than the "KernelSU not installed" its own stale read produces.
+        val refreshed = KernelSuManagerRefresh.afterLoad(app, flavor = payloads.profile.flavor)
+        refreshed.forEach { packageName ->
+            appendLog(app.getString(R.string.log_manager_refreshed, packageName))
+        }
     }
 
     private fun detectInstalled(): Boolean {
