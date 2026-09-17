@@ -112,11 +112,12 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
                         refusalDetail,
                     )
                 }
-                AppPreferences.setBootRootMode(context, false)
-                RootRecovery.rebootAndUnroot(shell, bootToken, requiresRoot = false)
-                    .also { result ->
-                        if (!result.accepted) AppPreferences.setBootRootMode(context, true)
-                    }
+                rebootAndUnrootKeepingTheSetting(
+                    context = context,
+                    shell = shell,
+                    bootToken = bootToken,
+                    requiresRoot = false,
+                )
             }
             else -> {
                 val rootShell: (String) -> ShizukuController.ShellResult = { command ->
@@ -143,18 +144,40 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
                         bootToken = bootToken,
                         capabilities = capabilities,
                     )
-                    RecoveryTool.RebootAndUnroot -> {
-                        // Cleared before the reboot is asked for, and put back if the request is
-                        // refused: a reboot that happened first would come back rooted.
-                        AppPreferences.setBootRootMode(context, false)
-                        RootRecovery.rebootAndUnroot(rootShell, bootToken).also { result ->
-                            if (!result.accepted) AppPreferences.setBootRootMode(context, true)
-                        }
-                    }
+                    RecoveryTool.RebootAndUnroot -> rebootAndUnrootKeepingTheSetting(
+                        context = context,
+                        shell = rootShell,
+                        bootToken = bootToken,
+                        requiresRoot = true,
+                    )
                 }
             }
         }
     }
+
+/**
+ * Reboots with root on boot cleared, and puts the setting back if the reboot was refused.
+ *
+ * The previous value is read before anything is written, and that is the whole point of this being a
+ * function rather than two lines at each call site: the setting is cleared so a reboot that happened
+ * first cannot come back rooted, not so the user's choice can be thrown away. An earlier version
+ * restored `true` unconditionally, which meant a phone whose root on boot was off had it switched back
+ * on by a *refused* reboot - a refusal being the likely outcome on the device that reaches for this
+ * action, since it needs a root shell that a failed run usually does not have. The next boot then
+ * rooted a phone nobody had asked to root, with nothing on screen to say why.
+ */
+private suspend fun rebootAndUnrootKeepingTheSetting(
+    context: Context,
+    shell: (String) -> ShizukuController.ShellResult,
+    bootToken: String,
+    requiresRoot: Boolean,
+): RecoveryOutcome {
+    val wasEnabled = AppPreferences.bootRootMode(context)
+    AppPreferences.setBootRootMode(context, false)
+    val outcome = RootRecovery.rebootAndUnroot(shell, bootToken, requiresRoot)
+    if (!outcome.accepted) AppPreferences.setBootRootMode(context, wasEnabled)
+    return outcome
+}
 
 /**
  * Asks the phone to reboot through whatever shell this device will give us, and says whether the
