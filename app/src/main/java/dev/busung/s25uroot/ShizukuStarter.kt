@@ -11,6 +11,22 @@ internal data class ShizukuStartOutcome(
 )
 
 /**
+ * The root shell [ShizukuStarter] wants, from KernelSU, or the refusal it reads as "no root here".
+ *
+ * A missing root shell is reported as a failed command rather than thrown, so the starter's own routing
+ * stays in charge of what the user is told: it is the difference between "no root, so take the pairing
+ * route" and "the start attempt broke". Shared by the two unattended callers - the boot service and the
+ * install gate - so the route a boot takes cannot depend on which of them asked.
+ */
+internal fun kernelSuRootShell(context: Context): (String) -> ShizukuController.ShellResult =
+    { command ->
+        KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
+            NO_ROOT_SHELL_EXIT,
+            context.getString(R.string.error_no_root_shell),
+        )
+    }
+
+/**
  * The command that starts a modern Shizuku build's server for this app.
  *
  * Shizuku ships its starter as a native library inside its own APK, and it needs the path of the

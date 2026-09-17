@@ -54,6 +54,54 @@ internal fun chooseRunTransport(
 }
 
 /**
+ * What a run does about Shizuku when it asked for it and Shizuku is not there yet.
+ *
+ * A separate question from [chooseRunTransport], asked in a different place and by a different kind of
+ * caller. The transport rule is asked *inside* a run that has already begun, and it falls back rather
+ * than waiting - which is right on the install screen, where a fallback is visible to the person
+ * watching. This one is asked *before* a run starts, by the only caller that runs unattended, and its
+ * answer can hold the run back.
+ */
+internal enum class ShizukuWait {
+    /** Use Shizuku is off: nothing waits, and the run takes whichever transport it otherwise would. */
+    NotRequested,
+
+    /** Shizuku is up and this app may use it: the run goes through it, with no waiting. */
+    Ready,
+
+    /**
+     * Asked for, and nothing on this device can start it.
+     *
+     * The wait would be a delay in front of the one attempt a boot gets, and it would end by saying the
+     * same thing this says now - so it is refused instead, naming what is missing.
+     */
+    Unstartable,
+
+    /** Something here can start it: hold until it is usable. */
+    Await,
+}
+
+/**
+ * Whether a run should hold for Shizuku, from the setting and two readings of the device.
+ *
+ * [startable] is what keeps the wait honest. Shizuku cannot be started by another app without one of
+ * the routes that do not need it - this device's root, a stored wireless pairing, or a start token - and
+ * [ShizukuWait.Await] on a device with none of them spends the boot's window waiting for something
+ * nothing is bringing. Pure, for the same reason as the transport rule: the interesting case is the one
+ * where two things are half-true at once, and it is the one nobody can try by hand.
+ */
+internal fun shizukuWait(
+    requested: Boolean,
+    usable: Boolean,
+    startable: Boolean,
+): ShizukuWait = when {
+    !requested -> ShizukuWait.NotRequested
+    usable -> ShizukuWait.Ready
+    !startable -> ShizukuWait.Unstartable
+    else -> ShizukuWait.Await
+}
+
+/**
  * What the local-ADB command prints when it is done, since the ADB shell carries no exit code.
  *
  * It is deliberately not ADB's own `__ADB_EXIT__=` marker: this one is part of the *payload* command's

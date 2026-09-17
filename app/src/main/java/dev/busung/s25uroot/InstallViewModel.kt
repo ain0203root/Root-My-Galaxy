@@ -300,13 +300,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      * Runs an install and returns once it reaches a terminal phase, for callers outside the
      * install screen that have to keep a foreground service alive for exactly as long as the run
      * takes — the boot gate, which cannot wait on the UI state itself.
+     *
+     * [unattended] marks a run nobody is watching. It is not a transport preference: it means the run
+     * cannot show a permission prompt and cannot ask for Shizuku to be started, because both are
+     * conversations with a person who is not there.
      */
     suspend fun runToCompletion(
         selectionId: String? = null,
-        forceStandalone: Boolean = false,
+        unattended: Boolean = false,
         payloadOffline: Boolean = false,
     ) {
-        install(selectionId, forceStandalone, payloadOffline)
+        install(selectionId, unattended, payloadOffline)
         installJob?.join()
     }
 
@@ -356,7 +360,16 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     fun install(
         selectionId: String? = null,
-        forceStandalone: Boolean = false,
+        /**
+         * Marks a run nobody is watching, which cannot prompt for anything.
+         *
+         * The boot gate sets it. It used to mean "do not use Shizuku", which is how a device with the
+         * setting on ended up installing in the app's own process after every reboot: the preference was
+         * not consulted at all. It is consulted now, and the one thing this takes away is the ability to
+         * ask - so an unattended run that was promised Shizuku gets a refusal rather than another
+         * transport, because it cannot say afterwards that it went a different way.
+         */
+        unattended: Boolean = false,
         /**
          * Forces this run to use the cached payload.
          *
@@ -434,12 +447,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // settings screen while this run is in flight must not be able to produce a half-load
                 // - staged on one reading and skipped on another.
                 val loadKernelSu = AppPreferences.loadKernelSu(app)
-                val shizukuRequested = !forceStandalone && AppPreferences.shizukuMode(app)
+                val shizukuRequested = AppPreferences.shizukuMode(app)
+                val shizukuUsable = ShizukuController.isRunning() && ShizukuController.isGranted()
+                // The gate has already waited for Shizuku, so a binder that is missing here is not the
+                // thing to fall back from: this run was started on the promise that it would go through
+                // Shizuku, and a payload that runs in the app's process instead is a different run.
+                if (unattended && shizukuRequested && !shizukuUsable) {
+                    error(app.getString(R.string.error_shizuku_unavailable))
+                }
                 val localAdbPaired = AdbCredentialStore.hasStoredKey(app) && AppPreferences.adbPaired(app)
                 val transport = chooseRunTransport(
                     shellRequired = profile.routePolicy.prefersShellTransport,
                     shizukuRequested = shizukuRequested,
-                    shizukuUsable = ShizukuController.isRunning() && ShizukuController.isGranted(),
+                    shizukuUsable = shizukuUsable,
                     localAdbPaired = localAdbPaired,
                 ) ?: error(app.getString(shellTransportRefusalStringId(shizukuRequested)))
                 activeRunTransport = transport
@@ -451,7 +471,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     if (!ShizukuController.isRunning() && !ShizukuController.pingUntilRunning()) {
                         error(app.getString(R.string.error_shizuku_unavailable))
                     }
-                    if (!ShizukuController.isGranted() && !ShizukuController.requestPermission()) {
+                    if (!ShizukuController.isGranted() &&
+                        (unattended || !ShizukuController.requestPermission())
+                    ) {
                         error(app.getString(R.string.error_shizuku_permission))
                     }
                     appendLog(app.getString(R.string.log_shizuku_permission))

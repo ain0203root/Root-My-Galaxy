@@ -78,11 +78,12 @@ class ShizukuBootService : Service() {
         if (runCatching { ShizukuIntentStarter.ownBootReceiverEnabled(this) }.getOrDefault(false)) {
             Log.i(TAG, "Shizuku starts itself on boot on this device; this app only waits for it")
         }
+        val rootShell = kernelSuRootShell(this)
         val rootAvailable = rootShell("id").exitCode != NO_ROOT_SHELL_EXIT
 
         var last = ShizukuStarter.start(
             context = this,
-            shell = ::rootShell,
+            shell = rootShell,
         )
         if (last.started || !rootAvailable) return last
 
@@ -90,22 +91,12 @@ class ShizukuBootService : Service() {
             delay(RETRY_DELAY_MILLIS)
             last = ShizukuStarter.start(
                 context = this,
-                shell = ::rootShell,
+                shell = rootShell,
             )
             if (last.started) return last
         }
         return last
     }
-
-    /**
-     * KernelSU's root shell is the transport: this runs before any Shizuku binder exists, so the
-     * only way to reach a privileged process here is the root the device already has. A refusal is
-     * reported as a failed command rather than thrown, so the starter's own reporting stays in
-     * charge of what the user is told.
-     */
-    private fun rootShell(command: String): ShizukuController.ShellResult =
-        KernelSuRuntime.rootShell(command)
-            ?: ShizukuController.ShellResult(NO_ROOT_SHELL_EXIT, getString(R.string.error_no_root_shell))
 
     private fun notifyOutcome(outcome: ShizukuStartOutcome) {
         if (outcome.started) {

@@ -169,6 +169,14 @@ class AutoRootService : Service() {
                     Log.i(TAG, "Root on boot skipped after the wait: KernelSU is already active")
                     return@withTimeout
                 }
+                // Shizuku first, and before the run rather than inside it: this is the one caller that
+                // runs unattended, so it is the one that cannot fall back and cannot explain itself
+                // afterwards. What it can do is wait, and say what stopped it when waiting was not
+                // enough.
+                shizukuBlocker()?.let { refusal ->
+                    finish(refusal)
+                    return@withTimeout
+                }
                 runInstall(bootToken)
             }
         } catch (timeout: TimeoutCancellationException) {
@@ -222,6 +230,99 @@ class AutoRootService : Service() {
         }
     }
 
+    /**
+     * Holds the boot run for Shizuku when the run asked for it, and says what stopped it if it never
+     * arrives.
+     *
+     * Null means the run may start. The setting decides here rather than inside the run because the two
+     * answers are not interchangeable: the app's own process is a different execution context, not a
+     * degraded one, and for a profile that wants a shell it is not available at all. A boot that quietly
+     * took it would be a boot that did not do what the user asked, with nobody watching to notice.
+     */
+    private suspend fun shizukuBlocker(): String? = when (
+        shizukuWait(
+            requested = AppPreferences.shizukuMode(this),
+            usable = shizukuUsable(),
+            startable = shizukuStartable(),
+        )
+    ) {
+        ShizukuWait.NotRequested, ShizukuWait.Ready -> null
+        ShizukuWait.Unstartable -> getString(R.string.autoroot_shizuku_unstartable)
+        ShizukuWait.Await ->
+            if (awaitShizuku()) null
+            else getString(
+                R.string.autoroot_shizuku_unavailable,
+                BootSettle.formatRemaining(SHIZUKU_WAIT_MILLIS),
+            )
+    }
+
+    /**
+     * Whether Shizuku is up and this app may use it.
+     *
+     * Both halves are needed and they are not the same thing: a running Shizuku this app has no
+     * permission for is a binder it cannot send the payload through, and a grant with nothing running is
+     * nothing at all.
+     */
+    private fun shizukuUsable(): Boolean =
+        ShizukuController.isRunning() && ShizukuController.isGranted()
+
+    /**
+     * Whether anything on this device can start Shizuku.
+     *
+     * Root is deliberately not counted here: a gate that reached this point has already read KernelSU as
+     * inactive, and the run it is holding back is the very thing that would give the device root. The
+     * Shizuku app's own boot start does count, because on that device Shizuku is coming up by itself and
+     * all this app has to do is wait for it.
+     */
+    private fun shizukuStartable(): Boolean =
+        shizukuBootStartWorthAttempting(
+            rootAlreadyActive = false,
+            localAdbPaired = AdbCredentialStore.hasStoredKey(this) && AppPreferences.adbPaired(this),
+            tokenConfigured = AppPreferences.shizukuAutomationToken(this).isNotBlank(),
+        ) || runCatching { ShizukuIntentStarter.ownBootReceiverEnabled(this) }.getOrDefault(false)
+
+    /**
+     * Waits for Shizuku to become usable, starting it as often as is worth trying.
+     *
+     * The wait is bounded and reports itself, on the same terms as the settle floor above: an unattended
+     * boot has nobody to tell its progress to, and a silent two minutes behind a notification that says
+     * "starting the install" looks exactly like a run that has hung.
+     *
+     * Starting it here can race the boot service, which is doing the same thing on a device with Shizuku
+     * on boot - and that is fine rather than a problem: [ShizukuStarter] serializes the attempts across
+     * processes and re-probes the binder before each launch, so the second caller concludes "already
+     * running" instead of starting a second server.
+     */
+    private suspend fun awaitShizuku(): Boolean {
+        val startedAt = BootSettle.elapsedMillis()
+        var attempts = 0
+        // Pushed one interval into the past so the first attempt is immediate: by the time the gate is
+        // here, the boot has already waited out the settle floor.
+        var lastAttemptAt = startedAt - SHIZUKU_ATTEMPT_SPACING_MILLIS
+        while (true) {
+            // The setting can be turned off while this waits - it is two minutes in which somebody may
+            // well open the app - and waiting for something no longer wanted is only a delay.
+            if (!AppPreferences.shizukuMode(this)) return true
+            if (shizukuUsable()) return true
+            val left = SHIZUKU_WAIT_MILLIS - (BootSettle.elapsedMillis() - startedAt)
+            if (left <= 0L) {
+                Log.w(TAG, "Root on boot: Shizuku did not arrive within the wait")
+                return false
+            }
+            if (attempts < SHIZUKU_START_ATTEMPTS &&
+                BootSettle.elapsedMillis() - lastAttemptAt >= SHIZUKU_ATTEMPT_SPACING_MILLIS
+            ) {
+                attempts++
+                lastAttemptAt = BootSettle.elapsedMillis()
+                Log.i(TAG, "Root on boot: starting Shizuku, attempt $attempts")
+                runCatching { ShizukuStarter.start(context = this, shell = kernelSuRootShell(this)) }
+                    .onFailure { Log.w(TAG, "Root on boot: a Shizuku start attempt failed", it) }
+            }
+            notifyOngoing(getString(R.string.autoroot_shizuku_waiting, BootSettle.formatRemaining(left)))
+            delay(SETTLE_TICK_MILLIS)
+        }
+    }
+
     /** Drives the ordinary install with the cached payload; there is no network at boot to rely on. */
     private suspend fun runInstall(bootToken: String) {
         val model = InstallViewModel(application)
@@ -234,7 +335,7 @@ class AutoRootService : Service() {
             }
         }
         notifyOngoing(getString(R.string.autoroot_starting))
-        model.runToCompletion(forceStandalone = true, payloadOffline = true)
+        model.runToCompletion(unattended = true, payloadOffline = true)
         progressJob?.cancel()
         progressJob = null
 
@@ -394,6 +495,20 @@ class AutoRootService : Service() {
 
         /** How long the whole gate may take, including the run's own cut-offs. */
         private const val GATE_LIMIT_MILLIS = 15 * 60 * 1_000L
+
+        /**
+         * How long the gate holds for Shizuku before it gives up on this boot.
+         *
+         * Longer than the boot service's own schedule - a 20 s settle and up to two retries 15 s apart -
+         * because the two run in parallel and this one is the last to give up, not the first to try.
+         */
+        private const val SHIZUKU_WAIT_MILLIS = 120_000L
+
+        /** Spacing between this gate's own start attempts inside that window. */
+        private const val SHIZUKU_ATTEMPT_SPACING_MILLIS = 30_000L
+
+        /** The most attempts that can be said to be different attempts at the same thing. */
+        private const val SHIZUKU_START_ATTEMPTS = 3
         private const val SETTLE_TICK_MILLIS = 1_000L
         private const val MAX_NOTIFICATION_DETAIL = 120
 
