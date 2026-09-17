@@ -4076,46 +4076,6 @@ private fun RevisionPicker(
             onClick = { choice = RevisionChoice.Branch },
         )
 
-        if (loading) {
-            LoadingIndicator(modifier = Modifier.size(24.dp))
-        } else {
-            listFailure?.let { reason ->
-                Text(
-                    stringResource(R.string.payload_pin_list_failed, reason),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            if (revisions.isNotEmpty()) {
-                Text(
-                    stringResource(R.string.payload_pin_recent),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 300.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    items(revisions, key = { "${it.tag ?: ""}:${it.commit}" }) { revision ->
-                        RevisionRow(
-                            title = revision.tag ?: revision.label.ifBlank { revision.commit.take(7) },
-                            // A tag names the row, and the commit under it is what a pin stores, so
-                            // pinning by tag is still visibly a decision about a commit.
-                            subtitle = revision.commit.take(7),
-                            detail = revision.date.ifBlank { null },
-                            selected = choice == RevisionChoice.Commit(revision.commit),
-                            current = revision.commit == head,
-                            pinned = source.pinnedCommit == revision.commit,
-                            icon = if (revision.tag == null) Icons.Rounded.Lock else Icons.Rounded.Link,
-                            onClick = { choice = RevisionChoice.Commit(revision.commit) },
-                        )
-                    }
-                }
-            }
-        }
-
         HorizontalDivider()
 
         OutlinedTextField(
@@ -4224,6 +4184,50 @@ private fun RevisionPicker(
                     stringResource(R.string.payload_pin_follow_action)
                 },
             )
+        }
+
+        // The revision list sits below the decision, not above it. It is the longest thing on this
+        // screen and the only one that is a browse rather than a choice, so putting it first pushed
+        // the branch field and the action past the fold on a phone - the two controls a user who
+        // already knows the ref they want came here for.
+        if (loading) {
+            LoadingIndicator(modifier = Modifier.size(24.dp))
+        } else {
+            listFailure?.let { reason ->
+                Text(
+                    stringResource(R.string.payload_pin_list_failed, reason),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+            if (revisions.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.payload_pin_recent),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 300.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    items(revisions, key = { "${it.tag ?: ""}:${it.commit}" }) { revision ->
+                        RevisionRow(
+                            title = revision.tag ?: revision.label.ifBlank { revision.commit.take(7) },
+                            // A tag names the row, and the commit under it is what a pin stores, so
+                            // pinning by tag is still visibly a decision about a commit.
+                            subtitle = revision.commit.take(7),
+                            detail = revision.date.ifBlank { null },
+                            selected = choice == RevisionChoice.Commit(revision.commit),
+                            current = revision.commit == head,
+                            pinned = source.pinnedCommit == revision.commit,
+                            icon = if (revision.tag == null) Icons.Rounded.Lock else Icons.Rounded.Link,
+                            onClick = { choice = RevisionChoice.Commit(revision.commit) },
+                        )
+                    }
+                }
+            }
         }
     }
 }
