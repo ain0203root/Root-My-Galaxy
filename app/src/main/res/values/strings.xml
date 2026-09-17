@@ -78,7 +78,7 @@
     <string name="settings_wireless_adb">Wireless ADB</string>
     <string name="settings_wireless_adb_summary">Pair with this device\'s own wireless debugging, so a run can be given a shell with no computer and no root</string>
     <string name="settings_wireless_adb_none">Not paired</string>
-    <string name="settings_wireless_adb_unverified">Paired, unverified</string>
+    <string name="settings_wireless_adb_unverified">Paired</string>
     <string name="settings_wireless_adb_valid">Working</string>
     <string name="settings_wireless_adb_rejected">Unpaired on the device</string>
     <string name="settings_wireless_adb_port_missing">No port found</string>

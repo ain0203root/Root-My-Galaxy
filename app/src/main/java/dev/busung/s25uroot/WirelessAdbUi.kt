@@ -16,9 +16,11 @@ import androidx.compose.ui.unit.dp
  * What the wireless transport is, what it is doing, and the four things that can be done to it.
  *
  * The distinction the whole screen is built around: a stored pairing is a record, not a state. So the
- * card shows *unverified* until a test has connected, and the test is offered right next to the
- * pairing rather than hidden - "it says paired but nothing works" is the failure this screen exists to
- * make visible before a run fails on it.
+ * card says only *paired* until a test has connected - the word that names what was stored - and says
+ * *working* once one has. The test is offered right next to the pairing rather than hidden, because
+ * "it says paired but nothing works" is the failure this screen exists to make visible before a run
+ * fails on it. What a bare *paired* cannot say on a card is said in the dialog's detail line, which is
+ * where the difference between the two words is spelled out.
  */
 @Composable
 internal fun WirelessAdbDialog(
