@@ -370,7 +370,6 @@
     <string name="run_plan_helper">One helper command</string>
     <string name="settings_run_limits">Run limits</string>
     <string name="settings_run_limits_summary">The ceilings this app puts on a run</string>
-    <string name="settings_run_limits_value">Run %1$s\nno output %2$s\nhelper %3$s</string>
     <string name="run_limits_title">Run limits</string>
     <string name="run_limits_total">Whole run</string>
     <string name="run_limits_total_note">How long one run may take before the app gives up on it. A fresh-session profile is never cut below the app\'s own hour, because those hand their pacing to the payload.</string>

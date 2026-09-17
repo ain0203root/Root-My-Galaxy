@@ -2506,21 +2506,12 @@ private fun SettingsPage(
                 SettingsCard(
                     icon = Icons.Rounded.Timer,
                     title = stringResource(R.string.settings_run_limits),
-                    // Short enough for the two lines beside it: the long version of this sentence wrapped
-                    // the row to nine lines, which is what a value with its own width does to the column
-                    // it is measured against.
                     description = stringResource(R.string.settings_run_limits_summary),
-                    // One ceiling per line, each with its own label, so a value is never guessed at
-                    // from a run-together phrase. All three are here: leaving one out made the row
-                    // name two ceilings out of three, which reads as a summary of the run rather than
-                    // of the settings - and the omitted one is the only ceiling that is purely the
-                    // app's own.
-                    value = stringResource(
-                        R.string.settings_run_limits_value,
-                        RunLimits.label(runLimits.totalSeconds),
-                        RunLimits.label(runLimits.stallSeconds),
-                        RunLimits.label(runLimits.helperSeconds),
-                    ),
+                    // No value. Three ceilings listed as numbers beside a row are three numbers to
+                    // read on every pass through Settings, and they answer a question the dialog
+                    // answers properly - which ceiling is which, and what it decides. The row's job
+                    // is to say the settings exist and to open them, and the run plan states the
+                    // ceilings that are actually in force where a run is about to be started.
                     position = SettingsCardPosition.Middle,
                     onClick = {
                         clickHaptic(view)
