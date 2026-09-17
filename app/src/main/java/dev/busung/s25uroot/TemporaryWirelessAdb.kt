@@ -37,19 +37,67 @@ internal object TemporaryWirelessAdb {
     private val cleanupLock = Any()
     private var pendingGraceDisable: Runnable? = null
 
-    /** Turns wireless debugging on if it is off. Returns false when the app may not. */
-    fun begin(context: Context, onLog: (String) -> Unit = {}): Boolean {
-        cancelGraceDisable()
-        armCleanup(context)
-        val enabled = AdbPairing.enableWirelessAdb(context)
-        if (enabled) {
-            onLog("[*] Wireless debugging enabled for this run only")
-        } else {
-            cancelCleanup(context)
-            onLog("[!] Wireless debugging could not be enabled: WRITE_SECURE_SETTINGS is required")
+    /**
+     * Turns wireless debugging on if it is off. Returns false when this device would not let it be.
+     *
+     * The outcome is read back from the setting rather than taken from the write, because a write that
+     * is ignored is indistinguishable from one that worked until something reads it - and what follows
+     * this call is a search for a port that only exists if the switch really moved. Naming the reason
+     * here is the difference between "the app could not turn it on, do it in Developer options" and a
+     * silent wait for a listener nobody started.
+     */
+    fun begin(context: Context, onLog: (String) -> Unit = {}): Boolean =
+        when (AdbPairing.tryEnableWirelessAdb(context)) {
+            WirelessAdbEnableResult.AlreadyOn -> {
+                cancelGraceDisable()
+                armCleanup(context)
+                // Nothing was changed, so nothing will be restored: wireless debugging that was on
+                // before this app asked for it is the user's, not this window's.
+                AppPreferences.setWirelessAdbOwnedByApp(context, false)
+                onLog("[*] Wireless debugging is already on; it will be left on")
+                true
+            }
+
+            WirelessAdbEnableResult.Enabled -> {
+                cancelGraceDisable()
+                armCleanup(context)
+                AppPreferences.setWirelessAdbOwnedByApp(context, true)
+                onLog("[*] Wireless debugging enabled for this run only")
+                true
+            }
+
+            // Armed and marked, because the write may have taken even though the read did not: the port
+            // is the authority on an unreadable setting, and restoring something this app may have
+            // changed is the safe side of that doubt.
+            WirelessAdbEnableResult.Unknown -> {
+                cancelGraceDisable()
+                armCleanup(context)
+                AppPreferences.setWirelessAdbOwnedByApp(context, true)
+                onLog(
+                    "[!] Wireless debugging's setting could not be read; trying the connection " +
+                        "anyway, because the app may not be allowed to look rather than have it off",
+                )
+                true
+            }
+
+            WirelessAdbEnableResult.Refused -> {
+                cancelCleanup(context)
+                onLog(
+                    "[!] Wireless debugging is off and turning it on did not take effect: switch it on " +
+                        "in Developer options → Wireless debugging, then try again",
+                )
+                false
+            }
+
+            WirelessAdbEnableResult.Unavailable -> {
+                cancelCleanup(context)
+                onLog(
+                    "[!] Wireless debugging is off and this device gives the app no way to turn it on: " +
+                        "grant it with `${AdbPairing.GRANT_COMMAND}`, or switch it on in Developer options",
+                )
+                false
+            }
         }
-        return enabled
-    }
 
     /** Runs [block] with wireless debugging on, and schedules it off again afterwards. */
     suspend fun <T> use(
@@ -71,12 +119,27 @@ internal object TemporaryWirelessAdb {
         }
     }
 
-    /** Turns wireless debugging off now, whatever the grace period was doing. */
+    /**
+     * Turns wireless debugging off again now, whatever the grace period was doing.
+     *
+     * Only if this app turned it on. A device already running wireless debugging for the user's own
+     * adb session has nothing to restore, and switching it off there would end a session the app was
+     * never asked to touch. The answer is persisted rather than held in memory because the process that
+     * enabled it may be gone by the time this runs: the failsafe alarm fires in a new process, and a
+     * flag that died with the old one would leave the switch on with nobody left to turn it off.
+     */
     fun forceDisable(context: Context, onLog: (String) -> Unit = {}) {
         cancelGraceDisable()
-        val disabled = runCatching { AdbPairing.disableWirelessAdb(context) }.getOrDefault(false)
         cancelCleanup(context)
+        if (!AppPreferences.wirelessAdbOwnedByApp(context)) {
+            onLog("[*] Wireless debugging was already on; leaving it as it was")
+            return
+        }
+        val disabled = runCatching { AdbPairing.disableWirelessAdb(context) }.getOrDefault(false)
         if (disabled) {
+            // Cleared only once the setting reads back as off: if it did not, this app still owns the
+            // change and the next cleanup - or the failsafe alarm - has to try again.
+            AppPreferences.setWirelessAdbOwnedByApp(context, false)
             onLog("[+] Wireless debugging disabled")
         } else {
             Log.e(TAG, "Wireless debugging could not be turned off")

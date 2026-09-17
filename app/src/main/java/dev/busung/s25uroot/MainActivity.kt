@@ -179,6 +179,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.DialogWindowProvider
@@ -189,6 +190,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.DateFormat
+import java.util.Collections
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -1935,6 +1937,10 @@ private fun SettingsPage(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     var shizukuStartResult by remember { mutableStateOf<String?>(null) }
+    // What the attempt said as it went. The result line alone was not enough to act on: "Shizuku could
+    // not be started" over three routes with different fixes reads as nothing having happened, which is
+    // exactly how it read.
+    var shizukuStartLog by remember { mutableStateOf<List<String>>(emptyList()) }
     var showPayloadSourcesSheet by remember { mutableStateOf(false) }
     var showLocalPayloadDialog by remember { mutableStateOf(false) }
     var showRunPlanDialog by remember { mutableStateOf(false) }
@@ -1959,6 +1965,9 @@ private fun SettingsPage(
         if (!shizukuStarting) {
             shizukuStarting = true
             scope.launch {
+                // Written from the start attempt's own thread (it runs on IO) and read here once it is
+                // done, so the list is the attempt's, not the screen's.
+                val lines = Collections.synchronizedList(mutableListOf<String>())
                 val outcome = ShizukuStarter.start(
                     context = context,
                     shell = { command ->
@@ -1967,8 +1976,10 @@ private fun SettingsPage(
                             context.getString(R.string.error_shizuku_start_no_root),
                         )
                     },
+                    onLog = { line -> lines += line },
                 )
                 shizukuStarting = false
+                shizukuStartLog = lines.toList()
                 shizukuStartResult =
                     if (outcome.started) context.getString(R.string.status_shizuku_started)
                     else outcome.detail.ifBlank { context.getString(R.string.error_shizuku_start_no_root) }
@@ -1984,13 +1995,35 @@ private fun SettingsPage(
                 DialogDimAmount(0.34f)
                 Text(stringResource(R.string.settings_shizuku_start))
             },
-            text = { Text(result) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(result)
+                    if (shizukuStartLog.isNotEmpty()) {
+                        Text(
+                            stringResource(R.string.shizuku_start_attempt_log),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = shizukuStartLog.takeLast(SHIZUKU_START_LOG_LINES).joinToString("\n"),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = SHIZUKU_START_LOG_MAX_HEIGHT)
+                                .verticalScroll(rememberScrollState()),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
                     clickHaptic(view)
                     shizukuStartResult = null
                 }) {
-                    Text(stringResource(R.string.action_cancel))
+                    Text(stringResource(R.string.action_close))
                 }
             },
         )
@@ -2145,16 +2178,11 @@ private fun SettingsPage(
                     )
                 }
             },
+            // All three actions in one slot. Split across the confirm and dismiss slots they interleave:
+            // a stacked dismiss column is placed beside the confirm button, so Delete ended up next to
+            // Save with Cancel orphaned on a line of its own below them.
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        showShizukuTokenDialog = false
-                        onShizukuTokenChanged(tokenDraft)
-                    },
-                ) { Text(stringResource(R.string.action_save)) }
-            },
-            dismissButton = {
-                Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (shizukuToken.isNotBlank()) {
                         TextButton(
                             onClick = {
@@ -2166,6 +2194,12 @@ private fun SettingsPage(
                     TextButton(onClick = { showShizukuTokenDialog = false }) {
                         Text(stringResource(R.string.action_cancel))
                     }
+                    TextButton(
+                        onClick = {
+                            showShizukuTokenDialog = false
+                            onShizukuTokenChanged(tokenDraft)
+                        },
+                    ) { Text(stringResource(R.string.action_save)) }
                 }
             },
         )
@@ -4230,6 +4264,16 @@ internal enum class SettingsCardPosition {
  * claimed the row.
  */
 private val SETTINGS_VALUE_MAX_WIDTH = 140.dp
+
+/**
+ * How much of a failed Shizuku start is worth showing.
+ *
+ * The tail, because the lines that matter are the last route's: an attempt tries the routes in order and
+ * says what each one found, so the end of the list is the reason the whole thing stopped. Bounded on
+ * both axes for the same reason the run log is - a dialog is not a log viewer.
+ */
+private const val SHIZUKU_START_LOG_LINES = 14
+private val SHIZUKU_START_LOG_MAX_HEIGHT = 220.dp
 
 /**
  * One row of the settings list: an icon, a title, a description, and an optional trailing value.

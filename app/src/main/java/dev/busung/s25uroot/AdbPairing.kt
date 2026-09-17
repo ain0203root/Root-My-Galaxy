@@ -56,6 +56,51 @@ internal fun wirelessAdbEnableRoute(
     else -> WirelessAdbEnableRoute.Unavailable
 }
 
+/** What an attempt to switch wireless debugging on actually did. */
+internal enum class WirelessAdbEnableResult {
+    /** It read as on before anything was written, so nothing was. */
+    AlreadyOn,
+
+    /** It was written and reads back as on. */
+    Enabled,
+
+    /** The write did not change it, or could not be made at all: this device refuses it here. */
+    Refused,
+
+    /** Nothing could be written because this device has neither the permission nor root. */
+    Unavailable,
+
+    /**
+     * The setting could not be read, so whether it is on cannot be said.
+     *
+     * Its own answer rather than a "no": the reads are exactly the ones a device may deny this app,
+     * and a caller that treats an unreadable setting as an off one gives up on a transport that may be
+     * working. The port is the authority then - it either answers or it does not.
+     */
+    Unknown,
+}
+
+/**
+ * What a write did, from the readings around it.
+ *
+ * Pure, so the case that produced this can be checked without a device: `Settings.Global.putInt`
+ * succeeds whether or not the device honours it, so a write that returns without throwing proves
+ * nothing - only a reading after it does. That is the difference between the app saying "wireless
+ * debugging is on, so the port must be coming" and the truth, which was that the switch never moved
+ * and no port was ever going to appear.
+ */
+internal fun wirelessAdbEnableResult(
+    stateBefore: Boolean?,
+    route: WirelessAdbEnableRoute,
+    stateAfter: Boolean?,
+): WirelessAdbEnableResult = when {
+    stateBefore == true -> WirelessAdbEnableResult.AlreadyOn
+    stateAfter == true -> WirelessAdbEnableResult.Enabled
+    route == WirelessAdbEnableRoute.Unavailable -> WirelessAdbEnableResult.Unavailable
+    stateAfter == null -> WirelessAdbEnableResult.Unknown
+    else -> WirelessAdbEnableResult.Refused
+}
+
 /**
  * Whether a connection test can be attempted at all.
  *
@@ -107,10 +152,19 @@ object AdbPairing {
      * Neither route is tried speculatively: a device with no permission and no root is reported as
      * unable, because that is the truth about it.
      */
-    fun enableWirelessAdb(context: Context): Boolean =
-        putWirelessAdbEnabled(context, enabled = true) { value ->
-            Settings.Global.putInt(context.contentResolver, ADB_WIFI_ENABLED_SETTING, value)
-        }
+    fun enableWirelessAdb(context: Context): Boolean = when (tryEnableWirelessAdb(context)) {
+        // An unreadable setting cannot be called a success, and it cannot be called a failure either:
+        // the attempt is made, and whatever is listening on the port decides. Callers that need the
+        // distinction ask [tryEnableWirelessAdb].
+        WirelessAdbEnableResult.AlreadyOn,
+        WirelessAdbEnableResult.Enabled,
+        WirelessAdbEnableResult.Unknown,
+        -> true
+
+        WirelessAdbEnableResult.Refused,
+        WirelessAdbEnableResult.Unavailable,
+        -> false
+    }
 
     /**
      * Turns wireless debugging off.
@@ -118,10 +172,15 @@ object AdbPairing {
      * Only ever called to restore a state this app changed: leaving it on after a temporary use would
      * be leaving a shell port open that the user did not ask for.
      */
-    fun disableWirelessAdb(context: Context): Boolean =
+    fun disableWirelessAdb(context: Context): Boolean {
+        // Asked first, for the same reason the enable path asks: a write proves nothing, and this one
+        // has to be able to say "it is off" rather than "a write was made".
+        if (wirelessAdbEnabledState(context) == false) return true
         putWirelessAdbEnabled(context, enabled = false) { value ->
             Settings.Global.putInt(context.contentResolver, ADB_WIFI_ENABLED_SETTING, value)
         }
+        return wirelessAdbEnabledState(context) != true
+    }
 
     private inline fun putWirelessAdbEnabled(
         context: Context,
@@ -168,12 +227,49 @@ object AdbPairing {
      * read through root instead of being reported as off - and only a device that answers neither way
      * is treated as off, because the caller's next move (turn it on) is the right one then anyway.
      */
-    fun isWirelessAdbEnabled(context: Context): Boolean {
+    fun isWirelessAdbEnabled(context: Context): Boolean = wirelessAdbEnabledState(context) ?: false
+
+    /** Wireless debugging's setting as a reading that is allowed to say "could not be read". */
+    fun wirelessAdbEnabledState(context: Context): Boolean? {
         val direct = runCatching {
             Settings.Global.getString(context.contentResolver, ADB_WIFI_ENABLED_SETTING)
         }.getOrNull()
         direct?.let { return it.trim() == "1" }
-        return readWirelessAdbState() ?: false
+        return readWirelessAdbState()
+    }
+
+    /**
+     * Turns wireless debugging on, and says what actually happened rather than that a write was made.
+     *
+     * The write is only half of it. A device that ignores the setting - or refuses it outright - leaves
+     * this function returning success under the old shape, and the caller then waits out a time-limited
+     * port search for a listener nobody turned on. Reading the setting back is what makes the difference
+     * visible, and it is why this reports five outcomes where a boolean reported two.
+     */
+    internal fun tryEnableWirelessAdb(context: Context): WirelessAdbEnableResult {
+        val before = wirelessAdbEnabledState(context)
+        if (before == true) return WirelessAdbEnableResult.AlreadyOn
+        // Asked in this order: a granted permission answers the question on its own, and the root probe
+        // behind the other arm starts a shell that can sit on a grant prompt. A device with the
+        // permission should not wait for that to learn it does not need it.
+        val route = if (hasWriteSecureSettings(context)) {
+            WirelessAdbEnableRoute.Setting
+        } else {
+            wirelessAdbEnableRoute(permissionGranted = false, rootAvailable = rootIsAvailable())
+        }
+        if (route != WirelessAdbEnableRoute.Unavailable) {
+            when (route) {
+                WirelessAdbEnableRoute.Setting ->
+                    // The root route stays as a fallback: a granted permission can still be refused at
+                    // the write itself on a device with a restriction this app cannot see.
+                    runCatching {
+                        Settings.Global.putInt(context.contentResolver, ADB_WIFI_ENABLED_SETTING, 1)
+                    }.isSuccess || writeWirelessAdbThroughRoot(true)
+                WirelessAdbEnableRoute.Root -> writeWirelessAdbThroughRoot(true)
+                WirelessAdbEnableRoute.Unavailable -> Unit
+            }
+        }
+        return wirelessAdbEnableResult(before, route, wirelessAdbEnabledState(context))
     }
 
     private fun readWirelessAdbState(): Boolean? {

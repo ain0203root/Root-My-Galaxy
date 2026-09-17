@@ -515,6 +515,13 @@ one Shizuku sends no callback for, and revoking does not kill the binder either.
   It is last because the app cannot verify it — and because on a build whose own start method is
   wireless debugging, the thing it waits for is a wifi connection this app cannot supply.
 
+  **A failed start now says which route failed and what each one found.** The result line alone was
+  not enough to act on: three routes with three different fixes all ended in the same "Shizuku could
+  not be started", which reads as nothing having happened — and on this device it *was* something
+  having happened, a paired adb route that found no port and then handed the job to a route that waits
+  for wifi. The dialog carries the attempt's own lines, capped and scrollable, so the last one names
+  the step that stopped it.
+
   With neither, the app says no root, no pairing and no token are why nothing can be started,
   instead of sending a request it cannot authenticate and reporting Shizuku's refusal as a failure.
 - On boot the start runs after a settle delay, by whichever route the device has: root when it is
@@ -587,8 +594,22 @@ in Developer options and switching apps to type six digits would be the whole co
 
 The transport is treated as a window, not as device state: wireless debugging is turned on for the run
 that needs it and off again when the pairing or the session ends, with an alarm armed *before* it is
-turned on so a process killed in between still turns it back off. Wireless debugging is only ever left
-alone if the user had it on already.
+turned on so a process killed in between still turns it back off.
+
+The window only restores what it changed. A device already running wireless debugging for the user's
+own adb session has nothing to restore, and switching it off there would end a session this app was
+never asked to touch — so the switch is marked as the app's when the app moves it and left alone when
+it does not. The mark is persisted rather than held in memory, because the failsafe alarm fires in a
+process that may not be the one that flipped the switch.
+
+**Turning it on is verified, not assumed.** `Settings.Global.putInt` returns without complaint whether
+or not the device honours the value, so a write that changed nothing used to look exactly like one that
+worked — and the app then searched for a port for up to a minute on a device where no listener had ever
+started. The setting is now read back: **on**, **refused** (written and it did not move) and
+**unavailable** (no permission and no root) are told apart, and so is **unreadable**, which is its own
+answer because the reads are exactly the ones a device may deny this app. A refusal says to use the
+switch in Developer options; an unreadable setting is tried anyway rather than called off, since the
+port is the authority then.
 
 Two things are kept apart on purpose, and the screen says which one you are looking at:
 

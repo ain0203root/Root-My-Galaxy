@@ -45,6 +45,7 @@ object AppPreferences {
     private const val SHIZUKU_AUTOMATION_TOKEN = "shizuku_automation_token"
     private const val PARTITION_READ_ONLY_MODE = "partition_read_only_mode"
     private const val ADB_PAIRED = "adb_paired"
+    private const val WIRELESS_ADB_OURS = "wireless_adb_owned"
     private const val PAYLOAD_MODE = "payload_mode"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
@@ -281,6 +282,23 @@ object AppPreferences {
 
     fun setAdbPaired(context: Context, paired: Boolean) {
         prefs(context).edit().putBoolean(ADB_PAIRED, paired).apply()
+    }
+
+    /**
+     * Whether the wireless-debugging switch is on because this app turned it on.
+     *
+     * Persisted, not held in memory: the process that flipped it is often gone by the time the failsafe
+     * alarm turns it back off, and a flag that died with that process would leave the switch on with
+     * nobody left to restore it. It is also what keeps the app off a session the user started
+     * themselves - the same setting serves a cable-free adb session this app knows nothing about.
+     */
+    fun wirelessAdbOwnedByApp(context: Context): Boolean =
+        prefs(context).getBoolean(WIRELESS_ADB_OURS, false)
+
+    fun setWirelessAdbOwnedByApp(context: Context, owned: Boolean) {
+        prefs(context).edit()
+            .putBoolean(WIRELESS_ADB_OURS, owned)
+            .commit()
     }
 
     /** Whether Shizuku is started at boot through KernelSU, once the device already has root. */
