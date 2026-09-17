@@ -90,8 +90,10 @@
     <string name="wireless_adb_forget">Remove the pairing from this app</string>
     <string name="wireless_adb_fingerprint">Key fingerprint</string>
     <string name="wireless_adb_dialog_title">Wireless ADB</string>
-    <string name="wireless_adb_pair_help">Open Developer options → Wireless debugging → Pair device with pairing code, then enter the six-digit code into the notification this app posts.</string>
+    <string name="wireless_adb_pair_help">The six-digit code comes from Android’s own dialog: Developer options → Wireless debugging → Pair device with pairing code. Tap Pair below and the app opens that screen for you; enter the code into the notification it posts.</string>
     <string name="wireless_adb_forget_done">The pairing was removed from this app. Use Pair again to make a new one.</string>
+    <string name="adb_pair_open_developer_options">Open Developer options</string>
+    <string name="developer_options_unavailable">Developer options could not be opened. Open Settings and look for Developer options.</string>
     <string name="adb_pair_channel_name">Wireless ADB pairing</string>
     <string name="adb_pair_searching">Looking for the pairing service — open Developer options → Wireless debugging → Pair device with pairing code</string>
     <string name="adb_pair_service_found">Pairing service found</string>

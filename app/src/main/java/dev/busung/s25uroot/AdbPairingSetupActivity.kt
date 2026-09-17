@@ -9,6 +9,10 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The way pairing is started, and the way it is *forced* to start again.
@@ -26,7 +30,7 @@ class AdbPairingSetupActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         if (granted) {
-            startPairingService()
+            beginPairing()
         } else {
             Toast.makeText(
                 this,
@@ -55,15 +59,40 @@ class AdbPairingSetupActivity : ComponentActivity() {
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
             PackageManager.PERMISSION_GRANTED
         ) {
-            startPairingService()
-            finish()
+            beginPairing()
         } else {
             requestNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
-    private fun startPairingService() {
-        ContextCompat.startForegroundService(this, AdbPairingService.startIntent(this))
+    /**
+     * The three things a pairing needs from this side, in the order they have to happen.
+     *
+     * Wireless debugging first, because a pairing service only exists while it is on, and a freshly
+     * set-up device has it off. [TemporaryWirelessAdb] is the same window the transport uses for a
+     * run - the failsafe alarm is armed before the switch moves, and the pairing service turns it off
+     * again when the transaction ends - so this cannot leave a shell port open. It runs off the main
+     * thread because the root route to that setting starts a shell, and it is allowed to fail: a
+     * device with neither the permission nor root gets the switch by hand, which is what the last step
+     * is for.
+     *
+     * Developer options last, because the six-digit code only exists inside Android's own pairing
+     * dialog, and that dialog only exists there. Opening it is the whole reason this is an activity
+     * rather than a bare service call.
+     */
+    private fun beginPairing() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { TemporaryWirelessAdb.begin(this@AdbPairingSetupActivity) }
+            ContextCompat.startForegroundService(this@AdbPairingSetupActivity, AdbPairingService.startIntent(this@AdbPairingSetupActivity))
+            if (!DeveloperOptions.open(this@AdbPairingSetupActivity)) {
+                Toast.makeText(
+                    this@AdbPairingSetupActivity,
+                    getString(R.string.developer_options_unavailable),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
+            finish()
+        }
     }
 
     companion object {

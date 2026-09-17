@@ -140,6 +140,14 @@ class AdbPairingService : Service() {
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                // Both outcomes need the same door: a failure is usually "the dialog was not open", and
+                // the fix for that is the screen it is in.
+                .setContentIntent(developerOptionsIntent())
+                .addAction(
+                    0,
+                    getString(R.string.adb_pair_open_developer_options),
+                    developerOptionsIntent(),
+                )
                 .setOngoing(false)
                 .setAutoCancel(true)
                 .build(),
@@ -151,6 +159,12 @@ class AdbPairingService : Service() {
     private fun searchingNotification(): Notification = builder()
         .setContentTitle(getString(R.string.adb_pair_searching))
         .setOngoing(true)
+        .setContentIntent(developerOptionsIntent())
+        .addAction(
+            0,
+            getString(R.string.adb_pair_open_developer_options),
+            developerOptionsIntent(),
+        )
         .addAction(
             0,
             getString(R.string.action_cancel),
@@ -162,6 +176,21 @@ class AdbPairingService : Service() {
             ),
         )
         .build()
+
+    /**
+     * Developer options, from a notification.
+     *
+     * A broadcast rather than an activity pending intent, so the tap gets [DeveloperOptions]' whole
+     * fallback chain: a pending intent is built around one immutable Intent, and the entry it would
+     * carry is exactly the action a build without that screen refuses.
+     */
+    private fun developerOptionsIntent(): PendingIntent = PendingIntent.getBroadcast(
+        this,
+        3,
+        Intent(this, OpenDeveloperOptionsReceiver::class.java)
+            .setAction(OpenDeveloperOptionsReceiver.ACTION_OPEN_DEVELOPER_OPTIONS),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private fun codeEntryNotification(port: Int): Notification {
         val remoteInput = RemoteInput.Builder(REMOTE_INPUT_KEY)
@@ -177,6 +206,14 @@ class AdbPairingService : Service() {
             .setContentTitle(getString(R.string.adb_pair_service_found))
             .setContentText(getString(R.string.adb_pair_enter_code))
             .setOngoing(true)
+            // Where the code comes from, one tap away: the notification is read either side of the
+            // dialog that generates it.
+            .setContentIntent(developerOptionsIntent())
+            .addAction(
+                0,
+                getString(R.string.adb_pair_open_developer_options),
+                developerOptionsIntent(),
+            )
             .addAction(
                 NotificationCompat.Action.Builder(0, getString(R.string.adb_pair_button), reply)
                     .addRemoteInput(remoteInput)

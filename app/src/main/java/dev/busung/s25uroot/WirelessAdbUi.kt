@@ -25,6 +25,7 @@ internal fun WirelessAdbDialog(
     snapshot: WirelessAdbSnapshot?,
     busy: Boolean,
     onPair: (forceRepair: Boolean) -> Unit,
+    onOpenDeveloperOptions: () -> Unit,
     onTest: () -> Unit,
     onForget: () -> Unit,
     onDismiss: () -> Unit,
@@ -78,6 +79,11 @@ internal fun WirelessAdbDialog(
                             else R.string.wireless_adb_pair,
                         ),
                     )
+                }
+                // The screen the code is generated in, reachable without leaving with an instruction
+                // to find it: "open Developer options" as a sentence is what this button replaces.
+                TextButton(enabled = !busy, onClick = onOpenDeveloperOptions) {
+                    Text(stringResource(R.string.adb_pair_open_developer_options))
                 }
                 TextButton(enabled = !busy, onClick = onTest) {
                     Text(stringResource(R.string.wireless_adb_test))

@@ -88,6 +88,9 @@
         <receiver
             android:name=".WirelessAdbCleanupReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".OpenDeveloperOptionsReceiver"
+            android:exported="false" />
         <activity
             android:name=".AdbPairingSetupActivity"
             android:exported="false"

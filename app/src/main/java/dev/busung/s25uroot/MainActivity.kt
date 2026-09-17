@@ -2552,6 +2552,18 @@ private fun SettingsPage(
                             )
                             showWirelessAdbDialog = false
                         },
+                        onOpenDeveloperOptions = {
+                            // Closed first: the screen this opens is where the user has to be next, and
+                            // a dialog left behind it would be in the way on the way back.
+                            showWirelessAdbDialog = false
+                            if (!DeveloperOptions.open(context)) {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.developer_options_unavailable),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        },
                         onTest = {
                             wirelessBusy = true
                             scope.launch {
