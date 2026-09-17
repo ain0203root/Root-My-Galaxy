@@ -82,8 +82,10 @@
     <string name="autoroot_boot_changed">The kernel changed before installation started</string>
     <string name="autoroot_timed_out">The operation did not finish in time</string>
     <string name="autoroot_shizuku_waiting">Waiting for Shizuku to start: %1$s</string>
-    <string name="autoroot_shizuku_unavailable">Shizuku is not ready, and it did not arrive within %1$s. Start Shizuku and allow this app to use it, or turn off Root on boot.</string>
-    <string name="autoroot_shizuku_unstartable">Use Shizuku is on, and nothing here can start it: no root, no wireless pairing, and no start token. This boot\'s install did not run.</string>
+    <string name="autoroot_shizuku_unavailable">Shizuku is not ready, and it did not arrive within %1$s. Start it again, or run this boot\'s install without it.</string>
+    <string name="autoroot_shizuku_unstartable">Use Shizuku is on, and nothing here can start it: no root, no wireless pairing, and no start token. Run this boot\'s install without it, or turn Root on boot off.</string>
+    <string name="autoroot_answer_retry_shizuku">Start Shizuku</string>
+    <string name="autoroot_answer_standard">Run without Shizuku</string>
     <string name="autoroot_disable">Turn off</string>
     <string name="autoroot_channel_name">Root on boot</string>
     <string name="autoroot_channel_description">Runs the installation after reboot and reports the result</string>

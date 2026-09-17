@@ -51,4 +51,26 @@ class PublishClaimTest {
 
         assertTrue(claim.holds(first))
     }
+
+    /**
+     * A run that stops to ask about Shizuku takes the screen before it writes the question.
+     *
+     * This is the same race as the run above, in its newest place. The question is a state of the
+     * screen like any other, and the lookup that the screen starts when it opens publishes a state
+     * built with no prompt in it - so a lookup whose fetch returned 50 ms after the question was set
+     * replaced the question with "ready to install". The run had not started and the dialog was gone,
+     * which is indistinguishable from the app hanging.
+     *
+     * The sequence is the one that happened: the screen opens and the lookup claims, the run is asked
+     * for and claims (and holds), and the lookup's fetch then returns and tries to publish.
+     */
+    @Test
+    fun `a lookup cannot publish over a run that stopped to ask`() {
+        val claim = PublishClaim()
+        val lookup = claim.claim()
+        val heldRun = claim.claim()
+
+        assertFalse("the lookup must not publish over the question", claim.holds(lookup))
+        assertTrue("the held run owns the screen", claim.holds(heldRun))
+    }
 }

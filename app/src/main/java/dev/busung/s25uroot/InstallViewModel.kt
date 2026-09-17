@@ -383,22 +383,40 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             transportPrompt = prompt.copy(starting = true, startDetail = null),
         )
         viewModelScope.launch(Dispatchers.IO) {
-            val outcome = ShizukuStarter.start(
-                context = app,
-                shell = { command ->
-                    KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
-                        NO_ROOT_SHELL_EXIT,
-                        app.getString(R.string.error_shizuku_start_no_root),
-                    )
-                },
-            )
+            // Caught rather than left to the coroutine machinery, because what is on screen while this
+            // runs is a question whose two buttons are answered through this state: a throw would leave
+            // [TransportPrompt.starting] true for good, and every way out of the question is disabled
+            // while it is - a dialog that says "starting" and takes no answer, which is worse than the
+            // refusal it replaced. A route that broke is reported like a route that did not work.
+            val outcome = runCatching {
+                ShizukuStarter.start(
+                    context = app,
+                    shell = { command ->
+                        KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
+                            NO_ROOT_SHELL_EXIT,
+                            app.getString(R.string.error_shizuku_start_no_root),
+                        )
+                    },
+                )
+            }.getOrElse { error ->
+                ShizukuStartOutcome(
+                    started = false,
+                    detail = error.message ?: error.javaClass.simpleName,
+                )
+            }
+            // The question can be answered while the attempt is in flight - "Run without Shizuku" is
+            // deliberately still live - and a start that lands after that answer must not start a second
+            // run over the one the person asked for.
+            val stillHeld = mutableState.value.transportPrompt != null
             // Running, not merely started: the outcome says a binder was seen, and this asks the same
             // question the next run will ask, so a start that only almost worked is still a question.
             if (outcome.started && ShizukuController.isRunning()) {
                 AppLog.info(
                     RUN_LOG_TAG,
-                    "Shizuku started from the run screen via ${outcome.method ?: "an unnamed route"}; resuming",
+                    "Shizuku started from the run screen via ${outcome.method ?: "an unnamed route"}" +
+                        if (stillHeld) "; resuming" else "; the run has already gone another way",
                 )
+                if (!stillHeld) return@launch
                 mutableState.value = mutableState.value.copy(transportPrompt = null)
                 install(selectionId)
             } else {
@@ -407,6 +425,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     "Shizuku was not started from the run screen: " +
                         outcome.detail.ifBlank { "no route reported why" },
                 )
+                if (!stillHeld) return@launch
                 mutableState.value = mutableState.value.copy(
                     transportPrompt = TransportPrompt(
                         starting = false,
@@ -530,9 +549,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             AppLog.debug(RUN_LOG_TAG, "Run not started: this screen is already on a run")
             return
         }
-        // Asked before anything is taken or written, so a run that is going to be a question leaves no
-        // trace of one that ran: no claim, no history entry, no log, and a screen that can still say
-        // what the question is.
+        // Taken before the question below rather than after it, because the question is itself a state
+        // of this screen and this screen has a writer in flight: the lookup that runs when the screen
+        // opens publishes "not installed, ready to install" whenever its fetch returns, and cancelling
+        // it is not enough - nothing between its fetch and its write suspends, so a cancel arrives after
+        // the write it was meant to prevent. Held states are the newest case of the same race: the
+        // lookup's write landed 54 ms after the hold was set and replaced it with a fresh
+        // [InstallUiState], which is a constructor with no prompt in it - so the question appeared and
+        // vanished, and the screen sat on a run that had not started and could not be asked about.
+        discoveryJob?.cancel()
+        publishClaim.claim()
+        // Asked before anything else is taken or written, so a run that is going to be a question leaves
+        // no trace of one that ran: no history entry, no log, and a screen that can still say what the
+        // question is.
         if (shouldHoldForShizuku(
                 unattended = unattended,
                 requested = AppPreferences.shizukuMode(app),
@@ -555,10 +584,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             "Run started: unattended=$unattended, offline=$payloadOffline, " +
                 "retry=$preferAttemptedPayload, withoutShizuku=$withoutShizuku",
         )
-        discoveryJob?.cancel()
-        // The claim is taken here, on the caller's thread, rather than inside the run: what it has to
-        // outrun is a discovery job that is already past its last suspension point.
-        publishClaim.claim()
         bootSettleOverridden = false
         stopRequested = false
         // The protection is per boot and per run, so this run starts with no attribution to make.

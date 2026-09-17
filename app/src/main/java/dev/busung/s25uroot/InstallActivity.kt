@@ -95,6 +95,16 @@ class InstallActivity : ComponentActivity() {
             intent.getStringExtra(EXTRA_INSTALL_REQUEST_ID),
         )
         intent.removeExtra(EXTRA_INSTALL_REQUEST_ID)
+        // Taken off the intent for the same reason the install request is: an answer that stayed there
+        // would run the attempt it named again on every rotation, and a run is not something to repeat
+        // because the screen was turned.
+        val answer = if (savedInstanceState == null) {
+            RunAnswer.fromExtra(intent.getStringExtra(EXTRA_RUN_ANSWER)).also {
+                intent.removeExtra(EXTRA_RUN_ANSWER)
+            }
+        } else {
+            null
+        }
         setContent {
             RootMyGalaxyTheme(
                 accentColor = AppPreferences.accentColor(this),
@@ -102,8 +112,11 @@ class InstallActivity : ComponentActivity() {
             ) {
                 val installState by installViewModel.state.collectAsStateWithLifecycle()
                 BackHandler(enabled = installState.busy) {}
-                LaunchedEffect(startInstall, selectionId) {
-                    if (startInstall) installViewModel.install(selectionId)
+                LaunchedEffect(startInstall, selectionId, answer) {
+                    when {
+                        answer != null -> startAnsweredRun(answer, selectionId)
+                        startInstall -> installViewModel.install(selectionId)
+                    }
                 }
                 // Asked over the run screen, because the run is what the answer is about: starting
                 // Shizuku runs the installation the screen was opened for, and running without it runs
@@ -128,6 +141,24 @@ class InstallActivity : ComponentActivity() {
     }
 
     /**
+     * Runs the attempt one of the boot notification's answers asked for.
+     *
+     * The notification is where a boot install that ran out of Shizuku ends up, because a boot has
+     * nobody to ask and this screen is where the question can be answered. Neither answer is taken on
+     * trust here: [RunAnswer.StandardMethod] runs with Shizuku skipped, which is the same code path as
+     * the dialog's own second button, and [RunAnswer.RetryShizuku] starts the ordinary run - which holds
+     * and shows that same dialog when Shizuku really is not there - and then makes the start attempt, so
+     * a Shizuku that is already up simply continues.
+     *
+     * A start that fails leaves the dialog standing with its reason and with the other answer still
+     * offered, which is the whole point of routing this through the screen rather than running it blind.
+     */
+    private fun startAnsweredRun(answer: RunAnswer, selectionId: String?) {
+        installViewModel.install(selectionId, withoutShizuku = answer.withoutShizuku)
+        if (answer.startsShizukuFirst) installViewModel.startShizukuForHeldRun(selectionId)
+    }
+
+    /**
      * Opens one of the app's settings cards, in the window that holds the list.
      *
      * Asked of the existing window rather than a new one, because this screen was started *from* that
@@ -149,6 +180,9 @@ class InstallActivity : ComponentActivity() {
     companion object {
         const val EXTRA_INSTALL_REQUEST_ID = "install_request_id"
         const val EXTRA_PROFILE_ID = "profile_id"
+
+        /** One of [RunAnswer]'s extras: what a boot notification's answer asked for. */
+        const val EXTRA_RUN_ANSWER = "run_answer"
     }
 }
 
@@ -745,8 +779,13 @@ private fun ShizukuHoldDialog(
             }
         },
         dismissButton = {
+            // Deliberately live while a start is in flight. An attempt can take a minute on a device
+            // where it has several routes to try, and disabling the other answer for that minute is how
+            // this question turns into a screen with nothing to press - which is what it looked like
+            // when the start was the only thing on offer. The view model drops a start that lands after
+            // this answer was taken, so changing your mind mid-attempt cannot start two runs.
             TextButton(
-                enabled = !prompt.starting,
+                enabled = true,
                 onClick = {
                     clickHaptic(view)
                     onRunWithoutShizuku()

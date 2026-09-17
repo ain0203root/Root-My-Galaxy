@@ -189,11 +189,12 @@ class AutoRootService : Service() {
                     return@withTimeout
                 }
                 // Shizuku first, and before the run rather than inside it: this is the one caller that
-                // runs unattended, so it is the one that cannot fall back and cannot explain itself
-                // afterwards. What it can do is wait, and say what stopped it when waiting was not
-                // enough.
+                // runs unattended, so it is the one that cannot fall back by itself. What it can do is
+                // wait, and then say what stopped it - with the two answers the run screen asks the same
+                // question with, because the person reading this notification is the person who would
+                // otherwise have had to start the app and press one of them.
                 shizukuBlocker()?.let { refusal ->
-                    finish(refusal)
+                    finish(refusal.message, answers = refusal.answers)
                     return@withTimeout
                 }
                 runInstall(bootToken)
@@ -257,15 +258,25 @@ class AutoRootService : Service() {
     }
 
     /**
+     * What stopped the gate, and which answers the notification should offer it with.
+     *
+     * The two travel together because the second is a property of the first: "nothing here can start
+     * Shizuku" must not be reported with a button that tries to, and the two are decided by the same
+     * reading of the device - see [shizukuWait] and [ShizukuRefusalActions].
+     */
+    private data class GateRefusal(val message: String, val answers: ShizukuRefusalActions)
+
+    /**
      * Holds the boot run for Shizuku when the run asked for it, and says what stopped it if it never
      * arrives.
      *
      * Null means the run may start. The setting decides here rather than inside the run because the two
      * answers are not interchangeable: the app's own process is a different execution context, not a
      * degraded one, and for a profile that wants a shell it is not available at all. A boot that quietly
-     * took it would be a boot that did not do what the user asked, with nobody watching to notice.
+     * took it would be a boot that did not do what the user asked, with nobody watching to notice - so
+     * instead of taking it, this hands the choice to the notification.
      */
-    private suspend fun shizukuBlocker(): String? = when (
+    private suspend fun shizukuBlocker(): GateRefusal? = when (
         shizukuWait(
             requested = AppPreferences.shizukuMode(this),
             usable = shizukuUsable(),
@@ -273,12 +284,18 @@ class AutoRootService : Service() {
         )
     ) {
         ShizukuWait.NotRequested, ShizukuWait.Ready -> null
-        ShizukuWait.Unstartable -> getString(R.string.autoroot_shizuku_unstartable)
+        ShizukuWait.Unstartable -> GateRefusal(
+            getString(R.string.autoroot_shizuku_unstartable),
+            ShizukuRefusalActions.StandardOnly,
+        )
         ShizukuWait.Await ->
             if (awaitShizuku()) null
-            else getString(
-                R.string.autoroot_shizuku_unavailable,
-                BootSettle.formatRemaining(SHIZUKU_WAIT_MILLIS),
+            else GateRefusal(
+                getString(
+                    R.string.autoroot_shizuku_unavailable,
+                    BootSettle.formatRemaining(SHIZUKU_WAIT_MILLIS),
+                ),
+                ShizukuRefusalActions.RetryOrStandard,
             )
     }
 
@@ -409,13 +426,28 @@ class AutoRootService : Service() {
         )
     }
 
-    /** The run is over: the notification stops being ongoing and says how it went. */
-    private fun finish(message: String, offerSoftReboot: Boolean = false) {
+    /**
+     * The run is over: the notification stops being ongoing and says how it went.
+     *
+     * [answers] is only for a gate that stood down over Shizuku, and it is a parameter rather than
+     * something added where the notification is built because the actions have to be the *right* two:
+     * a result that was not about Shizuku at all must not carry "use the standard method".
+     */
+    private fun finish(
+        message: String,
+        offerSoftReboot: Boolean = false,
+        answers: ShizukuRefusalActions? = null,
+    ) {
         if (stopping) return
         stopping = true
         getSystemService(NotificationManager::class.java).notify(
             NOTIFICATION_ID,
-            buildNotification(message, ongoing = false, offerSoftReboot = offerSoftReboot),
+            buildNotification(
+                message,
+                ongoing = false,
+                offerSoftReboot = offerSoftReboot,
+                answers = answers,
+            ),
         )
         stopForegroundCompat()
         stopSelf()
@@ -457,6 +489,7 @@ class AutoRootService : Service() {
         message: String,
         ongoing: Boolean,
         offerSoftReboot: Boolean = false,
+        answers: ShizukuRefusalActions? = null,
     ) = NotificationCompat
         .Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_warning)
@@ -485,20 +518,50 @@ class AutoRootService : Service() {
             ),
         )
         .apply {
-            if (!offerSoftReboot) return@apply
-            addAction(
-                0,
-                getString(R.string.autoroot_apply_modules),
-                PendingIntent.getBroadcast(
-                    this@AutoRootService,
-                    2,
-                    Intent(this@AutoRootService, AutoRootActionReceiver::class.java)
-                        .setAction(AutoRootActionReceiver.ACTION_APPLY_MODULES),
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-                ),
-            )
+            if (offerSoftReboot) {
+                addAction(
+                    0,
+                    getString(R.string.autoroot_apply_modules),
+                    PendingIntent.getBroadcast(
+                        this@AutoRootService,
+                        2,
+                        Intent(this@AutoRootService, AutoRootActionReceiver::class.java)
+                            .setAction(AutoRootActionReceiver.ACTION_APPLY_MODULES),
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                    ),
+                )
+            }
+            // The two answers this boot could not ask for itself, in the same order and with the same
+            // meaning as the run screen's dialog. They open the install screen rather than starting a
+            // foreground service from here: an action that quietly ran an exploit behind a notification
+            // would be the unattended behaviour this refusal exists to avoid, and the screen is also
+            // where the reason a start failed is shown.
+            if (answers?.offersRetry == true) {
+                addAction(
+                    0,
+                    getString(R.string.autoroot_answer_retry_shizuku),
+                    answerPendingIntent(3, RunAnswer.RetryShizuku),
+                )
+            }
+            if (answers != null) {
+                addAction(
+                    0,
+                    getString(R.string.autoroot_answer_standard),
+                    answerPendingIntent(4, RunAnswer.StandardMethod),
+                )
+            }
         }
         .build()
+
+    /** An answer the notification offers, handed to the screen that can act on it. */
+    private fun answerPendingIntent(requestCode: Int, answer: RunAnswer): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            requestCode,
+            Intent(this, InstallActivity::class.java)
+                .putExtra(InstallActivity.EXTRA_RUN_ANSWER, answer.extra),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
 
     private fun launcherPendingIntent(): PendingIntent = PendingIntent.getActivity(
         this,
