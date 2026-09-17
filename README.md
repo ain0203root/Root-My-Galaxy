@@ -235,7 +235,10 @@ succeed.
 **Online** reads the catalog and downloads, so a run uses the revision the sources are on now.
 **Offline** uses the last payload that completed a *verified* run, and touches the network not at all:
 the catalog is not consulted, because asking it is the thing this mode exists to avoid, so the
-selection has to agree with what is cached rather than be resolved against a feed.
+selection has to agree with what is cached rather than be resolved against a feed. That applies to the
+install screen before a run starts as much as to the run: in this mode the screen names the target the
+*cached* payload declares, and a missing cache reads **No cached payload** rather than a support
+failure, because nothing about the device's support was ever asked.
 
 A payload is published to the cache only after a run has installed KernelSU successfully, which is
 what makes "known good" mean what it says — nothing is written while the exploit is running. The
@@ -290,6 +293,24 @@ from the behaviour, and it answers "why did the run stop there?" before a boot i
 out. Where a payload is left to its own pacing the screen says so rather than showing an app
 ceiling that will not be applied. It also states whether the run will mark the image partitions
 read-only, because that changes what the run does before it starts.
+
+## The screen during a run
+
+Two writers publish the whole install state: the lookup that decides what this device supports, and
+the run. They cannot both be right, and the lookup is the one that cannot be stopped in the middle of
+its work — its probe and its catalog fetch do not suspend, so cancelling it takes effect only after
+the write it was meant to prevent.
+
+That produced a screen that was live and wrong at once: an online lookup still fetching when an
+offline run had already reached the exploit wrote **Not installed / Ready to install** over it, and
+replaced the run's own log with the probe it had collected — after which every payload line was
+appended to that, so the log kept moving under a card that said nothing was running, and the run
+looked stuck.
+
+A claim now decides which writer owns the screen. It is taken before the work and checked before every
+publish, and a run takes one on the caller's thread — so by the time a lookup's fetch returns, a run
+that has since started has already made its claim stale. The write becomes a no-op instead of a second
+opinion.
 
 ## What a run does once KernelSU is verified
 

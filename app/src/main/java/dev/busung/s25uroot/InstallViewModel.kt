@@ -87,6 +87,34 @@ data class TargetCatalogUiState(
 private data class CommandResult(val code: Int, val output: String)
 
 /**
+ * Which writer still owns the install screen.
+ *
+ * Two of them publish the whole state - the catalog lookup that says what the device supports, and a
+ * run - and the lookup cannot be interrupted in the middle of its work. `Job.cancel()` only takes
+ * effect at a suspension point, and there is none between its blocking fetch and its write, so a
+ * lookup that started before a run lands its write *after* the run has begun.
+ *
+ * What that looked like: an offline run already at the kernel exploit sat behind a card reading "Not
+ * installed / Ready to install", with the run's own log replaced by the probe the lookup had written
+ * and every later payload line appended to that instead - so the screen was live and wrong at the same
+ * time, and the run looked like nothing was happening.
+ *
+ * A claim taken before the work and checked before every publish makes the late write a no-op: the run
+ * claims the screen on the caller's thread, so by the time the lookup's fetch returns, its claim is
+ * stale. Claims are taken from the main thread only - both refresh and a run start there.
+ */
+internal class PublishClaim {
+
+    private val next = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /** Takes ownership of the screen, invalidating every claim handed out before this one. */
+    fun claim(): Int = next.incrementAndGet()
+
+    /** Whether [token] is still the claim that owns the screen. */
+    fun holds(token: Int): Boolean = next.get() == token
+}
+
+/**
  * Payloads are truncated to a fixed release size, so a rebuild of a target --
  * or a different target padded to the same size -- has exactly the length of
  * whatever is already staged, and would keep running in its place.
@@ -134,6 +162,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     /** Set by the run screen's override while a boot-settle wait is in progress. */
     @Volatile
     private var bootSettleOverridden = false
+    private val publishClaim = PublishClaim()
     val state: StateFlow<InstallUiState> = mutableState.asStateFlow()
     val history: StateFlow<List<InstallHistoryEntry>> = mutableHistory.asStateFlow()
     val targetCatalog: StateFlow<TargetCatalogUiState> = mutableTargetCatalog.asStateFlow()
@@ -146,9 +175,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         if (installJob?.isActive == true) return
         mutableHistory.value = historyStore.load()
         discoveryJob?.cancel()
+        // Claimed before the work starts and checked before each publish. Cancelling the job is not
+        // enough on its own: nothing between the probe and the write suspends, so a cancel arrives
+        // after the write it was meant to prevent.
+        val claim = publishClaim.claim()
         discoveryJob = viewModelScope.launch(Dispatchers.IO) {
             val probe = NativeProbe.run()
             if (detectInstalled()) {
+                if (!publishClaim.holds(claim)) return@launch
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Installed,
                     message = app.getString(R.string.status_ksu_active),
@@ -158,7 +192,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 return@launch
             }
             try {
-                val profile = repository.resolveTarget(DeviceSnapshot.current())
+                // Offline mode resolves nothing: the cached payload already names its own target, and
+                // a support lookup would put the very network this mode exists without in front of the
+                // first screen the user sees.
+                val profile = if (AppPreferences.payloadMode(app) == PayloadMode.Offline) {
+                    cachedProfileFor(null)
+                } else {
+                    repository.resolveTarget(DeviceSnapshot.current())
+                }
+                if (!publishClaim.holds(claim)) return@launch
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Ready,
                     message = app.getString(R.string.status_not_installed),
@@ -166,9 +208,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     log = "$probe\n${app.getString(R.string.log_profile, profile.profileId)}",
                 )
             } catch (error: Throwable) {
+                if (!publishClaim.holds(claim)) return@launch
                 mutableState.value = InstallUiState(
                     phase = InstallPhase.Failed,
-                    message = app.getString(R.string.status_support_failed),
+                    // A missing cached payload and an unreachable catalog are the same failure to look
+                    // up support; what differs is which of them the user can do something about, and
+                    // the log line below carries the one that happened.
+                    message = app.getString(
+                        if (AppPreferences.payloadMode(app) == PayloadMode.Offline) {
+                            R.string.status_cache_missing
+                        } else {
+                            R.string.status_support_failed
+                        },
+                    ),
                     probeOutput = probe,
                     log = "$probe\n[-] ${error.message ?: error.javaClass.simpleName}",
                 )
@@ -244,6 +296,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     ) {
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
         discoveryJob?.cancel()
+        // The claim is taken here, on the caller's thread, rather than inside the run: what it has to
+        // outrun is a discovery job that is already past its last suspension point.
+        publishClaim.claim()
         bootSettleOverridden = false
         installJob = viewModelScope.launch(Dispatchers.IO) {
             mutableState.value = InstallUiState(

@@ -204,6 +204,7 @@
     <string name="status_root_only">Root acquired. KernelSU was not loaded, because loading is switched off in Settings.</string>
     <string name="status_not_installed">Not installed</string>
     <string name="status_support_failed">Support check failed</string>
+    <string name="status_cache_missing">No cached payload</string>
     <string name="status_checking_github">Checking GitHub support manifest</string>
     <string name="status_downloading_payload">Downloading payloads</string>
     <string name="notification_channel_boot">Boot installation</string>
