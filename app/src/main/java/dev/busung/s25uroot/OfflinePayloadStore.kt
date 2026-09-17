@@ -49,6 +49,19 @@ internal data class CachedPayload(
     val routePolicy: ExploitRoutePolicy,
     val exploit: RemoteArtifact,
     val kernelSu: RemoteArtifact,
+    /**
+     * Which KernelSU this entry's daemon and module belong to, carried so a cached run stays the one
+     * the user chose.
+     *
+     * Not re-derived from the setting on the way back in, because the setting can be changed between
+     * caching and running: an offline run that read it again would install one flavour's daemon from a
+     * payload built for the other - the exact mix-up the flavour exists to prevent.
+     */
+    val flavor: KernelSuFlavor = KernelSuFlavor.Default,
+    /** Where this payload came from, so an offline run can still name its source. */
+    val sourceId: String = "",
+    val sourceLabel: String = "",
+    val sourceCommit: String = "",
     /** The bundled root helper this payload was verified against, at the time it was cached. */
     val helperSha256: String,
     val helperSize: Long,
@@ -63,6 +76,10 @@ internal data class CachedPayload(
         put("routePolicy", routePolicy.toJsonObject())
         put("exploit", exploit.toJson())
         put("kernelSu", kernelSu.toJson())
+        put("flavor", flavor.id)
+        put("sourceId", sourceId)
+        put("sourceLabel", sourceLabel)
+        put("sourceCommit", sourceCommit)
         put("helperSha256", helperSha256)
         put("helperSize", helperSize)
     }.toString()
@@ -77,6 +94,10 @@ internal data class CachedPayload(
         routePolicy = routePolicy,
         exploit = exploit,
         kernelSu = kernelSu,
+        flavor = flavor,
+        sourceId = sourceId,
+        sourceLabel = sourceLabel,
+        sourceCommit = sourceCommit,
     )
 
     companion object {
@@ -92,6 +113,13 @@ internal data class CachedPayload(
                 routePolicy = ExploitRoutePolicy.parse(json.optJSONObject("routePolicy")),
                 exploit = json.getJSONObject("exploit").artifact(),
                 kernelSu = json.getJSONObject("kernelSu").artifact(),
+                // Absent in a cache written before flavours and source identity were recorded, which is
+                // why each read falls back instead of requiring the key: the payload itself is still
+                // usable, and the entry it rebuilds is the same one an older build would have run.
+                flavor = KernelSuFlavor.fromId(json.optString("flavor")) ?: KernelSuFlavor.Default,
+                sourceId = json.optString("sourceId"),
+                sourceLabel = json.optString("sourceLabel"),
+                sourceCommit = json.optString("sourceCommit"),
                 helperSha256 = json.getString("helperSha256"),
                 helperSize = json.getLong("helperSize"),
             )
@@ -256,6 +284,10 @@ internal object KnownGoodPayloadStore {
             routePolicy = profile.routePolicy,
             exploit = profile.exploit,
             kernelSu = profile.kernelSu,
+            flavor = profile.flavor,
+            sourceId = profile.sourceId,
+            sourceLabel = profile.sourceLabel,
+            sourceCommit = profile.sourceCommit,
             helperSha256 = helperSha256,
             helperSize = helper.size,
         )

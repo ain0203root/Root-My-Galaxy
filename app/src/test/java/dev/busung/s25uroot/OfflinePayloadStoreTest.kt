@@ -2,6 +2,7 @@ package dev.busung.s25uroot
 
 import java.io.File
 import java.nio.file.Files
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -73,6 +74,50 @@ class OfflinePayloadStoreTest {
         assertEquals(original, parsed)
         assertEquals(original.routePolicy, parsed.routePolicy)
         assertEquals(original.exploit.sha256, parsed.exploit.sha256)
+    }
+
+    @Test
+    fun `the flavour and the source are carried through the cache, not re-derived`() {
+        // An offline run has no catalog to ask, so a cache that dropped either of these would leave the
+        // run to read the app's own setting instead - and the setting can have been changed since,
+        // which is how a payload built for one KernelSU ends up installing the other one's daemon.
+        val original = cached().copy(
+            flavor = KernelSuFlavor.KernelSuNext,
+            sourceId = "rushiranpise-Root-My-Galaxy-Payloads",
+            sourceLabel = "Root-My-Galaxy-Payloads",
+            sourceCommit = "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c",
+        )
+
+        val parsed = CachedPayload.parse(original.toJson())
+        val profile = parsed.profile()
+
+        assertEquals(KernelSuFlavor.KernelSuNext, parsed.flavor)
+        assertEquals(KernelSuFlavor.KernelSuNext, profile.flavor)
+        // The plan shows this pair, which is the whole reason it is cached: a cached run can still say
+        // where its payload came from and at which revision.
+        assertEquals("Root-My-Galaxy-Payloads", profile.sourceLabel)
+        assertEquals("9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c", profile.sourceCommit)
+        assertEquals("rushiranpise-Root-My-Galaxy-Payloads", profile.sourceId)
+    }
+
+    @Test
+    fun `a cache written before flavours and sources existed still reads as KernelSU with no source`() {
+        // This is the migration case, and it has to be readable rather than refused: the payload is
+        // still a payload, and the entry it rebuilds is the one an older build would have run.
+        val legacy = cached().toJson().let { json ->
+            JSONObject(json).apply {
+                remove("flavor")
+                remove("sourceId")
+                remove("sourceLabel")
+                remove("sourceCommit")
+            }.toString()
+        }
+
+        val parsed = CachedPayload.parse(legacy)
+
+        assertEquals(KernelSuFlavor.Default, parsed.flavor)
+        assertEquals("", parsed.sourceLabel)
+        assertEquals("", parsed.sourceCommit)
     }
 
     @Test

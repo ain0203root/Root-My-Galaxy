@@ -618,19 +618,41 @@ private fun RootApp(
             }
         }
     }
+    // What the cache holds, kept here because the plan needs it and the plan is built synchronously.
+    // Reloaded whenever a run's phase changes, since a finished run is what publishes a cache entry.
+    var cachedPayload by remember { mutableStateOf<CachedPayload?>(null) }
+    LaunchedEffect(installState.phase) {
+        cachedPayload = withContext(Dispatchers.IO) { KnownGoodPayloadStore.describe(context) }
+    }
     // Built on demand rather than on every recomposition: it reads the boot id to report the
     // cached offset, and only the run-plan dialog needs it.
     val runPlan: () -> RunPlanDisplay = {
-        val resolved = targetCatalog.profiles.resolveFor(device)
+        // Offline mode resolves nothing: the run it is about to start is the cached payload, so the
+        // plan describes that one. Reading the catalog here would describe a run the mode exists to
+        // avoid, and an offline plan that named some other target's source would be a plan about
+        // another app's run.
+        val resolved = if (payloadMode == PayloadMode.Offline) {
+            cachedPayload?.profile()
+        } else {
+            targetCatalog.profiles.resolveFor(device)
+        }
         val freshSession = resolved?.requiresFreshP0Session == true
         val cachedOffset = installViewModel.cachedOffsetForThisBoot()
         RunPlanDisplay(
             deviceLabel = "${device.model} \u00b7 ${device.kernelRelease}",
             targetLabel = resolved?.let { "${it.displayName} (${it.profileId})" },
-            sourceLabel = resolved?.sourceLabel?.takeIf(String::isNotBlank),
+            // The revision is named when the catalog resolved one, because "which branch" and "which
+            // revision of it" are different answers and only the second one is reproducible.
+            sourceLabel = resolved?.sourceLabel?.takeIf(String::isNotBlank)?.let { label ->
+                resolved.sourceCommit.takeIf(String::isNotBlank)
+                    ?.let { "$label @ ${it.take(7)}" }
+                    ?: label
+            },
             unresolvedNote = if (resolved != null) {
                 null
             } else when {
+                payloadMode == PayloadMode.Offline ->
+                    context.getString(R.string.run_plan_offline_no_cache)
                 targetCatalog.loading -> context.getString(R.string.run_plan_catalog_loading)
                 targetCatalog.error != null -> targetCatalog.error
                 targetCatalog.profiles.isEmpty() -> context.getString(R.string.run_plan_catalog_empty)
@@ -965,10 +987,12 @@ private fun OverviewPage(
     onInstall: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    // Read live, because both answers change without this screen doing anything: Shizuku hands out its
-    // binder after it starts, a grant can be made or revoked in the Shizuku app, KernelSU is loaded per
-    // boot, and the one thing that changes both at once is a run finishing - which is why the phase is
-    // a key below. Started from the cheap reading so the card is never blank, then refined.
+    val context = LocalContext.current
+    // Read live, because these change without this screen doing anything: Shizuku hands out its binder
+    // after it starts, a grant can be made or revoked in the Shizuku app, KernelSU is loaded per boot,
+    // and a manager app can be installed or removed - and the one thing that changes all of them at
+    // once is a run finishing, which is why the phase is a key below. Started from the cheap readings
+    // so the card is never blank, then refined.
     var readiness by remember {
         mutableStateOf(
             Readiness(
@@ -3595,7 +3619,7 @@ private fun CachedPayloadDialog(
                 modifier = Modifier
                     .heightIn(max = 420.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (cached == null) {
                     Text(stringResource(R.string.settings_cached_payload_none))
@@ -3603,7 +3627,11 @@ private fun CachedPayloadDialog(
                     // The name first and the id under it, which together are what the settings row
                     // used to carry on one line of value - and the id is here in full, in the place
                     // where a long precise string costs nothing.
-                    RunPlanRow(stringResource(R.string.cached_payload_device), cached.displayName)
+                    RunPlanRow(
+                        stringResource(R.string.cached_payload_device),
+                        cached.displayName,
+                        first = true,
+                    )
                     RunPlanRow(stringResource(R.string.cached_payload_profile), cached.profileId)
                     RunPlanRow(
                         stringResource(R.string.cached_payload_exploit_sha),
@@ -3666,16 +3694,21 @@ private fun RunPlanDialog(
                 modifier = Modifier
                     .heightIn(max = 460.dp)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                RunPlanRow(stringResource(R.string.run_plan_device), display.deviceLabel)
+                RunPlanRow(stringResource(R.string.run_plan_device), display.deviceLabel, first = true)
                 RunPlanRow(
                     stringResource(R.string.run_plan_target),
                     display.targetLabel ?: display.unresolvedNote.orEmpty(),
                 )
-                if (display.sourceLabel != null) {
-                    RunPlanRow(stringResource(R.string.run_plan_source), display.sourceLabel)
-                }
+                // Always shown, even with nothing to put in it. It used to be dropped when the profile
+                // had no source, which made a cached run look like a target from nowhere - and the
+                // question "which catalog is this from" is exactly the one the row is for.
+                RunPlanRow(
+                    stringResource(R.string.run_plan_source),
+                    display.sourceLabel
+                        ?: stringResource(R.string.run_plan_source_none),
+                )
                 RunPlanRow(
                     stringResource(R.string.run_plan_transport),
                     stringResource(
@@ -3893,9 +3926,22 @@ private fun RunLimitGroup(
     }
 }
 
+/**
+ * One row of the plan: its name, its value, and the hairline that separates it from the next.
+ *
+ * The line is what makes this a list rather than a paragraph. Fourteen label-and-value pairs stacked
+ * with nothing between them read as one block, and the pair a reader is looking for is the one they
+ * have to hunt through; a rule per row is what lets the eye run down the names instead.
+ */
 @Composable
-private fun RunPlanRow(label: String, value: String) {
+private fun RunPlanRow(label: String, value: String, first: Boolean = false) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        if (!first) {
+            HorizontalDivider(
+                modifier = Modifier.padding(bottom = 6.dp),
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            )
+        }
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,

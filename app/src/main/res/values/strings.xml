@@ -396,6 +396,8 @@
     <string name="run_plan_target">Target</string>
     <string name="run_plan_session">Session</string>
     <string name="run_plan_source">Source</string>
+    <string name="run_plan_source_none">Not recorded</string>
+    <string name="run_plan_offline_no_cache">Offline mode with nothing cached yet: run an online install first</string>
     <string name="run_plan_transport">Transport</string>
     <string name="run_plan_transport_shizuku">Shizuku: payload and helper staged under /data/local/tmp</string>
     <string name="run_plan_transport_direct">Direct: helper run from app storage</string>
