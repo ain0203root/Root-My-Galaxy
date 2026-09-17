@@ -1,8 +1,10 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RunTransportTest {
@@ -84,6 +86,30 @@ class RunTransportTest {
             shellTransportRefusalStringId(shizukuRequested = true),
             shellTransportRefusalStringId(shizukuRequested = false),
         )
+    }
+
+    @Test
+    fun `a manual run asks about Shizuku instead of failing when it is not running`() {
+        assertTrue(
+            shouldHoldForShizuku(
+                unattended = false,
+                requested = true,
+                running = false,
+                ignoringShizuku = false,
+            ),
+        )
+        // Nothing to ask: it is up, nobody asked for it, or the person already answered.
+        assertFalse(shouldHoldForShizuku(false, requested = true, running = true, ignoringShizuku = false))
+        assertFalse(shouldHoldForShizuku(false, requested = false, running = false, ignoringShizuku = false))
+        assertFalse(shouldHoldForShizuku(false, requested = true, running = false, ignoringShizuku = true))
+    }
+
+    @Test
+    fun `a boot never stops to ask, because there is nobody there to answer`() {
+        // Unattended runs either wait for Shizuku before starting or refuse - the gate's business, not
+        // this question's. Holding one would leave a boot install parked behind a dialog nobody sees.
+        assertFalse(shouldHoldForShizuku(true, requested = true, running = false, ignoringShizuku = false))
+        assertFalse(shouldHoldForShizuku(true, requested = true, running = false, ignoringShizuku = true))
     }
 
     @Test

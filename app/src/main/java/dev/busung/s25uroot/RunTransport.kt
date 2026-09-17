@@ -102,6 +102,25 @@ internal fun shizukuWait(
 }
 
 /**
+ * Whether a run that is about to start should stop and ask about Shizuku instead of going ahead.
+ *
+ * Use Shizuku says the run should go through Shizuku, and the only thing that changes Shizuku not
+ * running is starting it - which is something this app can do. So a manual run asks, where it used to
+ * do one of two worse things: a payload that needs a shell failed outright, and a payload that does not
+ * quietly went another way, which is a setting being ignored without saying so.
+ *
+ * Unattended is not a fallback here but a different answer: a boot has nobody to ask, so it either waits
+ * for Shizuku before the run or refuses - see [shizukuWait]. [ignoringShizuku] is what the person's own
+ * answer to this question turns into on the run that follows, and it is why asking cannot become a loop.
+ */
+internal fun shouldHoldForShizuku(
+    unattended: Boolean,
+    requested: Boolean,
+    running: Boolean,
+    ignoringShizuku: Boolean,
+): Boolean = !unattended && requested && !running && !ignoringShizuku
+
+/**
  * What the local-ADB command prints when it is done, since the ADB shell carries no exit code.
  *
  * It is deliberately not ADB's own `__ADB_EXIT__=` marker: this one is part of the *payload* command's

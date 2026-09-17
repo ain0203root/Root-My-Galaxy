@@ -28,11 +28,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
@@ -102,6 +105,15 @@ class InstallActivity : ComponentActivity() {
                 LaunchedEffect(startInstall, selectionId) {
                     if (startInstall) installViewModel.install(selectionId)
                 }
+                // Asked over the run screen, because the run is what the answer is about: starting
+                // Shizuku runs the installation the screen was opened for, and running without it runs
+                // the same one the other way.
+                ShizukuHoldDialog(
+                    prompt = installState.transportPrompt,
+                    onStartShizuku = { installViewModel.startShizukuForHeldRun(selectionId) },
+                    onRunWithoutShizuku = { installViewModel.runHeldRunWithoutShizuku(selectionId) },
+                    onDismiss = installViewModel::dismissTransportPrompt,
+                )
                 InstallScreen(
                     installState = installState,
                     onRetry = { installViewModel.install(selectionId) },
@@ -677,6 +689,74 @@ private fun installPhaseDetail(installState: InstallUiState): String =
             },
         )
     }
+
+/**
+ * The question a run asks when Use Shizuku is on and Shizuku is not running.
+ *
+ * Two answers, and both are starts: one starts Shizuku and runs through it, the other starts the run
+ * without it. What it replaces is one answer and no choice - the run failed, telling the person to go
+ * and start Shizuku somewhere else and come back, which is a round trip this screen can make itself.
+ *
+ * A start that failed stays here with its reason rather than closing: the other answer is still open,
+ * and a second ask is exactly what a route that was not up yet needs.
+ */
+@Composable
+private fun ShizukuHoldDialog(
+    prompt: TransportPrompt?,
+    onStartShizuku: () -> Unit,
+    onRunWithoutShizuku: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    prompt ?: return
+    val view = LocalView.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Rounded.Bolt, contentDescription = null) },
+        title = { Text(stringResource(R.string.status_shizuku_hold)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(R.string.shizuku_hold_body))
+                prompt.startDetail?.let { detail ->
+                    Text(
+                        detail,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = !prompt.starting,
+                onClick = {
+                    clickHaptic(view)
+                    onStartShizuku()
+                },
+            ) {
+                if (prompt.starting) {
+                    LoadingIndicator(modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    stringResource(
+                        if (prompt.starting) R.string.status_shizuku_starting else R.string.settings_shizuku_start,
+                    ),
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                enabled = !prompt.starting,
+                onClick = {
+                    clickHaptic(view)
+                    onRunWithoutShizuku()
+                },
+            ) {
+                Text(stringResource(R.string.action_run_without_shizuku))
+            }
+        },
+    )
+}
 
 /**
  * The stage, the reason, and the last thing the payload said. Payload output is the only account

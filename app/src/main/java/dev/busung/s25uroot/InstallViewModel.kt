@@ -64,6 +64,14 @@ data class InstallUiState(
      * that went wrong, and a stop marks the step that was in flight when it was abandoned.
      */
     val stoppedAt: RunStage? = null,
+    /**
+     * A run that has stopped before it began, because Shizuku was asked for and is not running.
+     *
+     * Not a failure, and deliberately not a phase of its own: nothing was attempted, nothing is in
+     * flight, and the two things that can follow are both starts. The screen shows this as the question
+     * it is, and the run that follows either goes through Shizuku or says it is not to.
+     */
+    val transportPrompt: TransportPrompt? = null,
 ) {
     val busy: Boolean
         get() = phase in setOf(
@@ -75,6 +83,18 @@ data class InstallUiState(
         )
 
 }
+
+/**
+ * A run waiting on an answer about Shizuku, and what the attempt to start it said.
+ *
+ * [startDetail] is only about the attempt: it is null until one is made, and it holds the reason after
+ * a failed one, so the dialog can say why retrying might not be worth it without swallowing the fact
+ * that the person asked. [starting] keeps the dialog from being pressed twice.
+ */
+data class TransportPrompt(
+    val starting: Boolean = false,
+    val startDetail: String? = null,
+)
 
 /**
  * What a run is handed, for the run-plan screen: the variables the app sets for the payload, the
@@ -211,6 +231,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
      */
     private var protectedFrom = -1
     private var protectedDevices = 0
+
+    /**
+     * What the screen said before a run stopped to ask about Shizuku.
+     *
+     * Kept so dismissing the question puts the screen back rather than leaving it on a message that only
+     * ever says why nothing ran - which is what a retry from a failure screen would do, and that screen's
+     * log is the reason the retry was reached for.
+     */
+    private var stateBeforeHold: InstallUiState? = null
     private val publishClaim = PublishClaim()
     val state: StateFlow<InstallUiState> = mutableState.asStateFlow()
     val history: StateFlow<List<InstallHistoryEntry>> = mutableHistory.asStateFlow()
@@ -337,6 +366,69 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     }
 
     /**
+     * Starts Shizuku for a run that stopped to ask, and starts that run when it comes up.
+     *
+     * The start goes through the same [ShizukuStarter] the settings row uses, with the same routes, so
+     * "retry" here means the same set of attempts: this device's own root, a stored pairing, or a start
+     * token. A failure keeps the question on screen with the reason beside it, because the other answer -
+     * run without it - is still open, and a start that failed once can succeed on a second ask.
+     */
+    fun startShizukuForHeldRun(selectionId: String?) {
+        val prompt = mutableState.value.transportPrompt ?: return
+        if (prompt.starting) return
+        mutableState.value = mutableState.value.copy(
+            transportPrompt = prompt.copy(starting = true, startDetail = null),
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            val outcome = ShizukuStarter.start(
+                context = app,
+                shell = { command ->
+                    KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
+                        NO_ROOT_SHELL_EXIT,
+                        app.getString(R.string.error_shizuku_start_no_root),
+                    )
+                },
+            )
+            // Running, not merely started: the outcome says a binder was seen, and this asks the same
+            // question the next run will ask, so a start that only almost worked is still a question.
+            if (outcome.started && ShizukuController.isRunning()) {
+                mutableState.value = mutableState.value.copy(transportPrompt = null)
+                install(selectionId)
+            } else {
+                mutableState.value = mutableState.value.copy(
+                    transportPrompt = TransportPrompt(
+                        starting = false,
+                        startDetail = outcome.detail.ifBlank {
+                            app.getString(R.string.error_shizuku_start_no_root)
+                        },
+                    ),
+                )
+            }
+        }
+    }
+
+    /**
+     * Runs a run that stopped to ask, the way it would run with Use Shizuku off.
+     *
+     * The setting is left as it is. What this says is "not this run", and a payload that needs a shell
+     * without a pairing to carry it is refused by the run itself, in its own words, rather than here.
+     */
+    fun runHeldRunWithoutShizuku(selectionId: String?) {
+        install(selectionId = selectionId, withoutShizuku = true)
+    }
+
+    /**
+     * Puts the question away without running anything.
+     *
+     * Dismissing is a real answer - the run does not start - so the hold is cleared rather than left to
+     * reappear, and the screen goes back to saying what the last run did.
+     */
+    fun dismissTransportPrompt() {
+        mutableState.value = (stateBeforeHold ?: mutableState.value).copy(transportPrompt = null)
+        stateBeforeHold = null
+    }
+
+    /**
      * Ends the run on the user's word.
      *
      * Cancelling the coroutine is what stops it: every wait in the run is cancellable, and the places
@@ -399,8 +491,35 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
          * payload - another source, another commit, or the other KernelSU project.
          */
         preferAttemptedPayload: Boolean = false,
+        /**
+         * Runs this attempt the way it would run with Use Shizuku off.
+         *
+         * The answer to the prompt below, carried on the run rather than written to the setting: the
+         * choice is about this run, and quietly turning the setting off afterwards would be the same
+         * kind of silence the prompt exists to end.
+         */
+        withoutShizuku: Boolean = false,
     ) {
         if (installJob?.isActive == true || mutableState.value.phase == InstallPhase.Installed) return
+        // Asked before anything is taken or written, so a run that is going to be a question leaves no
+        // trace of one that ran: no claim, no history entry, no log, and a screen that can still say
+        // what the question is.
+        if (shouldHoldForShizuku(
+                unattended = unattended,
+                requested = AppPreferences.shizukuMode(app),
+                running = ShizukuController.isRunning(),
+                ignoringShizuku = withoutShizuku,
+            )
+        ) {
+            stateBeforeHold = mutableState.value
+            mutableState.value = InstallUiState(
+                phase = InstallPhase.Ready,
+                message = app.getString(R.string.status_shizuku_hold),
+                probeOutput = mutableState.value.probeOutput,
+                transportPrompt = TransportPrompt(),
+            )
+            return
+        }
         discoveryJob?.cancel()
         // The claim is taken here, on the caller's thread, rather than inside the run: what it has to
         // outrun is a discovery job that is already past its last suspension point.
@@ -484,7 +603,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // settings screen while this run is in flight must not be able to produce a half-load
                 // - staged on one reading and skipped on another.
                 val loadKernelSu = AppPreferences.loadKernelSu(app)
-                val shizukuRequested = AppPreferences.shizukuMode(app)
+                // The run's own answer to the question above, honoured for the whole run: this is what
+                // makes "Run without Shizuku" mean it rather than asking again a moment later.
+                val shizukuRequested = AppPreferences.shizukuMode(app) && !withoutShizuku
                 val shizukuUsable = ShizukuController.isRunning() && ShizukuController.isGranted()
                 // The gate has already waited for Shizuku, so a binder that is missing here is not the
                 // thing to fall back from: this run was started on the promise that it would go through
