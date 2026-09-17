@@ -2503,13 +2503,16 @@ private fun SettingsPage(
                     // the row to nine lines, which is what a value with its own width does to the column
                     // it is measured against.
                     description = stringResource(R.string.settings_run_limits_summary),
-                    // One ceiling per line, each with its own label: the two read as a pair, and neither
-                    // has to be guessed at from a single run-together phrase. The helper limit is not
-                    // here - it is internal, and it belongs in the dialog with the other two.
+                    // One ceiling per line, each with its own label, so a value is never guessed at
+                    // from a run-together phrase. All three are here: leaving one out made the row
+                    // name two ceilings out of three, which reads as a summary of the run rather than
+                    // of the settings - and the omitted one is the only ceiling that is purely the
+                    // app's own.
                     value = stringResource(
                         R.string.settings_run_limits_value,
                         RunLimits.label(runLimits.totalSeconds),
                         RunLimits.label(runLimits.stallSeconds),
+                        RunLimits.label(runLimits.helperSeconds),
                     ),
                     position = SettingsCardPosition.Middle,
                     onClick = {
