@@ -761,6 +761,16 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     ),
                 )
 
+                // Before anything the run has to wait for, because a boot that has spent its pipe page
+                // budget cannot run this exploit at all: settling a boot for minutes and only then being
+                // refused is the wait the refusal exists to save. The record comes from the payload's own
+                // output in an earlier run, so this can only refuse a boot the device already answered
+                // for. The exploit is the step marked, because that is the step that cannot happen.
+                activeStage = RunStage.Exploit
+                require(!PipeBudget.spentInBoot(app, currentBootToken())) {
+                    app.getString(R.string.error_pipe_budget_spent)
+                }
+
                 // Before the download, so the wait is the first thing the screen reports rather than
                 // something that appears after the payload is already staged.
                 awaitBootSettle(AppPreferences.bootSettleSeconds(app))
@@ -961,6 +971,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 val pipeEvidence = if (stage == RunStage.Exploit) PipeBudget.evidenceIn(log) else null
                 if (pipeEvidence != null) {
                     appendLog(app.getString(R.string.log_pipe_budget, pipeEvidence))
+                    // Recorded for the boot, because the budget is the boot's: the next run refuses
+                    // before it stages anything rather than spending another attempt on a boot that
+                    // cannot take one. A restart ends the record by changing the token.
+                    currentBootToken()?.let { token -> PipeBudget.rememberSpent(app, token) }
                 }
                 val failure = RunFailure.of(
                     stage = stage,
@@ -972,7 +986,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         protectedDevices = protectedDevices,
                         reason = reason,
                     ),
-                    payloadMayStillRun = payloadTerminationUnconfirmed,
+                    inBootRetryBlocked = when {
+                        payloadTerminationUnconfirmed -> InBootRetryBlock.PayloadMayStillRun
+                        pipeEvidence != null -> InBootRetryBlock.PipeBudgetSpent
+                        else -> null
+                    },
                 )
                 appendLog("[-] $reason")
                 // Named where the failure is, and only when it is this protection's doing: a wall the

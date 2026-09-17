@@ -1,7 +1,9 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PipeBudgetTest {
@@ -61,6 +63,23 @@ class PipeBudgetTest {
     @Test
     fun `an empty log says nothing`() {
         assertNull(PipeBudget.evidenceIn(""))
+    }
+
+    @Test
+    fun `a recorded budget belongs to the boot that recorded it`() {
+        // The budget is the boot's, and the boot token is the only thing that changes when a restart
+        // refills it - so a record that is not this boot's is not this boot's spent budget.
+        assertTrue(PipeBudget.isSpentFor("boot-a", "boot-a"))
+        assertFalse(PipeBudget.isSpentFor("boot-a", "boot-b"))
+    }
+
+    @Test
+    fun `nothing recorded, or nothing to compare with, is not a spent budget`() {
+        // Failing closed here would refuse every run on a device whose boot id could not be read,
+        // which is the opposite of what a diagnosis with no run behind it should do.
+        assertFalse(PipeBudget.isSpentFor(null, "boot-a"))
+        assertFalse(PipeBudget.isSpentFor("boot-a", null))
+        assertFalse(PipeBudget.isSpentFor(null, null))
     }
 
     @Test

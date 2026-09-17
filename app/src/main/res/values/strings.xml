@@ -55,6 +55,9 @@
     <string name="retry_waiting_start">Retry now</string>
     <string name="retry_waiting_cancel">Stop waiting</string>
     <string name="log_pipe_budget">[!] The payload was refused the pipe pages its race needs (%1$s). That budget is per boot and this one has spent it, so restart before another attempt.</string>
+    <string name="error_pipe_budget_spent">This boot has already spent the pipe page budget the exploit needs, so another attempt would fail the same way. Restart the phone, then run again.</string>
+    <string name="install_pipe_budget_spent">The pipe page budget the exploit needs is spent for this boot. A restart refills it; waiting does not, and every attempt until then fails the same way.</string>
+    <string name="retry_pipe_budget_hint">Retrying here is not offered: this boot\'s pipe page budget is spent, and only a restart refills it.</string>
     <string name="failure_pipe_budget">The kernel refused the payload the pipe pages it needs. That budget is spent for this boot, so every attempt from here fails the same way until the phone restarts.</string>
     <string name="log_manager_refreshed">[*] Stopped %1$s, which was open across the load, so it reads the module that was just loaded</string>
     <string name="log_payload_may_still_run">[!] The payload could not be confirmed stopped and may still be running. Restart the phone before another attempt.</string>

@@ -428,7 +428,7 @@ private fun InstallScreen(
         // A retry in this boot is not offered while the last payload may still be running. The restart
         // is the answer that clears one, so the dialog keeps it alone and says why the other two are
         // missing rather than hiding that they normally exist.
-        val mayStillRun = installState.failure?.payloadMayStillRun == true
+        val blocked = installState.failure?.inBootRetryBlocked
         AlertDialog(
             onDismissRequest = { if (!arming) showRetryChoice = false },
             icon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
@@ -438,8 +438,11 @@ private fun InstallScreen(
                     Text(stringResource(R.string.retry_choice_body))
                     Text(
                         text = stringResource(
-                            if (mayStillRun) R.string.retry_single_payload_hint
-                            else R.string.retry_wait_hint,
+                            when (blocked) {
+                                InBootRetryBlock.PayloadMayStillRun -> R.string.retry_single_payload_hint
+                                InBootRetryBlock.PipeBudgetSpent -> R.string.retry_pipe_budget_hint
+                                null -> R.string.retry_wait_hint
+                            },
                         ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -474,7 +477,7 @@ private fun InstallScreen(
                     ) {
                         Text(stringResource(R.string.action_cancel))
                     }
-                    if (!mayStillRun) {
+                    if (blocked == null) {
                         TextButton(
                             enabled = !arming,
                             onClick = {
@@ -525,13 +528,14 @@ private fun InstallScreen(
 }
 
 /**
- * The notice for a payload the app could not confirm it stopped.
+ * The notice for a failure whose retry cannot happen in this boot.
  *
- * Not a warning for its own sake: everything the screen offers after a failure assumes nothing is
- * running, and this is the one fact that makes one of those offers wrong.
+ * Not a warning for its own sake: everything the screen offers after a failure assumes this boot can
+ * be run in again, and the reason it cannot is carried on the failure so the notice can name it
+ * rather than leaving the missing retry unexplained.
  */
 @Composable
-private fun PayloadStillRunningNotice() {
+private fun InBootRetryNotice(block: InBootRetryBlock) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -549,7 +553,7 @@ private fun PayloadStillRunningNotice() {
                 modifier = Modifier.size(24.dp),
             )
             Text(
-                text = stringResource(R.string.install_payload_may_still_run),
+                text = stringResource(block.notice),
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
@@ -678,9 +682,7 @@ private fun InstallerStatusCard(
             // The other fact that changes what comes next: something may still be running. Beside the
             // failure rather than only in the log, because it is the reason the retry question below
             // keeps one answer instead of three.
-            if (installState.failure?.payloadMayStillRun == true) {
-                PayloadStillRunningNotice()
-            }
+            installState.failure?.inBootRetryBlocked?.let { block -> InBootRetryNotice(block) }
             if (installState.failure?.readOnlyWall == true) {
                 ReadOnlyWallNotice(onOpenSetting = onOpenReadOnlySetting)
             }

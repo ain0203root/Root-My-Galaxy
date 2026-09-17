@@ -1,6 +1,9 @@
 package dev.busung.s25uroot
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,16 +23,28 @@ class RunTerminationTest {
         val failure = RunFailure.of(
             stage = RunStage.Exploit,
             reason = "The payload did not finish before its ceiling",
-            payloadMayStillRun = true,
+            inBootRetryBlocked = InBootRetryBlock.PayloadMayStillRun,
         )
-        assertTrue(failure.payloadMayStillRun)
+        assertEquals(InBootRetryBlock.PayloadMayStillRun, failure.inBootRetryBlocked)
     }
 
     @Test
-    fun `an ordinary failure does not claim a payload is running`() {
+    fun `an ordinary failure does not claim the boot cannot be run in again`() {
         // Defaulted, so no existing failure starts saying this: a notice that appears on failures it
         // does not apply to is a notice people learn to ignore.
-        assertFalse(RunFailure.of(RunStage.Exploit, "boom").payloadMayStillRun)
+        assertNull(RunFailure.of(RunStage.Exploit, "boom").inBootRetryBlocked)
+    }
+
+    @Test
+    fun `a spent pipe budget blocks a retry in this boot as firmly as a live payload does`() {
+        // Both answers lead to the same place - restart - and the screen needs to know it was blocked
+        // either way, so a failure prepared the shortest way must also have no in-boot retry.
+        val spent = RunFailure.of(
+            stage = RunStage.Exploit,
+            reason = "The kernel refused the payload the pipe pages it needs",
+            inBootRetryBlocked = InBootRetryBlock.PipeBudgetSpent,
+        )
+        assertNotNull(spent.inBootRetryBlocked)
     }
 
     @Test

@@ -37,13 +37,15 @@ data class RunFailure(
      */
     val readOnlyWall: Boolean = false,
     /**
-     * True when the payload process could not be confirmed stopped, so it may still be running.
+     * Why a retry in this boot cannot be offered, when it cannot.
      *
-     * Carried on the failure because it changes what can be offered next: a retry in this boot would
-     * put a second payload on top of a first, and a phone cannot carry two. It is a fact about the run
-     * rather than about its message, so it belongs here and not in the wording of a reason.
+     * Carried on the failure because it changes what can be offered next, and it is a fact about the
+     * run rather than about its message: an attempt in this boot either would put a second payload on
+     * top of one that may still be running, or would be refused the pipe pages the exploit needs. The
+     * two have the same consequence - the only answer that clears the boot is a restart - and naming
+     * the cause is what lets the screen say which one it is instead of refusing for no stated reason.
      */
-    val payloadMayStillRun: Boolean = false,
+    val inBootRetryBlocked: InBootRetryBlock? = null,
 ) {
     companion object {
         /**
@@ -57,10 +59,25 @@ data class RunFailure(
             reason: String,
             evidence: List<String> = emptyList(),
             readOnlyWall: Boolean = false,
-            payloadMayStillRun: Boolean = false,
+            inBootRetryBlocked: InBootRetryBlock? = null,
         ): RunFailure =
-            RunFailure(stage, failureSummary(reason), evidence, readOnlyWall, payloadMayStillRun)
+            RunFailure(stage, failureSummary(reason), evidence, readOnlyWall, inBootRetryBlocked)
     }
+}
+
+/**
+ * Why a failed run cannot offer a retry in the boot it failed in.
+ *
+ * Each carries the notice the screen shows, because the screen's question is "why is there no retry
+ * here?" and the answer differs: one is a payload that may still be writing to the kernel, the other
+ * is a budget the kernel has already given away until the next boot.
+ */
+enum class InBootRetryBlock(@StringRes val notice: Int) {
+    /** The payload could not be confirmed stopped, so a retry would be a second payload. */
+    PayloadMayStillRun(R.string.install_payload_may_still_run),
+
+    /** The boot's pipe page budget is spent, and a restart is what refills it. */
+    PipeBudgetSpent(R.string.install_pipe_budget_spent),
 }
 
 /**
