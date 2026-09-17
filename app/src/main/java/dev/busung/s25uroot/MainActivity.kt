@@ -3266,25 +3266,17 @@ private fun SettingsPage(
                     icon = Icons.Rounded.Security,
                     title = stringResource(R.string.settings_ksu_flavor),
                     description = stringResource(kernelsuFlavor.summaryRes),
+                    // What is selected rides beside the title, and stays there whether a restart is
+                    // pending or not: the band that usually carries a setting would take its width cap
+                    // out of the description, which is the longest one on this screen.
+                    titleValue = kernelsuFlavor.label,
                     // The pending marker is the only warning this screen can give: the two flavours
                     // cannot both be in the kernel, so a switch made in a boot that already carries
-                    // one only takes effect after a restart.
-                    //
-                    // It goes below the description rather than in the value band, because a value is
-                    // measured before the text column beside it: a sentence there took its full cap and
-                    // left the description one word per line. [valueBelow] is drawn instead of [value],
-                    // so the line carries the new flavour's own name - the value band is not a place a
-                    // "wait until you restart" can be read out of.
-                    value = kernelsuFlavor.label,
+                    // one only takes effect after a restart. It says which flavour this boot is
+                    // holding, because "after a restart" on its own leaves the reason to be guessed.
                     valueBelow = loadedFlavor
                         ?.takeIf { it != kernelsuFlavor }
-                        ?.let {
-                            stringResource(
-                                R.string.settings_ksu_flavor_pending,
-                                it.label,
-                                kernelsuFlavor.label,
-                            )
-                        },
+                        ?.let { stringResource(R.string.settings_ksu_flavor_pending, it.label) },
                     position = SettingsCardPosition.Top,
                     onClick = {
                         clickHaptic(view)
@@ -5201,6 +5193,14 @@ internal fun SettingsCard(
     title: String,
     description: String,
     value: String = "",
+    /**
+     * A short setting shown beside the title instead of in the trailing band.
+     *
+     * For a card whose description needs the whole width: [value] is measured before the text column
+     * beside it, so a value there takes its cap out of the description, while a title is a few words
+     * and leaves the rest.
+     */
+    titleValue: String? = null,
     valueBelow: String? = null,
     position: SettingsCardPosition = SettingsCardPosition.Single,
     busy: Boolean = false,
@@ -5238,7 +5238,27 @@ internal fun SettingsCard(
             ) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            title,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (titleValue != null) {
+                            Text(
+                                titleValue,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.widthIn(max = SETTINGS_VALUE_MAX_WIDTH),
+                                textAlign = TextAlign.End,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     // Wraps like SettingsSwitchCard rather than ellipsising: a description that
                     // needs a second line is still worth reading.
                     Text(

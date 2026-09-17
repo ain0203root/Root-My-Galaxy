@@ -514,7 +514,7 @@
     <string name="error_no_root_shell">No root shell is available yet</string>
     <string name="settings_ksu_flavor">KernelSU flavour</string>
     <string name="settings_ksu_flavor_dialog_title">KernelSU flavour</string>
-    <string name="settings_ksu_flavor_pending">This boot already loaded %1$s, so %2$s starts working after you restart the device.</string>
+    <string name="settings_ksu_flavor_pending">Takes effect after a restart. This boot already loaded %1$s.</string>
     <string name="settings_manager">Manager app</string>
     <string name="settings_manager_summary">Offered at %1$s. Other versions can be installed manually; the app does not check which version is installed.</string>
     <string name="settings_manager_summary_installed">Offered at %1$s; %2$s is installed and will be opened.</string>
