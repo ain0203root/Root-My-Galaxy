@@ -13,6 +13,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -59,7 +60,28 @@ class AutoRootService : Service() {
             NOTIFICATION_ID,
             buildNotification(getString(R.string.autoroot_stabilizing), ongoing = true),
         )
-        gateJob = scope.launch { runGate() }
+        gateJob = scope.launch {
+            try {
+                runGate()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                // The last line of defence, and the reason it is here rather than inside the gate's own
+                // try: everything the gate does *before* that try - reading the boot id, the decision,
+                // claiming the attempt - can throw too, and an uncaught throw here takes the process
+                // down. On this path that is a crash dialog after a reboot and no notification at all,
+                // which reads as the app being broken rather than the automatic install not happening.
+                Log.e(TAG, "Root on boot aborted before it could report", error)
+                runCatching {
+                    finish(
+                        getString(
+                            R.string.autoroot_failed,
+                            error.message ?: error.javaClass.simpleName,
+                        ),
+                    )
+                }.onFailure { teardownQuietly() }
+            }
+        }
         return START_NOT_STICKY
     }
 
@@ -114,9 +136,7 @@ class AutoRootService : Service() {
             return
         }
 
-        val wakeLock = getSystemService(PowerManager::class.java)
-            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:AutoRootGate")
-        wakeLock.acquire(GATE_LIMIT_MILLIS)
+        val wakeLock = acquireGateWakeLock()
         try {
             withTimeout(GATE_LIMIT_MILLIS) {
                 awaitSettledFloor()
@@ -140,8 +160,29 @@ class AutoRootService : Service() {
             Log.e(TAG, "Root on boot failed", error)
             finish(getString(R.string.autoroot_failed, detail))
         } finally {
-            if (wakeLock.isHeld) wakeLock.release()
+            releaseQuietly(wakeLock)
         }
+    }
+
+    /**
+     * Holds the CPU awake for the length of the gate, or reports that it could not.
+     *
+     * A wake lock is an optimisation here - without one the wait simply becomes suspendable - so it is
+     * never allowed to decide whether the boot gets its install. Acquiring one is a binder call that
+     * enforces `WAKE_LOCK`, and an ungranted permission throws `SecurityException` *inside the gate's
+     * own process*, which kills it: on a device that withholds the permission, an unattended boot would
+     * never reach the run and the failure would surface only as the app crashing after a reboot.
+     */
+    private fun acquireGateWakeLock(): PowerManager.WakeLock? = runCatching {
+        getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "$packageName:AutoRootGate")
+            .also { it.acquire(GATE_LIMIT_MILLIS) }
+    }.onFailure {
+        Log.w(TAG, "Root on boot: no wake lock for the gate, continuing without one", it)
+    }.getOrNull()
+
+    private fun releaseQuietly(wakeLock: PowerManager.WakeLock?) {
+        runCatching { if (wakeLock?.isHeld == true) wakeLock.release() }
     }
 
     /**
@@ -223,6 +264,21 @@ class AutoRootService : Service() {
         getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
         stopForegroundCompat()
         stopSelf()
+    }
+
+    /**
+     * The same teardown, for when reporting the failure was itself the thing that threw.
+     *
+     * It ignores [stopping] on purpose: that flag is what stops this from cancelling a result the user
+     * is meant to read, and by the time this runs there is no result - the notification was never
+     * posted. What is left to do is only make sure the foreground notification does not outlive the
+     * gate, since a half-finished [finish] would otherwise leave it standing with nothing behind it.
+     */
+    private fun teardownQuietly() {
+        stopping = true
+        runCatching { getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID) }
+        runCatching { stopForegroundCompat() }
+        runCatching { stopSelf() }
     }
 
     private fun buildNotification(message: String, ongoing: Boolean) = NotificationCompat

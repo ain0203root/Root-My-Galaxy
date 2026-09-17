@@ -519,6 +519,14 @@ gate has a deadline of its own — and it reports through the notification it mu
 including which stage a failure stopped in. Failures are recorded in run history like any other run,
 and the notification's *Turn off* action is how a boot automation is stopped without opening the app.
 
+Because it runs unattended, nothing in the gate is allowed to take its process down: the wake lock it
+holds for the duration is best-effort, and the whole gate is wrapped so an unexpected throw reports
+itself through the notification instead of crashing after a reboot. Neither is decoration — an
+ungranted `WAKE_LOCK` throws at the acquire, and the acquire sits *outside* the gate's own error
+handling, so the first version of this crashed one second after start-up and left nothing to read.
+`ManifestPermissionTest` now fails the build when code asks for a permission the manifest never
+declares, which is the general shape of that mistake.
+
 One deliberate difference from the reference: after a successful boot install it starts Shizuku when
 *Shizuku on boot* is on, and does not restart the Android runtime by itself. A zygote restart closes
 whatever is open, which is a decision for the person using the phone — *Restart Zygote* in Recovery is
