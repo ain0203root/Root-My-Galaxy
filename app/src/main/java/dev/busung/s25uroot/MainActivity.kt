@@ -692,6 +692,87 @@ private fun RootApp(
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    // One Shizuku start for the whole app, because two screens offer the button: Home's checklist when
+    // Shizuku is not running, and the Shizuku rows in Settings. The request, what the attempt said and the
+    // result are the same three things wherever it was pressed, and a second implementation would be a
+    // second set of routes and a second place for them to disagree with the screen that reports them.
+    var shizukuStarting by remember { mutableStateOf(false) }
+    var shizukuStartResult by remember { mutableStateOf<String?>(null) }
+    // What the attempt said as it went. The result line alone was not enough to act on: "Shizuku could
+    // not be started" over three routes with different fixes reads as nothing having happened, which is
+    // exactly how it read.
+    var shizukuStartLog by remember { mutableStateOf<List<String>>(emptyList()) }
+    val startShizuku: () -> Unit = {
+        if (!shizukuStarting) {
+            shizukuStarting = true
+            scope.launch {
+                // Written from the start attempt's own thread (it runs on IO) and read here once it is
+                // done, so the list is the attempt's, not the screen's.
+                val lines = Collections.synchronizedList(mutableListOf<String>())
+                val outcome = ShizukuStarter.start(
+                    context = context,
+                    shell = { command ->
+                        KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
+                            NO_ROOT_SHELL_EXIT,
+                            context.getString(R.string.error_shizuku_start_no_root),
+                        )
+                    },
+                    onLog = { line -> lines += line },
+                )
+                shizukuStarting = false
+                shizukuStartLog = lines.toList()
+                shizukuStartResult =
+                    if (outcome.started) context.getString(R.string.status_shizuku_started)
+                    else outcome.detail.ifBlank { context.getString(R.string.error_shizuku_start_no_root) }
+            }
+        }
+    }
+    // The grant this app can ask for and Shizuku sends no callback about, in the one shape both screens
+    // need: whether it landed, so the caller can decide what its own switch or row should say now.
+    val requestShizukuPermission: suspend () -> Boolean = { ShizukuController.requestPermission() }
+
+    shizukuStartResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { shizukuStartResult = null },
+            icon = { Icon(Icons.Rounded.PowerSettingsNew, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.34f)
+                Text(stringResource(R.string.settings_shizuku_start))
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(result)
+                    if (shizukuStartLog.isNotEmpty()) {
+                        Text(
+                            stringResource(R.string.shizuku_start_attempt_log),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = shizukuStartLog.takeLast(SHIZUKU_START_LOG_LINES).joinToString("\n"),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = SHIZUKU_START_LOG_MAX_HEIGHT)
+                                .verticalScroll(rememberScrollState()),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            lineHeight = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    shizukuStartResult = null
+                }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
+    }
+
     // The shortcut's ask, acted on rather than initialised from, so the same path serves a cold start and an
     // app already in the back stack: it arrives either way, is acted on, and is cleared.
     LaunchedEffect(restartShortcut) {
@@ -1054,6 +1135,12 @@ private fun RootApp(
                             rebootNotice = null
                             showRebootSheet = true
                         },
+                        shizukuMode = shizukuMode,
+                        batteryUnrestricted = batteryUnrestricted,
+                        shizukuStarting = shizukuStarting,
+                        startShizuku = startShizuku,
+                        requestShizukuPermission = requestShizukuPermission,
+                        onRequestBatteryExemption = onRequestBatteryExemption,
                         onInstall = {
                             selectedProfile = null
                             if (advancedMode) {
@@ -1112,6 +1199,9 @@ private fun RootApp(
                         onForgetCachedPayload = onForgetCachedPayload,
                         onRequestNotificationPermission = requestNotificationPermission,
                         onRequestBatteryExemption = onRequestBatteryExemption,
+                        shizukuStarting = shizukuStarting,
+                        startShizuku = startShizuku,
+                        requestShizukuPermission = requestShizukuPermission,
                         runPlan = runPlan,
                         openTarget = settingsTarget,
                         onOpenTargetHandled = onSettingsTargetHandled,
@@ -1309,9 +1399,17 @@ private fun OverviewPage(
     onInstall: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenReboot: () -> Unit,
+    /** Whether the app is set to use Shizuku, which decides if its gate belongs on the card at all. */
+    shizukuMode: Boolean,
+    batteryUnrestricted: Boolean,
+    shizukuStarting: Boolean,
+    startShizuku: () -> Unit,
+    requestShizukuPermission: suspend () -> Boolean,
+    onRequestBatteryExemption: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     // Read live, because these change without this screen doing anything: Shizuku hands out its binder
     // after it starts, a grant can be made or revoked in the Shizuku app, KernelSU is loaded per boot,
     // and a manager app can be installed or removed - and the one thing that changes all of them at
@@ -1466,6 +1564,33 @@ private fun OverviewPage(
                     onCancel = onCancelArmedRetry,
                 )
             }
+        }
+        // Above the readiness card, and above everything else that is only information: this one is what the
+        // run needs, and it is the only card on this screen whose rows carry a button.
+        item {
+            RunGatesCard(
+                gates = pendingRunGates(
+                    kernelSu = readiness.kernelSu,
+                    shizukuMode = shizukuMode,
+                    shizuku = readiness.shizuku,
+                    batteryUnrestricted = batteryUnrestricted,
+                ),
+                busy = shizukuStarting,
+                onOpenSettings = onOpenSettings,
+                onFix = { fix ->
+                    when (fix) {
+                        // Read again afterwards rather than assumed: a grant can be refused, and the
+                        // binder arrives a moment after a start the starter already reported as fine.
+                        RunGateFix.AllowShizuku -> scope.launch {
+                            requestShizukuPermission()
+                            readiness = readiness.copy(shizuku = ShizukuController.availability())
+                        }
+                        RunGateFix.StartShizuku -> startShizuku()
+                        RunGateFix.AllowBattery -> onRequestBatteryExemption()
+                        RunGateFix.RootNow -> onInstall()
+                    }
+                },
+            )
         }
         item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
@@ -2057,6 +2182,118 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
  * device's history - a phone that was rooted yesterday reads as not loaded, which is the reason root on
  * boot exists.
  */
+/**
+ * What a run still has to pass, each row carrying the one thing that fixes it.
+ *
+ * The readiness card below reports the device; this card is about the next run, and it lists only what is
+ * outstanding - a checklist that also lists what is already fine has to be read to its end to find the line
+ * that matters. An empty list is therefore the good news, and it is said rather than left blank, because a
+ * card that disappears when everything works is a card nobody learns to trust.
+ *
+ * A gate with no fix is still shown: "KernelSU could not be read" is worth knowing before a run even though
+ * nothing on this screen can act on it, and the row is one tap from Settings where the fuller picture is.
+ */
+@Composable
+private fun RunGatesCard(
+    gates: List<RunGate>,
+    busy: Boolean,
+    onFix: (RunGateFix) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val view = LocalView.current
+    Card(
+        modifier = Modifier.fillMaxWidth().animateContentSize(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text(stringResource(R.string.run_gates_title), style = MaterialTheme.typography.titleMedium)
+            if (gates.isEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(MaterialTheme.shapes.medium)
+                        .clickable {
+                            clickHaptic(view)
+                            onOpenSettings()
+                        },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(13.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.run_gates_ready),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            gates.forEach { gate ->
+                RunGateRow(gate = gate, busy = busy, onFix = onFix, onOpenSettings = onOpenSettings)
+            }
+        }
+    }
+}
+
+/**
+ * One gate: what it is, where it stands, and the button that fixes it.
+ *
+ * The state is the loud part rather than the name, since the name is the same on every phone and the state is
+ * the reason this card is on screen at all. The row itself still opens Settings, because a row that only
+ * carries a button is a row with nothing to read.
+ */
+@Composable
+private fun RunGateRow(
+    gate: RunGate,
+    busy: Boolean,
+    onFix: (RunGateFix) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    val view = LocalView.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable {
+                clickHaptic(view)
+                onOpenSettings()
+            },
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(stringResource(gate.label), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                text = stringResource(gate.state),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        gate.fix?.let { fix ->
+            FilledTonalButton(
+                // A start attempt is the one fix that can still be running when the next frame is drawn,
+                // and a second tap would start a second one.
+                enabled = !busy,
+                onClick = {
+                    clickHaptic(view)
+                    onFix(fix)
+                },
+            ) {
+                Text(stringResource(fix.label))
+            }
+        }
+    }
+}
+
 @Composable
 private fun ReadinessCard(readiness: Readiness, onOpenSettings: () -> Unit) {
     val view = LocalView.current
@@ -3244,6 +3481,12 @@ private fun SettingsPage(
     onForgetCachedPayload: () -> Unit,
     onRequestNotificationPermission: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
+    /** True while an attempt to start Shizuku is in flight, which the rows report as a state. */
+    shizukuStarting: Boolean,
+    /** Runs Shizuku's starter through the root shell. One implementation, shared with Home. */
+    startShizuku: () -> Unit,
+    /** Asks for this app's Shizuku grant, and answers whether it landed. */
+    requestShizukuPermission: suspend () -> Boolean,
     runPlan: () -> RunPlanDisplay,
     /** A card to open on, handed over by a screen that was told to open it, or null. */
     openTarget: String? = null,
@@ -3273,7 +3516,6 @@ private fun SettingsPage(
         AppLog.info(AppLogTags.STAGING, report.logLine(context))
     }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
-    var shizukuStarting by remember { mutableStateOf(false) }
     // Read live, not once at composition: Shizuku hands out its binder asynchronously after the
     // service starts, so a snapshot taken while the screen is being built can say "not running" about
     // a service that is already up - which is how this row came to offer a start that had nothing to
@@ -3308,11 +3550,6 @@ private fun SettingsPage(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    var shizukuStartResult by remember { mutableStateOf<String?>(null) }
-    // What the attempt said as it went. The result line alone was not enough to act on: "Shizuku could
-    // not be started" over three routes with different fixes reads as nothing having happened, which is
-    // exactly how it read.
-    var shizukuStartLog by remember { mutableStateOf<List<String>>(emptyList()) }
     var showPayloadSourcesSheet by remember { mutableStateOf(false) }
     var showLocalPayloadDialog by remember { mutableStateOf(false) }
     var showRunPlanDialog by remember { mutableStateOf(false) }
@@ -3333,74 +3570,6 @@ private fun SettingsPage(
     var showPayloadModeDialog by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val currentLanguageTag = AppPreferences.languageTag(context)
-
-    val startShizuku: () -> Unit = {
-        if (!shizukuStarting) {
-            shizukuStarting = true
-            scope.launch {
-                // Written from the start attempt's own thread (it runs on IO) and read here once it is
-                // done, so the list is the attempt's, not the screen's.
-                val lines = Collections.synchronizedList(mutableListOf<String>())
-                val outcome = ShizukuStarter.start(
-                    context = context,
-                    shell = { command ->
-                        KernelSuRuntime.rootShell(command) ?: ShizukuController.ShellResult(
-                            NO_ROOT_SHELL_EXIT,
-                            context.getString(R.string.error_shizuku_start_no_root),
-                        )
-                    },
-                    onLog = { line -> lines += line },
-                )
-                shizukuStarting = false
-                shizukuStartLog = lines.toList()
-                shizukuStartResult =
-                    if (outcome.started) context.getString(R.string.status_shizuku_started)
-                    else outcome.detail.ifBlank { context.getString(R.string.error_shizuku_start_no_root) }
-            }
-        }
-    }
-
-    shizukuStartResult?.let { result ->
-        AlertDialog(
-            onDismissRequest = { shizukuStartResult = null },
-            icon = { Icon(Icons.Rounded.PowerSettingsNew, contentDescription = null) },
-            title = {
-                DialogDimAmount(0.34f)
-                Text(stringResource(R.string.settings_shizuku_start))
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(result)
-                    if (shizukuStartLog.isNotEmpty()) {
-                        Text(
-                            stringResource(R.string.shizuku_start_attempt_log),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Text(
-                            text = shizukuStartLog.takeLast(SHIZUKU_START_LOG_LINES).joinToString("\n"),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = SHIZUKU_START_LOG_MAX_HEIGHT)
-                                .verticalScroll(rememberScrollState()),
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            lineHeight = 17.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    clickHaptic(view)
-                    shizukuStartResult = null
-                }) {
-                    Text(stringResource(R.string.action_close))
-                }
-            },
-        )
-    }
 
     if (showShizukuMissingDialog) {
         AlertDialog(
@@ -4156,7 +4325,7 @@ private fun SettingsPage(
                                     // Stored only once the grant lands. Turning the preference on first
                                     // and asking afterwards leaves the app preferring a transport it is
                                     // not allowed to use - and leaves this switch saying it is.
-                                    if (ShizukuController.requestPermission()) {
+                                    if (requestShizukuPermission()) {
                                         onShizukuModeChanged(true)
                                     }
                                     shizukuAvailability = ShizukuController.availability()
@@ -4206,7 +4375,7 @@ private fun SettingsPage(
                         when (shizukuAvailability) {
                             ShizukuAvailability.NotRunning -> startShizuku()
                             ShizukuAvailability.WithoutPermission -> scope.launch {
-                                ShizukuController.requestPermission()
+                                requestShizukuPermission()
                                 shizukuAvailability = ShizukuController.availability()
                             }
                             ShizukuAvailability.Ready -> Unit
