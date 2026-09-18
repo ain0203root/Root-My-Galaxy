@@ -1058,6 +1058,11 @@ private fun AppVersionText(
         ),
         style = style,
         color = color,
+        // One line wherever it is used: this is a build label, and the place it is longest - the home
+        // header, where it shares a row with the app's name and a button - is the place a wrapped label
+        // would push something off the edge.
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
 }
 
@@ -1281,22 +1286,32 @@ private fun OverviewPage(
                     contentDescription = null,
                     modifier = Modifier.size(36.dp),
                 )
-                Text(
-                    text = stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.headlineLarge,
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                AppVersionText(
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                )
+                // The name and the build are one column that gives up room rather than takes it. Side by
+                // side with the button they were wider than a phone: the title is 32sp and the version is
+                // a whole build label, and a Row hands its unweighted children the width they ask for - so
+                // the button was pushed past the right edge and clipped by the list. It was there on a
+                // tablet and gone on a phone, which is the shape of a bug this header had no room to show.
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        style = MaterialTheme.typography.headlineLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    AppVersionText(
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+                    )
+                }
                 // Where the KernelSU manager keeps its own power menu, and for the same reason: a way out
                 // of the running Android is not a setting, it is the thing you reach for while looking at
                 // the phone. What this device can actually do is decided inside.
-                IconButton(onClick = {
-                    clickHaptic(view)
-                    onOpenReboot()
-                }) {
+                IconButton(
+                    onClick = {
+                        clickHaptic(view)
+                        onOpenReboot()
+                    },
+                ) {
                     Icon(
                         Icons.Rounded.PowerSettingsNew,
                         contentDescription = stringResource(R.string.reboot_sheet_title),
