@@ -118,6 +118,79 @@ internal enum class RebootRefusal {
  */
 internal const val ACTION_RESTART_OPTIONS = "dev.busung.s25uroot.action.RESTART_OPTIONS"
 
+/**
+ * The action the launcher's soft-restart shortcut sends.
+ *
+ * Separate from the sheet's action because it asks for a different thing: not "show me the ways out" but "take
+ * the one this app would take". The two are read by one function below, so the shortcut XML and the app cannot
+ * disagree about which is which.
+ */
+internal const val ACTION_SOFT_RESTART = "dev.busung.s25uroot.action.SOFT_RESTART"
+
+/** What a launcher shortcut asked this app for. */
+internal enum class RestartShortcut {
+    /** The sheet: the six ways out, with what this device will allow decided on each. */
+    Options,
+
+    /**
+     * The daemon's own userspace restart, asked for without opening anything first.
+     *
+     * The one target that is offered directly, and the reason is what it does: it restarts the Android
+     * userspace and leaves the kernel and its modules alone, so a tap that turns out to be a mistake costs
+     * fifteen seconds. The four that leave Android are behind the sheet's confirmation, and stay there.
+     */
+    SoftRestart,
+}
+
+/**
+ * What an intent's action asks for, or null for a launch that asked for nothing.
+ *
+ * Null rather than a default, because the default is the app opening normally: an intent from anywhere else,
+ * including a plain tap on the icon, must land on the home screen and not on a restart.
+ */
+internal fun restartShortcutOf(action: String?): RestartShortcut? = when (action) {
+    ACTION_RESTART_OPTIONS -> RestartShortcut.Options
+    ACTION_SOFT_RESTART -> RestartShortcut.SoftRestart
+    else -> null
+}
+
+/**
+ * What the direct soft-restart shortcut turned into, as the two things the app can do about it.
+ */
+internal sealed interface SoftRestartShortcutOutcome {
+    /** The daemon took it. There is nothing left to show: the userspace it restarted is going away. */
+    data object Requested : SoftRestartShortcutOutcome
+
+    /**
+     * The sheet, which is where the reason is.
+     *
+     * [report] carries a request the daemon refused, rather than one that was never made: the sheet probes for
+     * itself and names whichever of root and a shell is missing, so the one thing it cannot say on its own is
+     * a refusal that came back from a daemon that was there.
+     */
+    data class OpenSheet(val report: RecoveryOutcome? = null) : SoftRestartShortcutOutcome
+}
+
+/**
+ * Runs the userspace restart a shortcut asked for, or says why the sheet has to open instead.
+ *
+ * The probe comes first because it is the whole of what separates this from the sheet: the daemon's restart is
+ * the one target an unprivileged shell cannot ask for, so running the command anyway would fail on a phone
+ * with only Shizuku, where the sheet says which of the two answers is missing. It reads the same
+ * [currentShellTier] the sheet reads, so the shortcut and the menu cannot disagree about this phone.
+ */
+internal suspend fun runSoftRestartShortcut(context: Context): SoftRestartShortcutOutcome {
+    if (rebootRefusalFor(currentShellTier(), RebootTarget.SoftRestart) != null) {
+        return SoftRestartShortcutOutcome.OpenSheet()
+    }
+    val outcome = runRebootTarget(context, RebootTarget.SoftRestart)
+    return if (outcome.accepted) {
+        SoftRestartShortcutOutcome.Requested
+    } else {
+        SoftRestartShortcutOutcome.OpenSheet(outcome)
+    }
+}
+
 /** The refusal for [target] on this tier, or null when the row is offered. */
 internal fun rebootRefusalFor(tier: ShellTier, target: RebootTarget): RebootRefusal? = when {
     tier.canAskFor(target) -> null

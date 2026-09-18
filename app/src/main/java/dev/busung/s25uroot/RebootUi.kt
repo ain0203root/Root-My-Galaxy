@@ -47,9 +47,14 @@ import kotlinx.coroutines.launch
  *
  * What can be done is probed when the sheet opens and not before: both tiers are real commands, and asking
  * a device for a shell on every recomposition of a page would be paying for an answer nothing is reading.
+ *
+ * [notice] is a refusal the soft-restart shortcut already collected - it makes the same probe and asks for one
+ * target, so there are cases where this sheet opens on something it would otherwise have to be told: a daemon
+ * that answered and then refused. Read once, as the starting value of the line rather than as state that keeps
+ * arriving, because a notice belongs to the attempt that produced it and not to the sheet.
  */
 @Composable
-internal fun RebootSheet(onDismiss: () -> Unit) {
+internal fun RebootSheet(onDismiss: () -> Unit, notice: RecoveryOutcome? = null) {
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
@@ -57,7 +62,7 @@ internal fun RebootSheet(onDismiss: () -> Unit) {
     // rows say so rather than claiming the phone cannot do something.
     var tier by remember { mutableStateOf<ShellTier?>(null) }
     var confirming by remember { mutableStateOf<RebootTarget?>(null) }
-    var refusal by remember { mutableStateOf<RecoveryOutcome?>(null) }
+    var refusal by remember { mutableStateOf(notice) }
     LaunchedEffect(Unit) {
         tier = currentShellTier()
     }

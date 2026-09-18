@@ -1,12 +1,13 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 
 /**
- * The launcher's restart shortcut, and the three files that have to agree for it to work.
+ * The launcher's restart shortcuts, and the three files that have to agree for either to work.
  *
  * The action is a string written twice - once in the shortcut XML the launcher reads, once in the constant the
  * activity compares against - and nothing in the build joins them. A mismatch is invisible to the compiler and
@@ -15,44 +16,87 @@ import java.io.File
  *
  * The same for the shortcut's own attributes: the launcher requires a short label and an icon, and one that is
  * missing an attribute it requires is not an error anywhere - the entry simply does not appear.
+ *
+ * Every test walks every shortcut in the file rather than the first one, because the second one was added
+ * after the first and a test that read only the first would have passed with an unusable entry beside it.
  */
 class RestartShortcutTest {
 
     @Test
-    fun `the shortcut sends the action the app handles`() {
-        val intent = attributesOf(shortcutXml(), "intent")
+    fun `every shortcut sends an action the app handles`() {
+        val shortcuts = shortcuts()
 
-        assertEquals(
-            "the launcher sends an action nothing compares against, so the long press does nothing",
-            ACTION_RESTART_OPTIONS,
-            intent.attribute("android:action"),
-        )
-    }
-
-    @Test
-    fun `the shortcut opens the app's own window`() {
-        val intent = attributesOf(shortcutXml(), "intent")
-        val applicationId = "dev.busung.s25uroot"
-
-        assertEquals(applicationId, intent.attribute("android:targetPackage"))
-        assertEquals(
-            "the shortcut targets something other than the launcher activity, so it opens a screen that " +
-                "does not know about restart",
-            "$applicationId.MainActivity",
-            intent.attribute("android:targetClass"),
-        )
-    }
-
-    @Test
-    fun `the shortcut carries everything a launcher needs to show it`() {
-        val shortcut = attributesOf(shortcutXml(), "shortcut")
-
-        listOf("android:shortcutId", "android:icon", "android:shortcutShortLabel").forEach { attribute ->
-            assertTrue(
-                "the shortcut has no $attribute, and a launcher that cannot fill one in shows nothing at all",
-                shortcut.attribute(attribute).isNotBlank(),
+        assertEquals("the file offers no restart shortcut at all", 2, shortcuts.size)
+        shortcuts.forEach { shortcut ->
+            val action = shortcut.attribute("android:action")
+            assertNotNull(
+                "the launcher sends \"$action\", which restartShortcutOf does not answer, so a long press " +
+                    "opens the app and does nothing else",
+                restartShortcutOf(action),
             )
         }
+    }
+
+    @Test
+    fun `the two shortcuts ask the app for different things`() {
+        val actions = shortcuts().map { it.attribute("android:action") }
+        val ids = shortcuts().map { it.attribute("android:shortcutId") }
+
+        assertEquals(
+            "two shortcuts send the same action, so one of them does what the other does and its own label lies",
+            actions.size,
+            actions.distinct().size,
+        )
+        assertEquals("two shortcuts share an id, and the launcher keeps only one", ids.size, ids.distinct().size)
+        assertEquals(
+            "the soft restart is not the shortcut that asks for the soft restart",
+            setOf(ACTION_RESTART_OPTIONS, ACTION_SOFT_RESTART),
+            actions.toSet(),
+        )
+    }
+
+    @Test
+    fun `every shortcut opens the app's own window`() {
+        val applicationId = "dev.busung.s25uroot"
+
+        shortcuts().forEach { shortcut ->
+            assertEquals(applicationId, shortcut.attribute("android:targetPackage"))
+            assertEquals(
+                "the shortcut targets something other than the launcher activity, so it opens a screen that " +
+                    "does not know about restart",
+                "$applicationId.MainActivity",
+                shortcut.attribute("android:targetClass"),
+            )
+        }
+    }
+
+    @Test
+    fun `every shortcut carries everything a launcher needs to show it`() {
+        shortcuts().forEach { shortcut ->
+            listOf("android:shortcutId", "android:icon", "android:shortcutShortLabel").forEach { attribute ->
+                assertTrue(
+                    "a shortcut has no $attribute, and a launcher that cannot fill one in shows nothing at all",
+                    shortcut.attribute(attribute).isNotBlank(),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `the soft restart is labelled as the target it runs`() {
+        val shortcut = shortcuts().single { it.attribute("android:action") == ACTION_SOFT_RESTART }
+
+        // The label is the sheet's own for that row rather than a second wording of it: the shortcut runs the
+        // same thing the row does, and a name invented for the launcher is a name that has to be kept in step
+        // with the one on the row by hand.
+        assertEquals("@string/reboot_target_soft_restart", shortcut.attribute("android:shortcutShortLabel"))
+        assertEquals("@string/reboot_target_soft_restart_detail", shortcut.attribute("android:shortcutLongLabel"))
+    }
+
+    @Test
+    fun `the sheet's shortcut is labelled by the sheet it opens`() {
+        val shortcut = shortcuts().single { it.attribute("android:action") == ACTION_RESTART_OPTIONS }
+
         // The long label is what a launcher with room shows, and it is the sheet's own title: the two saying
         // the same thing is the point of the shortcut, since what it opens is that sheet.
         assertEquals("@string/reboot_sheet_title", shortcut.attribute("android:shortcutLongLabel"))
@@ -73,16 +117,22 @@ class RestartShortcutTest {
     private fun shortcutXml(): String = source("main/res/xml/shortcuts.xml")
 
     /**
-     * The attributes of the first [tag] element.
+     * Every shortcut in the file, as the attributes of the shortcut and of the intent inside it.
      *
-     * Matched on a name followed by a space rather than by a plain search for the name: `<shortcut` is a prefix
-     * of the `<shortcuts>` root, and the difference is reading the root's namespace instead of the shortcut.
+     * Matched on the element rather than on its name alone: `<shortcut` is a prefix of the `<shortcuts>` root,
+     * and the difference is reading the root's namespace instead of the shortcut's.
      */
-    private fun attributesOf(xml: String, tag: String): String =
-        requireNotNull(Regex("<$tag\\s([^>]*)>").find(xml)) { "no <$tag> element in the shortcut file" }
-            .groupValues[1]
+    private fun shortcuts(): List<Attributes> =
+        Regex("<shortcut\\s([^>]*)>(.*?)</shortcut>", RegexOption.DOT_MATCHES_ALL)
+            .findAll(shortcutXml())
+            .map { match -> Attributes(match.groupValues[1], match.groupValues[2]) }
+            .toList()
 
-    /** The value of one attribute in a fragment of XML, or "" when the fragment does not carry it. */
+    /** One shortcut's attributes, and the intent it carries as a second set of them. */
+    private inner class Attributes(private val own: String, private val body: String) {
+        fun attribute(name: String): String = own.attribute(name).ifBlank { body.attribute(name) }
+    }
+
     private fun String.attribute(name: String): String =
         substringAfter("$name=\"", "").substringBefore("\"")
 

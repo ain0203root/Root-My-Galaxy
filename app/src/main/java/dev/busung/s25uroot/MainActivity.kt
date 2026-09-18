@@ -239,13 +239,14 @@ class MainActivity : ComponentActivity() {
     private var settingsTarget by mutableStateOf<String?>(null)
 
     /**
-     * Whether this launch is the launcher's restart shortcut rather than a tap on the icon.
+     * What this launch is, when it is one of the launcher's restart shortcuts rather than a tap on the icon.
      *
      * Read here for the same reason the target above is: it arrives with an intent, and an intent outlives the
-     * composition it landed in. Only the sheet is opened from it - the shortcut asks which way out, it does not
-     * pick one - so a long press cannot reboot a phone into Download mode by accident.
+     * composition it landed in. Two shortcuts, and only one of them picks a target - the sheet's asks which way
+     * out, so a long press cannot reboot a phone into Download mode by accident; the soft restart's asks for
+     * the one target that leaves the kernel alone, and falls back to the sheet when this phone has no root.
      */
-    private var openRestart by mutableStateOf(false)
+    private var restartShortcut by mutableStateOf<RestartShortcut?>(null)
 
     /**
      * The payload an armed retry would run, read from the attempt that armed it.
@@ -366,7 +367,7 @@ class MainActivity : ComponentActivity() {
         partitionReadOnly = AppPreferences.partitionReadOnlyMode(this)
         payloadMode = AppPreferences.payloadMode(this)
         settingsTarget = SettingsTarget.named(intent?.getStringExtra(SettingsTarget.EXTRA))
-        openRestart = intent?.action == ACTION_RESTART_OPTIONS
+        restartShortcut = restartShortcutOf(intent?.action)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
@@ -482,8 +483,8 @@ class MainActivity : ComponentActivity() {
                     openInstaller = ::openInstaller,
                     settingsTarget = settingsTarget,
                     onSettingsTargetHandled = { settingsTarget = null },
-                    openRestart = openRestart,
-                    onOpenRestartHandled = { openRestart = false },
+                    restartShortcut = restartShortcut,
+                    onRestartShortcutHandled = { restartShortcut = null },
                 )
             }
         }
@@ -501,9 +502,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         settingsTarget = SettingsTarget.named(intent.getStringExtra(SettingsTarget.EXTRA))
-        // The shortcut's own second case: the app is already in the back stack, so the sheet is opened in the
-        // window that exists rather than in a second one.
-        openRestart = intent.action == ACTION_RESTART_OPTIONS
+        // The shortcut's own second case: the app is already in the back stack, so the restart is asked for in
+        // the window that exists rather than in a second one.
+        restartShortcut = restartShortcutOf(intent.action)
     }
 
     private fun openInstaller(selectionId: String? = null) {
@@ -663,9 +664,9 @@ private fun RootApp(
     /** A settings card another screen asked this one to open on, or null. */
     settingsTarget: String?,
     onSettingsTargetHandled: () -> Unit,
-    /** The launcher's restart shortcut was used, so the sheet belongs on screen. */
-    openRestart: Boolean,
-    onOpenRestartHandled: () -> Unit,
+    /** The launcher's restart shortcut was used, or null when this launch did not come from one. */
+    restartShortcut: RestartShortcut?,
+    onRestartShortcutHandled: () -> Unit,
 ) {
     val installState by installViewModel.state.collectAsStateWithLifecycle()
     val history by installViewModel.history.collectAsStateWithLifecycle()
@@ -679,20 +680,41 @@ private fun RootApp(
     var showInstallConfirmation by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
     var showRebootSheet by remember { mutableStateOf(false) }
-    // Opened from the intent rather than initialised from it, so the same path serves a cold start and an
-    // app already in the back stack: the flag arrives either way, is acted on, and is cleared.
-    LaunchedEffect(openRestart) {
-        if (openRestart) {
-            showRebootSheet = true
-            onOpenRestartHandled()
-        }
-    }
+    // What the sheet is opened with when a shortcut's own attempt was refused, so the sheet can show the
+    // device's words instead of the same rows that were already tried. Cleared with the sheet.
+    var rebootNotice by remember { mutableStateOf<RecoveryOutcome?>(null) }
     var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
     var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     val device = remember { DeviceSnapshot.current() }
     val context = LocalContext.current
     val view = LocalView.current
     val scope = rememberCoroutineScope()
+    // The shortcut's ask, acted on rather than initialised from, so the same path serves a cold start and an
+    // app already in the back stack: it arrives either way, is acted on, and is cleared.
+    LaunchedEffect(restartShortcut) {
+        when (val asked = restartShortcut) {
+            null -> Unit
+            RestartShortcut.Options -> {
+                onRestartShortcutHandled()
+                showRebootSheet = true
+            }
+            // In its own coroutine, because this one is keyed on the ask and the ask is cleared the moment it
+            // is read: the probe and the restart outlive the effect that starts them, and a coroutine
+            // cancelled for the state change it caused would drop the restart on the floor.
+            RestartShortcut.SoftRestart -> scope.launch {
+                onRestartShortcutHandled()
+                when (val outcome = runSoftRestartShortcut(context)) {
+                    // Nothing to show: the userspace it restarted is going away, and a message about it would
+                    // be drawn by a process that no longer exists.
+                    SoftRestartShortcutOutcome.Requested -> Unit
+                    is SoftRestartShortcutOutcome.OpenSheet -> {
+                        rebootNotice = outcome.report
+                        showRebootSheet = true
+                    }
+                }
+            }
+        }
+    }
     var updateStatus by remember { mutableStateOf<UpdateStatus>(UpdateStatus.Idle) }
     var updateCardDismissed by remember { mutableStateOf(false) }
     // What the framework came back with after the last restart, read once here because here is the one
@@ -850,7 +872,13 @@ private fun RootApp(
     }
 
     if (showRebootSheet) {
-        RebootSheet(onDismiss = { showRebootSheet = false })
+        RebootSheet(
+            notice = rebootNotice,
+            onDismiss = {
+                showRebootSheet = false
+                rebootNotice = null
+            },
+        )
     }
 
     if (showTargetPicker) {
@@ -1017,7 +1045,12 @@ private fun RootApp(
                         onStartArmedRetry = onStartArmedRetry,
                         onCancelArmedRetry = onCancelArmedRetry,
                         onOpenSettings = { selectedPage = AppPage.Settings },
-                        onOpenReboot = { showRebootSheet = true },
+                        // Opened from the button rather than from a shortcut, so there is no attempt
+                        // behind it to report on.
+                        onOpenReboot = {
+                            rebootNotice = null
+                            showRebootSheet = true
+                        },
                         onInstall = {
                             selectedProfile = null
                             if (advancedMode) {
