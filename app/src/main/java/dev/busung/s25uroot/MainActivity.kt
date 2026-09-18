@@ -674,6 +674,18 @@ private fun RootApp(
         }
         frameworkRestart = report
     }
+    // What earlier runs left in /data/local/tmp, taken away here because here is the one screen every
+    // launch goes through. A sweep after every run is what keeps the directory empty; this is what
+    // handles the files a run could not sweep for itself - one that was killed, one whose app was
+    // never opened again, and everything staged by the builds that came before the sweep existed.
+    //
+    // Silent when there is nothing to say. A device with no shell keeps its files and is not told
+    // about it: that is the normal state before a first run, and a notice about it would be an alarm
+    // about the app not having rooted the phone yet.
+    LaunchedEffect(Unit) {
+        val sweep = withContext(Dispatchers.IO) { StagingSweep.sweepWhenQuiet(context) }
+        sweep.logLine(context)?.let { line -> AppLog.info(AppLogTags.STAGING, line) }
+    }
     // The updater stands down while a run is in flight, and says so when it is asked.
     //
     // A run's delicate part is the payload's own timing, and an update check or a download beside it is

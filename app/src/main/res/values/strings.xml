@@ -48,6 +48,11 @@
     <string name="residue_blind_body">This app\'s own context cannot see into /data/local/tmp on this device, so nothing can be said about what is there - this is a blind reading, not an empty one.</string>
     <string name="residue_row_detail">%1$s · %2$s · %3$s</string>
     <string name="residue_copy">Copy list</string>
+    <string name="staging_sweep_clean">Staging: removed %1$d staged file(s) from /data/local/tmp</string>
+    <string name="staging_sweep_left">Staging: removed %1$d staged file(s); still there: %2$s</string>
+    <string name="staging_sweep_refused">Staging: tried to remove %1$d staged file(s) and the shell refused some: %2$s</string>
+    <string name="staging_sweep_skipped">Staging: not swept, this app has a run in flight in another process</string>
+    <string name="staging_sweep_no_shell">Staging: not swept, no shell answered - what earlier runs left is still in /data/local/tmp</string>
     <string name="residue_role_daemon">KernelSU daemon</string>
     <string name="residue_role_helper">root helper</string>
     <string name="residue_role_payload">exploit payload</string>

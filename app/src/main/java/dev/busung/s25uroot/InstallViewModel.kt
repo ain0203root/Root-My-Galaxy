@@ -611,6 +611,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         protectedDevices = 0
         payloadTerminationUnconfirmed = false
         installJob = viewModelScope.launch(Dispatchers.IO) {
+            // Said before anything is staged, so a sweep in the app's other process cannot take the
+            // payload out from under this run. Best-effort and silent: a boot that cannot be read means
+            // no record, which is the behaviour this app had before the record existed.
+            RunInFlight.begin(app, currentBootToken())
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
                 probeOutput = mutableState.value.probeOutput,
@@ -1025,7 +1029,16 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 finishHistory(InstallRunResult.Failed)
             } finally {
                 activeRunShizuku = null
-            activeRunTransport = null
+                activeRunTransport = null
+                // The run is over, so its files are no longer anything but evidence: swept here rather
+                // than at the next launch because this is the one moment that knows the run has
+                // finished, including the runs that failed or were stopped. The record of this run is
+                // cleared first, so this sweep is not the thing it refuses itself for; anything still
+                // holding the record is another process's run, and the sweep stands down for it.
+                RunInFlight.end(app)
+                StagingSweep.sweepWhenQuiet(app).logLine(app)?.let { line ->
+                    AppLog.info(AppLogTags.STAGING, line)
+                }
             }
         }
     }

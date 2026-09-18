@@ -1,0 +1,110 @@
+package dev.busung.s25uroot
+
+import android.content.Context
+import java.io.File
+
+/**
+ * Which process is on a run right now, in a form this app's *other* processes can read.
+ *
+ * A run can be started from two places and they are not in the same process: the boot gate installs
+ * from its own `:autoroot_gate` service, and the screens install from the UI process. Every guard the
+ * app has against a second attempt - the screen's own `installJob`, the gate's one-attempt-per-boot
+ * claim - is a guard about its own process, so neither of them can tell the other that it is busy. For
+ * a run that means an overlapping attempt, which the app has always been able to have; for a cleanup
+ * it means something worse, because a sweep that cannot see a run in flight deletes the payload that
+ * run is about to execute.
+ *
+ * So this is a record rather than a lock: a run writes down which process is running it, and anything
+ * that wants to know asks. Deliberately not a lock, because a process that dies mid-run would leave a
+ * lock held and nothing would ever be swept again - the record carries the process that wrote it, and a
+ * pid that no longer exists is a run that no longer exists.
+ *
+ * The boot token travels with the pid for the same reason it does everywhere else in this app: a pid is
+ * only unique within one boot, and a record that outlived its boot would name a stranger.
+ */
+internal data class RunHolder(val bootToken: String, val pid: Int) {
+
+    /**
+     * Whether this record still describes a run in flight.
+     *
+     * [alive] is passed in rather than read here so the rule is a rule about two facts and can be
+     * tested without a device: a holder from *this* boot whose process is still there is a run, and
+     * anything else is a record left behind.
+     */
+    fun holds(bootToken: String?, alive: Boolean): Boolean = this.bootToken == bootToken && alive
+
+    companion object {
+        /** Parses a stored record, refusing anything that is not one. */
+        fun of(bootToken: String?, pid: String?): RunHolder? {
+            val token = bootToken?.trim()?.takeIf(String::isNotBlank) ?: return null
+            val parsed = pid?.trim()?.toIntOrNull() ?: return null
+            if (parsed <= 0) return null
+            return RunHolder(token, parsed)
+        }
+    }
+}
+
+internal object RunInFlight {
+
+    private const val STATE = "run_in_flight"
+    private const val TOKEN = "boot_token"
+    private const val PID = "pid"
+
+    /**
+     * Records that this process is about to run, and returns whether it recorded anything.
+     *
+     * A null [bootToken] means the boot could not be read, and nothing is recorded: a holder nobody
+     * could ever match is a record that only serves to go stale.
+     */
+    fun begin(context: Context, bootToken: String?): Boolean {
+        val token = bootToken?.trim()?.takeIf(String::isNotBlank) ?: return false
+        return preferences(context).edit()
+            .putString(TOKEN, token)
+            .putString(PID, android.os.Process.myPid().toString())
+            .commit()
+    }
+
+    /**
+     * Clears the record, but only where it names this process.
+     *
+     * Compared before clearing because two processes can both be finishing: a blind clear would erase
+     * the other one's record and leave its run invisible to the sweep that follows.
+     */
+    fun end(context: Context) {
+        val preferences = preferences(context)
+        val holder = holder(context, preferences) ?: return
+        if (holder.pid != android.os.Process.myPid()) return
+        preferences.edit().remove(TOKEN).remove(PID).commit()
+    }
+
+    /** The run this device has in flight, or null when there is none. */
+    fun holder(context: Context): RunHolder? = holder(context, preferences(context))
+
+    private fun holder(context: Context, preferences: android.content.SharedPreferences): RunHolder? {
+        val holder = RunHolder.of(
+            bootToken = preferences.getString(TOKEN, null),
+            pid = preferences.getString(PID, null),
+        ) ?: return null
+        return holder.takeIf { it.holds(currentBootToken(), processAlive(it.pid)) }
+    }
+
+    /**
+     * Whether a process is still there.
+     *
+     * `/proc/<pid>` rather than `kill(pid, 0)`: this asks only about a process, needs no signal to be
+     * sent - even a null signal is a permission this app does not need to spend - and works for the
+     * app's own processes, which is the whole of what it is for.
+     */
+    private fun processAlive(pid: Int): Boolean = File("/proc/$pid").exists()
+
+    private fun currentBootToken(): String? = kernelBootToken()
+
+    /**
+     * The app's own preferences file, opened per call.
+     *
+     * Not cached: two processes writing this record must see each other's writes, and a cached
+     * `SharedPreferences` in one process would answer with the value it read at its own start.
+     */
+    private fun preferences(context: Context) =
+        context.getSharedPreferences(STATE, Context.MODE_PRIVATE)
+}
