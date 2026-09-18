@@ -16,8 +16,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * The settings page, as the parts it is read by.
  *
  * The page is long enough that finding one switch in it meant scrolling past everything else, and most
- * visits are for one thing. So each part is a section that can be collapsed to a single row - the card of
- * eight at the top - and stays as it was left.
+ * visits are for one thing. So each part is a section that can be collapsed to a single heading - the
+ * headings of consecutive collapsed sections being one dense card - and stays as it was left.
  *
  * Every section is **open** unless it is collapsed, and the preference stores the collapsed ones: nothing
  * stored then means the whole page open, which is where a settings page belongs, and the one arrangement the
@@ -64,6 +64,59 @@ internal enum class SettingsSection(
         fun open(closed: Set<SettingsSection>): Set<SettingsSection> = entries.filterNot { it in closed }.toSet()
 
         /**
+         * The headings' layout: which card each one belongs to, and where the page's gaps go.
+         *
+         * A **closed** section is a row of the index card - the dense block of headings - and an **open** one
+         * is a card of its own with its content under it. So the page is a sequence of runs: consecutive
+         * closed sections share one card and sit flush at the seam, a section that is open stands apart with a
+         * group's gap above and below, and a run of one is a card with both its ends rounded.
+         *
+         * Nested rather than flush is what the open section cannot be: its content is made of cards, and a
+         * rounded card inside a card leaves the step that reads as a notch - full-width bar, narrower rows,
+         * full-width bar again. Standing the open section apart is the one arrangement with no step in it.
+         *
+         * Written out here rather than decided at each of the eight call sites because the answer is about the
+         * *neighbours*: a row is square-bottomed only when another row of the same card follows it, and eight
+         * numbers written by hand cannot know that. Adding, moving or opening a section is then a change to
+         * this rule rather than to eight places that each half-remember it.
+         */
+        fun indexRows(open: Set<SettingsSection>): Map<SettingsSection, SettingsIndexRow> {
+            val rows = mutableMapOf<SettingsSection, SettingsIndexRow>()
+            val run = mutableListOf<SettingsSection>()
+
+            fun closeRun() {
+                run.forEachIndexed { index, section ->
+                    rows[section] = SettingsIndexRow(
+                        position = when {
+                            run.size == 1 -> SettingsCardPosition.GroupedSingle
+                            index == 0 -> SettingsCardPosition.Top
+                            index == run.lastIndex -> SettingsCardPosition.Bottom
+                            else -> SettingsCardPosition.Middle
+                        },
+                        // Only the first row of a block pays the gap, and the very first block of the page
+                        // pays nothing: the title above it already ends in one.
+                        startsBlock = index == 0 && rows.isNotEmpty(),
+                    )
+                }
+                run.clear()
+            }
+
+            entries.forEach { section ->
+                if (section in open) {
+                    closeRun()
+                    rows[section] = SettingsIndexRow(
+                        position = SettingsCardPosition.GroupedSingle,
+                        startsBlock = rows.isNotEmpty(),
+                    )
+                } else {
+                    run += section
+                }
+            }
+            closeRun()
+            return rows
+        }
+
+        /**
          * The section a jump is aimed at, or null when no section claims that key.
          *
          * Null rather than a default, because guessing would scroll somewhere the caller did not ask for;
@@ -83,16 +136,12 @@ internal enum class SettingsSection(
 }
 
 /**
- * Where this section's row sits in the index card, which is what its corners are cut for.
- *
- * The eight rows are one card, so the ends are rounded and everything between them is square - the same
- * arrangement the cards inside a section use, read the same way. It is derived from the order of the enum
- * rather than passed in at each of the eight call sites, because a position that is written by hand is a
- * position that can be left behind when a section is added or moved: the page would then draw two cards and
- * nobody would know which of the nine numbers was the stale one.
+ * How the page draws one section's heading, given what its neighbours are doing.
  */
-internal fun SettingsSection.indexPosition(): SettingsCardPosition = when (ordinal) {
-    0 -> SettingsCardPosition.Top
-    SettingsSection.entries.lastIndex -> SettingsCardPosition.Bottom
-    else -> SettingsCardPosition.Middle
-}
+internal data class SettingsIndexRow(
+    /** The corners the heading's card rests at. */
+    val position: SettingsCardPosition,
+    /** True when the page owes this heading the gap that separates one card from the one above it. */
+    val startsBlock: Boolean,
+)
+

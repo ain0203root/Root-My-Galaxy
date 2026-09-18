@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -113,12 +114,11 @@ class SettingsSectionsTest {
     }
 
     @Test
-    fun `the index is one card, so only its ends are rounded`() {
-        val first = SettingsSection.entries.first()
-        val last = SettingsSection.entries.last()
+    fun `nothing collapsed is one card, so only its ends are rounded`() {
+        val rows = SettingsSection.indexRows(open = emptySet())
 
-        assertEquals(SettingsCardPosition.Top, first.indexPosition())
-        assertEquals(SettingsCardPosition.Bottom, last.indexPosition())
+        assertEquals(SettingsCardPosition.Top, rows.getValue(SettingsSection.entries.first()).position)
+        assertEquals(SettingsCardPosition.Bottom, rows.getValue(SettingsSection.entries.last()).position)
         // Everything between them has to be square on both ends, which is what makes the eight rows read as
         // one card rather than as eight: a single Middle row out of place leaves a rounded seam in the
         // middle of it, and nothing on screen says which row that is.
@@ -126,7 +126,52 @@ class SettingsSectionsTest {
             assertEquals(
                 "${section.name} sits between two others and is drawn as a card of its own",
                 SettingsCardPosition.Middle,
-                section.indexPosition(),
+                rows.getValue(section).position,
+            )
+        }
+        // And the whole card is the first block on the page, so nothing above it is owed a gap: the title
+        // already ends in one.
+        assertEquals(
+            "the first heading pays a gap the page has already paid",
+            listOf(false),
+            rows.values.map { it.startsBlock }.distinct(),
+        )
+    }
+
+    @Test
+    fun `an open section is a card of its own, and whatever it splits stays whole`() {
+        val open = setOf(SettingsSection.Run)
+        val rows = SettingsSection.indexRows(open)
+        val before = SettingsSection.entries.takeWhile { it != SettingsSection.Run }
+        val after = SettingsSection.entries.dropWhile { it != SettingsSection.Run }.drop(1)
+
+        // The open heading heads its own content instead of sitting inside the index card.
+        assertEquals(SettingsCardPosition.GroupedSingle, rows.getValue(SettingsSection.Run).position)
+        // Both runs it leaves behind are cards with rounded ends, and the row after each run starts a block
+        // - which is the gap that keeps the step the screenshot showed out of the page.
+        assertEquals(SettingsCardPosition.Top, rows.getValue(before.first()).position)
+        assertEquals(SettingsCardPosition.Bottom, rows.getValue(before.last()).position)
+        assertEquals(SettingsCardPosition.Top, rows.getValue(after.first()).position)
+        assertEquals(SettingsCardPosition.Bottom, rows.getValue(after.last()).position)
+        assertTrue(rows.getValue(after.first()).startsBlock)
+        assertTrue(rows.getValue(SettingsSection.Run).startsBlock)
+        // Rows inside a run stay flush, which is the dense card the collapsed page is supposed to be.
+        assertFalse(rows.getValue(before.last()).startsBlock)
+    }
+
+    @Test
+    fun `a lone collapsed section is a card with both ends rounded`() {
+        // Every section open but one: the odd one out cannot share a card with anything, so it is a card of
+        // its own rather than a flat row with nothing either side of it to join.
+        val open = SettingsSection.entries.toSet() - SettingsSection.Root
+        val rows = SettingsSection.indexRows(open)
+
+        assertEquals(SettingsCardPosition.GroupedSingle, rows.getValue(SettingsSection.Root).position)
+        SettingsSection.entries.filterNot { it == SettingsSection.Root }.forEach { section ->
+            assertEquals(
+                "an open section is part of no run, and ${section.name} was laid out as one",
+                SettingsCardPosition.GroupedSingle,
+                rows.getValue(section).position,
             )
         }
     }

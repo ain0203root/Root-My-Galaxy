@@ -3784,6 +3784,9 @@ private fun SettingsPage(
     // an empty preference is the whole page open - which is what a section list has to start as.
     var closedSections by remember { mutableStateOf(AppPreferences.closedSettingsSections(context)) }
     val openSections = SettingsSection.open(closedSections)
+    // Which card each heading belongs to, recomputed when what is open changes: a heading only knows where its
+    // own corners go by looking at its neighbours, so the list cannot be laid out one row at a time.
+    val indexRows = remember(openSections) { SettingsSection.indexRows(openSections) }
     /** Opens or closes one section, and stores it so the page comes back the way it was left. */
     val setSectionOpen: (SettingsSection, Boolean) -> Unit = { section, open ->
         val next = if (open) closedSections - section else closedSections + section
@@ -3858,7 +3861,7 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SettingsSectionHeader(SettingsSection.Appearance, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.Appearance, openSections, indexRows, toggleSection) }
         if (SettingsSection.Appearance in openSections) item {
             SettingsSectionBody {
                 ThemeModeSelector(themeMode, onThemeModeChanged)
@@ -3897,7 +3900,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Payloads, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.Payloads, openSections, indexRows, toggleSection) }
         if (SettingsSection.Payloads in openSections) item {
             SettingsSectionBody {
                 SettingsCard(
@@ -3994,7 +3997,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Run, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.Run, openSections, indexRows, toggleSection) }
 
         // Keyed by the card something else in the app may ask for: the run screen's read-only failure
         // names this setting and hands its key over, and a key is what lets the page find the row without
@@ -4109,7 +4112,7 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SettingsSectionHeader(SettingsSection.Shizuku, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.Shizuku, openSections, indexRows, toggleSection) }
         if (SettingsSection.Shizuku in openSections) item {
             SettingsSectionBody {
                 SettingsSwitchCard(
@@ -4236,7 +4239,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.WirelessAdb, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.WirelessAdb, openSections, indexRows, toggleSection) }
         if (SettingsSection.WirelessAdb in openSections) item {
             SettingsSectionBody {
                 // Read when the screen is built rather than on every recomposition: it is a file read
@@ -4320,7 +4323,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Root, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.Root, openSections, indexRows, toggleSection) }
         if (SettingsSection.Root in openSections) item {
             SettingsSectionBody {
                 // The flavour is first because everything below it is about this flavour's module:
@@ -4541,7 +4544,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Recovery, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.Recovery, openSections, indexRows, toggleSection) }
         if (SettingsSection.Recovery in openSections) item {
             SettingsSectionBody {
                 RootRecoverySection(
@@ -4558,7 +4561,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.System, openSections, toggleSection) }
+        item { SettingsSectionHeader(SettingsSection.System, openSections, indexRows, toggleSection) }
         if (SettingsSection.System in openSections) item {
             SettingsSectionBody {
                 SettingsCard(
@@ -6671,9 +6674,14 @@ private fun SourceCoverageBlock(
  * One row of the settings index: the section's glyph, its name, and the way in.
  *
  * A card rather than a bare line of text, because this is the page's table of contents and it is read as a
- * list: the eight rows sit flush against each other as one card - [indexPosition] cuts their corners for it
- * - and each row is the same material as the cards it opens, at the same height, so a row that opens a
- * section and a row that sets something are recognisably the same kind of thing.
+ * list: headings of collapsed sections sit flush against each other as one card - [SettingsIndexRow] cuts
+ * their corners for it - and each heading is the same material as the cards it opens, at the same height, so
+ * a row that opens a section and a row that sets something are recognisably the same kind of thing.
+ *
+ * A heading whose section is **open** is a card of its own instead, with its content directly under it: full
+ * width, standing apart at a group's gap. Nesting the content inside the heading's card is what would show a
+ * step - a full-width bar over narrower cards over a full-width bar - and unlike the inset it replaced, there
+ * is nothing here that has to be read as a deliberate indent to be tolerated.
  *
  * The row says what the section is called and nothing else. Its state was here for a while - the accent, the
  * payload mode, the manager's flavour - and it was the wrong job for the row: half the sections have no single
@@ -6684,18 +6692,24 @@ private fun SourceCoverageBlock(
 private fun SettingsSectionHeader(
     section: SettingsSection,
     openSections: Set<SettingsSection>,
+    indexRows: Map<SettingsSection, SettingsIndexRow>,
     onToggle: (SettingsSection) -> Unit,
 ) {
     val view = LocalView.current
     val open = section in openSections
+    val row = indexRows.getValue(section)
     val interactionSource = remember { MutableInteractionSource() }
     Card(
         onClick = {
             clickHaptic(view)
             onToggle(section)
         },
-        modifier = Modifier.fillMaxWidth(),
-        shape = expressiveClickableCardShape(interactionSource, section.indexPosition()),
+        modifier = Modifier
+            .fillMaxWidth()
+            // The gap belongs to the first row of a card, and the seam to the rows inside one - the same
+            // division the page's own arrangement makes, one level up.
+            .padding(top = if (row.startsBlock) SETTINGS_BLOCK_GAP else 0.dp),
+        shape = expressiveClickableCardShape(interactionSource, row.position),
         interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -6745,15 +6759,15 @@ private fun SettingsSectionHeader(
 /**
  * The cards of one section that is open, drawn as the group they are.
  *
- * Inset from the index row that opened it, which is the whole of what says these rows belong to that row: the
- * section keeps the card it always was, and the row above it stays part of the index card rather than
- * becoming the head of this one. The spacing at both ends is the gap the page used to leave between groups,
- * paid here because the page's own arrangement is now the seam between index rows.
+ * Full width and directly under the heading that opened it, which is what makes it that heading's content:
+ * the pair read as one accordion - a heading card, a group's gap, then the cards - where an inset would say
+ * the same thing with a step in the card's silhouette. The gap above is the page's own, paid here for the
+ * same reason the heading pays it above itself, and the rows inside keep the seam.
  */
 @Composable
 private fun SettingsSectionBody(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp),
+        modifier = Modifier.padding(top = SETTINGS_BLOCK_GAP),
         verticalArrangement = Arrangement.spacedBy(SETTINGS_CARD_SEAM),
         content = content,
     )
@@ -6824,11 +6838,19 @@ private val SETTINGS_HIGHLIGHT_WIDTH = 2.dp
 /**
  * The seam between two rows of one card.
  *
- * Two places read it: the page's own arrangement, because the index is one card of eight flush rows, and the
- * inset body of an open section, whose cards are one group. It is the same number the app's groups have always
- * been built with - what changed is who pays for the gaps around them.
+ * Two places read it: the page's own arrangement, because consecutive headings are one card of flush rows,
+ * and the body of an open section, whose cards are one group. It is the same number the app's groups have
+ * always been built with - what changed is who pays for the gaps around them.
  */
 private val SETTINGS_CARD_SEAM = 2.dp
+
+/**
+ * The gap between two cards, which is what a card's first row is padded by.
+ *
+ * Together with the seam this is the 14dp the app has always left between one group and the next; the page's
+ * arrangement is the seam, so a gap is paid by whichever row starts a card.
+ */
+private val SETTINGS_BLOCK_GAP = 12.dp
 
 /**
  * How much of a failed Shizuku start is worth showing.
