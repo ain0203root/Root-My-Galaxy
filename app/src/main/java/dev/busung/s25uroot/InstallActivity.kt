@@ -33,6 +33,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bolt
@@ -41,6 +43,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Security
@@ -62,6 +65,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +73,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -238,7 +243,26 @@ private fun InstallScreen(
         waitRemaining = null
         onRetry()
     }
+    // Whether the log is following its tail. A state rather than a reflex: the panel used to jump to the
+    // bottom on every line, which undid any attempt to read back through a long exploit.
+    var follow by remember { mutableStateOf(LogFollow.Start) }
+    // Where the panel is, as a fact rather than an event: `maxValue` is what the text currently measures,
+    // so this is also correct after a rotation or a font change.
+    val atEnd by remember {
+        derivedStateOf { logScrollState.value >= logScrollState.maxValue - END_SLOP_PX }
+    }
+    LaunchedEffect(atEnd) { follow = follow.atEnd(atEnd) }
+    // Tapping the chip is a request to come back down, which is a scroll even when nothing new arrived.
+    var jumpRequests by remember { mutableStateOf(0) }
+    LaunchedEffect(jumpRequests) {
+        if (jumpRequests == 0) return@LaunchedEffect
+        logScrollState.animateScrollTo(logScrollState.maxValue)
+    }
     LaunchedEffect(installState.log) {
+        val next = follow.onNewLines()
+        follow = next
+        if (!next.following) return@LaunchedEffect
+        // After the frame that laid the new text out, which is when `maxValue` includes it.
         delay(40)
         logScrollState.scrollTo(logScrollState.maxValue)
     }
@@ -400,6 +424,14 @@ private fun InstallScreen(
             )
             InstallerLog(
                 output = installState.log,
+                showJumpToEnd = follow.jumpOffered,
+                onJumpToEnd = {
+                    clickHaptic(view)
+                    follow = LogFollow.Start
+                    // A counter rather than a scroll here: the effect that already owns this state does the
+                    // scrolling, and a second path to the same scroll is how two of them come to disagree.
+                    jumpRequests++
+                },
                 // A height of its own, because this panel is the only continuous account of a run: as a
                 // weighted remainder it collapsed to nothing the moment a failure card had something to
                 // say. The status card is still capped, so the two together are a page rather than a
@@ -839,11 +871,22 @@ internal fun copyLogToClipboard(context: Context, text: String) {
     Toast.makeText(context, context.getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
 }
 
+/**
+ * How close to the bottom counts as the bottom.
+ *
+ * A few pixels rather than zero: a scroll that lands a hair short - a trackpad fling, a font change - would
+ * otherwise read as "the person is reading the middle" and quietly stop following the run.
+ */
+private const val END_SLOP_PX = 8
+
 @Composable
 private fun InstallerLog(
     output: String,
     modifier: Modifier,
     scrollState: androidx.compose.foundation.ScrollState,
+    /** Whether the panel offers the way back to the newest line. */
+    showJumpToEnd: Boolean,
+    onJumpToEnd: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -877,17 +920,51 @@ private fun InstallerLog(
                     )
                 }
             }
-            Text(
-                text = output.ifBlank { stringResource(R.string.install_preparing) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .verticalScroll(scrollState),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                lineHeight = 18.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                Text(
+                    text = output.ifBlank { stringResource(R.string.install_preparing) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(scrollState),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                // Over the text rather than beside it: the chip is about the last line, and a row of its own
+                // would shorten every line of a payload's output for the sake of a button. Faded rather than
+                // animated in and out, so it cannot steal a line of the log while it arrives.
+                val chipAlpha by animateFloatAsState(
+                    targetValue = if (showJumpToEnd) 1f else 0f,
+                    label = "jump-to-end",
+                )
+                if (chipAlpha > 0.01f) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomEnd).alpha(chipAlpha),
+                        onClick = onJumpToEnd,
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        tonalElevation = 4.dp,
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.install_log_jump_to_end),
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                            Icon(
+                                Icons.Rounded.ExpandMore,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
