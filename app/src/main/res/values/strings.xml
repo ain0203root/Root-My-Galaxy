@@ -757,6 +757,7 @@
     <string name="kernel_match_exact">Exact kernel release match</string>
     <string name="kernel_match_version">Kernel version match only (%1$s)</string>
     <string name="kernel_match_none">Kernel release not listed</string>
+    <string name="action_undo">Undo</string>
     <string name="run_notification_title">Install running</string>
     <string name="run_notification_channel_name">Root run</string>
     <string name="run_notification_channel_description">What a running install is doing, with stop and copy-log actions</string>
@@ -830,6 +831,10 @@
     <string name="history_select_all">Select all</string>
     <string name="history_clear_selection">Clear selection</string>
     <string name="history_delete_selected">Delete (%1$d)</string>
+    <plurals name="history_deleted">
+        <item quantity="one">Run deleted</item>
+        <item quantity="other">%1$d runs deleted</item>
+    </plurals>
     <plurals name="history_delete_selected_title">
         <item quantity="one">Delete this run?</item>
         <item quantity="other">Delete %1$d runs?</item>

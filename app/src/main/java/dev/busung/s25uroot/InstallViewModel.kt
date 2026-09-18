@@ -335,6 +335,21 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         mutableHistory.value = mutableHistory.value.filterNot { it.id in toDelete }
     }
 
+    /**
+     * Puts deleted runs back, which is what makes the delete undoable.
+     *
+     * The entries are the caller's, taken before it deleted them: a log is a file on this phone and nothing
+     * else holds a copy, so an undo that re-read a directory would restore nothing. Writing them back is the
+     * same save the run itself uses, which is why an undone entry is indistinguishable from one that was
+     * never deleted - same id, same log, same place in the list by its own start time.
+     */
+    fun restoreHistoryEntries(entries: Collection<InstallHistoryEntry>) {
+        if (entries.isEmpty()) return
+        entries.forEach(historyStore::save)
+        val restored = (mutableHistory.value + entries).distinctBy { it.id }
+        mutableHistory.value = restored.sortedByDescending { it.startedAtMillis }
+    }
+
     fun loadTargetCatalog() {
         if (mutableTargetCatalog.value.loading) return
         viewModelScope.launch(Dispatchers.IO) {

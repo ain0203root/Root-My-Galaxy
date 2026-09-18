@@ -151,6 +151,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -686,6 +690,9 @@ private fun RootApp(
     var showTargetPicker by remember { mutableStateOf(false) }
     var showRebootSheet by remember { mutableStateOf(false) }
     var showPreflight by remember { mutableStateOf(false) }
+    // The app's one undo surface. Held here rather than per page, so a deletion on History and a deletion in
+    // the residue dialog use the same one - and so neither has to know where it is drawn.
+    val snackbarHostState = remember { SnackbarHostState() }
     // What the sheet is opened with when a shortcut's own attempt was refused, so the sheet can show the
     // device's words instead of the same rows that were already tried. Cleared with the sheet.
     var rebootNotice by remember { mutableStateOf<RecoveryOutcome?>(null) }
@@ -1109,6 +1116,10 @@ private fun RootApp(
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
+            // One undo surface for the whole app, because the two deletions that can be undone are on
+            // different pages and both want the same shape: a message that says what went, and a button that
+            // puts it back.
+            snackbarHost = { SnackbarHost(snackbarHostState) },
         ) { padding ->
             AnimatedContent(
                 targetState = selectedPage,
@@ -1160,9 +1171,11 @@ private fun RootApp(
                         },
                     )
                     AppPage.History -> HistoryPage(
-                        padding,
-                        history,
+                        padding = padding,
+                        history = history,
+                        snackbarHostState = snackbarHostState,
                         onDeleteEntries = installViewModel::deleteHistoryEntries,
+                        onRestoreEntries = installViewModel::restoreHistoryEntries,
                     )
                     AppPage.Logs -> LogsPage(padding)
                     AppPage.Settings -> SettingsPage(
@@ -2506,13 +2519,43 @@ private fun InfoRow(
 private fun HistoryPage(
     padding: PaddingValues,
     history: List<InstallHistoryEntry>,
+    snackbarHostState: SnackbarHostState,
     onDeleteEntries: (Set<String>) -> Unit,
+    onRestoreEntries: (List<InstallHistoryEntry>) -> Unit,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var selectedHistoryId by remember { mutableStateOf<String?>(null) }
     var selectionIds by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var pendingDeleteIds by remember { mutableStateOf<Set<String>?>(null) }
+    /**
+     * Deletes now and offers the undo, rather than asking first.
+     *
+     * A dialog is the right shape for something that cannot be taken back and the wrong one for something that
+     * can: it charges every delete a second tap to protect against the rare mistaken one, where the log is on
+     * this phone and the undo costs nothing. The entries are captured before they go, because the store is the
+     * only copy and an undo cannot re-read what it just removed.
+     */
+    val deleteWithUndo: (Set<String>) -> Unit = { ids ->
+        val doomed = history.filter { it.id in ids }
+        if (doomed.isNotEmpty()) {
+            onDeleteEntries(ids)
+            selectionIds = emptySet()
+            scope.launch {
+                val answer = snackbarHostState.showSnackbar(
+                    message = context.resources.getQuantityString(
+                        R.plurals.history_deleted,
+                        doomed.size,
+                        doomed.size,
+                    ),
+                    actionLabel = context.getString(R.string.action_undo),
+                    withDismissAction = true,
+                    duration = SnackbarDuration.Short,
+                )
+                if (answer == SnackbarResult.ActionPerformed) onRestoreEntries(doomed)
+            }
+        }
+    }
     // saveable: picking a destination starts another activity, which can recreate this one while the
     // picker is up, and the ids are the only record of what the export was for.
     var pendingExportIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -2571,36 +2614,6 @@ private fun HistoryPage(
         }
     }
 
-    pendingDeleteIds?.let { ids ->
-        AlertDialog(
-            onDismissRequest = { pendingDeleteIds = null },
-            icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-            title = {
-                DialogDimAmount(0.34f)
-                Text(pluralStringResource(R.plurals.history_delete_selected_title, ids.size, ids.size))
-            },
-            text = { Text(pluralStringResource(R.plurals.history_delete_selected_body, ids.size, ids.size)) },
-            confirmButton = {
-                FilledTonalButton(onClick = {
-                    clickHaptic(view)
-                    onDeleteEntries(ids)
-                    selectionIds = emptySet()
-                    pendingDeleteIds = null
-                }) {
-                    Text(stringResource(R.string.history_delete))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    clickHaptic(view)
-                    pendingDeleteIds = null
-                }) {
-                    Text(stringResource(R.string.action_cancel))
-                }
-            },
-        )
-    }
-
     AnimatedContent(
         targetState = selectedEntry,
         contentKey = { it?.id ?: "history-list" },
@@ -2634,7 +2647,7 @@ private fun HistoryPage(
                 },
                 onClearSelection = { selectionIds = emptySet() },
                 onEntryClick = { selectedHistoryId = it.id },
-                onDeleteSelected = { pendingDeleteIds = selectionIds },
+                onDeleteSelected = { deleteWithUndo(selectionIds) },
                 onExportSelected = { launchExport(selectionIds) },
             )
         } else {
@@ -4904,6 +4917,37 @@ private fun StagedResidueDialog(
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
     var deleteOutcome by remember { mutableStateOf<Pair<PendingDelete, SweepOutcome>?>(null) }
     var clearing by remember { mutableStateOf(false) }
+    /**
+     * Removes one entry and reports what came of it.
+     *
+     * A named function rather than a body inside the confirmation, because two kinds of row reach it now: one
+     * that confirms first and one that does not.
+     */
+    val deleteNow: (PendingDelete) -> Unit = { pending ->
+        clearing = true
+        clearOutcome = null
+        scope.launch {
+            val outcome = withContext(Dispatchers.IO) {
+                StagingSweep.removeWhenQuiet(context, listOf(pending.path))
+            }
+            // The list is read again here for the same reason it is after a clear: a row's absence is the
+            // receipt, and a name that survived the delete has to come back.
+            val fresh = withContext(Dispatchers.IO) { StagedResidue.read() }
+            report = fresh
+            onRead(fresh)
+            AppLog.info(
+                AppLogTags.STAGING,
+                context.getString(R.string.residue_log_delete, pending.label),
+            )
+            if (outcome !is SweepOutcome.Done || outcome.left.isNotEmpty() ||
+                outcome.complaint.isNotEmpty()
+            ) {
+                AppLog.info(AppLogTags.STAGING, outcome.clearLogLine(context))
+            }
+            deleteOutcome = pending to outcome
+            clearing = false
+        }
+    }
     val reading = report
     val present = reading?.present.orEmpty()
     // The half a catalog cannot produce: names the app does not write, listed through a shell. Shown
@@ -4964,11 +5008,16 @@ private fun StagedResidueDialog(
                                 ResidueRow(
                                     finding = finding,
                                     deleteEnabled = !clearing,
+                                    // This app's own staging, removed on one tap: nothing else is lost, because
+                                    // the app holds its own copy of every file it staged, and the run that
+                                    // would need them has finished. Asking first charged every cleanup a
+                                    // confirmation to protect against a mistake with no consequence.
                                     onDelete = {
-                                        pendingDelete = PendingDelete(
-                                            label = finding.staged.name,
-                                            path = finding.staged.path,
-                                            mine = true,
+                                        deleteNow(
+                                            PendingDelete(
+                                                label = finding.staged.name,
+                                                path = finding.staged.path,
+                                            ),
                                         )
                                     },
                                 )
@@ -4992,11 +5041,7 @@ private fun StagedResidueDialog(
                                     entry = entry,
                                     deleteEnabled = !clearing,
                                     onDelete = {
-                                        pendingDelete = PendingDelete(
-                                            label = entry.name,
-                                            path = entry.path,
-                                            mine = false,
-                                        )
+                                        pendingDelete = PendingDelete(entry.name, entry.path)
                                     },
                                 )
                             }
@@ -5133,44 +5178,12 @@ private fun StagedResidueDialog(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text(stringResource(R.string.residue_delete_title, pending.label)) },
-            text = {
-                Text(
-                    stringResource(
-                        if (pending.mine) {
-                            R.string.residue_delete_mine
-                        } else {
-                            R.string.residue_delete_other
-                        },
-                    ),
-                )
-            },
+            text = { Text(stringResource(R.string.residue_delete_other)) },
             confirmButton = {
                 TextButton(onClick = {
                     clickHaptic(view)
                     pendingDelete = null
-                    clearing = true
-                    clearOutcome = null
-                    scope.launch {
-                        val outcome = withContext(Dispatchers.IO) {
-                            StagingSweep.removeWhenQuiet(context, listOf(pending.path))
-                        }
-                        // The list is read again here for the same reason it is after a clear: a row's
-                        // absence is the receipt, and a name that survived the delete has to come back.
-                        val fresh = withContext(Dispatchers.IO) { StagedResidue.read() }
-                        report = fresh
-                        onRead(fresh)
-                        AppLog.info(
-                            AppLogTags.STAGING,
-                            context.getString(R.string.residue_log_delete, pending.label),
-                        )
-                        if (outcome !is SweepOutcome.Done || outcome.left.isNotEmpty() ||
-                            outcome.complaint.isNotEmpty()
-                        ) {
-                            AppLog.info(AppLogTags.STAGING, outcome.clearLogLine(context))
-                        }
-                        deleteOutcome = pending to outcome
-                        clearing = false
-                    }
+                    deleteNow(pending)
                 }) {
                     Text(stringResource(R.string.residue_clear_confirm))
                 }
@@ -5187,8 +5200,15 @@ private fun StagedResidueDialog(
     }
 }
 
-/** A row's delete, held between the button that asked and the confirmation that agrees to it. */
-private data class PendingDelete(val label: String, val path: String, val mine: Boolean)
+/**
+ * A row's delete, held between the button that asked and the confirmation that agrees to it.
+ *
+ * Only rows this app did not stage ever get here: one of its own files goes on a single tap, because the app
+ * holds its own copy of everything it staged and a finished run does not need it back. A name in that
+ * directory that the app did not write is a different thing to remove, and that is what the confirmation is
+ * for.
+ */
+private data class PendingDelete(val label: String, val path: String)
 
 /** What one row's delete came to, said under the list rather than beside a row that may be gone. */
 private fun deleteOutcomeLine(context: Context, label: String, outcome: SweepOutcome): String =
