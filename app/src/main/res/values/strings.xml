@@ -35,6 +35,8 @@
     <string name="settings_section_shizuku">Shizuku</string>
     <string name="settings_section_root">Root</string>
     <string name="settings_section_system">System</string>
+    <string name="settings_section_expand">Expand section</string>
+    <string name="settings_section_collapse">Collapse section</string>
     <string name="residue_card_title">Left on the device</string>
     <string name="residue_card_summary">Files this app staged in the shared temp directory</string>
     <string name="residue_reading">Reading…</string>

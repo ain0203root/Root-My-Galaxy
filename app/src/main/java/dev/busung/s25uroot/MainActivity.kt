@@ -161,6 +161,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
@@ -202,8 +203,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.busung.s25uroot.ui.theme.RootMyGalaxyTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.text.DateFormat
 import java.util.Collections
 import java.util.Date
@@ -3551,6 +3554,21 @@ private fun SettingsPage(
     // section. One state for both, because to the list they are the same jump.
     var jumpTarget by remember { mutableStateOf<String?>(null) }
     var cardHighlighted by remember { mutableStateOf(false) }
+    // Which sections are open, read from the store this page writes to. Seeded from it rather than kept
+    // beside it: leaving the tab and coming back rebuilds this composable, and what the sections were is
+    // the one thing about the page that has to survive that.
+    var openSections by remember { mutableStateOf(AppPreferences.openSettingsSections(context)) }
+    /** Opens or closes one section, and stores it so the page comes back the way it was left. */
+    val setSectionOpen: (SettingsSection, Boolean) -> Unit = { section, open ->
+        val next = if (open) openSections + section else openSections - section
+        if (next != openSections) {
+            openSections = next
+            AppPreferences.setOpenSettingsSections(context, next)
+        }
+    }
+    val toggleSection: (SettingsSection) -> Unit = { section ->
+        setSectionOpen(section, section !in openSections)
+    }
     LaunchedEffect(openTarget) {
         if (openTarget != null) {
             jumpTarget = openTarget
@@ -3559,6 +3577,22 @@ private fun SettingsPage(
     }
     LaunchedEffect(jumpTarget) {
         val wanted = jumpTarget ?: return@LaunchedEffect
+        // The card this jump is for has to exist before the search below can find it, and a closed section
+        // has no rows at all - so its section is opened first. Opening it is not a side effect of the jump
+        // either: the card was asked for, and a card inside a closed section is a card that cannot be shown.
+        SettingsSection.holding(wanted)?.let { holder ->
+            if (holder !in openSections) {
+                val rowsBefore = settingsList.layoutInfo.totalItemsCount
+                setSectionOpen(holder, true)
+                // Waiting for the rows rather than for a frame: the search asks the list what it has, and a
+                // list that has not been rebuilt yet answers "not here" for a card that is about to be
+                // there. Bounded, because a jump that never lands should not hold the highlight open.
+                withTimeoutOrNull(JUMP_OPEN_WAIT_MILLIS) {
+                    snapshotFlow { settingsList.layoutInfo.totalItemsCount }
+                        .first { it > rowsBefore }
+                }
+            }
+        }
         jumpToSettingCard(settingsList, wanted)
         cardHighlighted = true
         delay(SETTINGS_HIGHLIGHT_MILLIS)
@@ -3594,11 +3628,11 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SectionLabel(stringResource(R.string.appearance)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.Appearance, openSections, toggleSection) }
+        if (SettingsSection.Appearance in openSections) item {
             ThemeModeSelector(themeMode, onThemeModeChanged)
         }
-        item {
+        if (SettingsSection.Appearance in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsCard(
                     modifier = Modifier.onGloballyPositioned { coordinates ->
@@ -3631,8 +3665,8 @@ private fun SettingsPage(
             }
         }
 
-        item { SectionLabel(stringResource(R.string.settings_section_payloads)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.Payloads, openSections, toggleSection) }
+        if (SettingsSection.Payloads in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsCard(
                     modifier = Modifier.onGloballyPositioned { coordinates ->
@@ -3728,12 +3762,12 @@ private fun SettingsPage(
             }
         }
 
-        item { SectionLabel(stringResource(R.string.settings_section_run)) }
+        item { SettingsSectionHeader(SettingsSection.Run, openSections, toggleSection) }
 
         // Keyed by the card something else in the app may ask for: the run screen's read-only failure
         // names this setting and hands its key over, and a key is what lets the page find the row without
         // an index that a new card above it would silently invalidate.
-        item(key = SettingsTarget.PartitionReadOnly) {
+        if (SettingsSection.Run in openSections) item(key = SettingsTarget.PartitionReadOnly) {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsSwitchCard(
                     icon = Icons.Rounded.Memory,
@@ -3843,8 +3877,8 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SectionLabel(stringResource(R.string.settings_section_shizuku)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.Shizuku, openSections, toggleSection) }
+        if (SettingsSection.Shizuku in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsSwitchCard(
                     // The transport a run is handed to, which is why it sits with the other two
@@ -3970,8 +4004,8 @@ private fun SettingsPage(
             }
         }
 
-        item { SectionLabel(stringResource(R.string.settings_section_wireless_adb)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.WirelessAdb, openSections, toggleSection) }
+        if (SettingsSection.WirelessAdb in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 // Read when the screen is built rather than on every recomposition: it is a file read
                 // plus a settings lookup, and what it describes changes only when something is done
@@ -4054,8 +4088,8 @@ private fun SettingsPage(
             }
         }
 
-        item { SectionLabel(stringResource(R.string.settings_section_root)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.Root, openSections, toggleSection) }
+        if (SettingsSection.Root in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 // The flavour is first because everything below it is about this flavour's module:
                 // which daemon a run stages, which manager opens afterwards, and which module root
@@ -4275,8 +4309,8 @@ private fun SettingsPage(
             }
         }
 
-        item { SectionLabel(stringResource(R.string.settings_recovery)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.Recovery, openSections, toggleSection) }
+        if (SettingsSection.Recovery in openSections) item {
             RootRecoverySection(
                 // Root on boot is what would bring root back, so it is turned off before the reboot
                 // is asked for and this screen has to follow whatever was stored.
@@ -4290,8 +4324,8 @@ private fun SettingsPage(
             )
         }
 
-        item { SectionLabel(stringResource(R.string.settings_section_system)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.System, openSections, toggleSection) }
+        if (SettingsSection.System in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsCard(
                     icon = Icons.Rounded.BatterySaver,
@@ -4316,7 +4350,7 @@ private fun SettingsPage(
             }
         }
 
-        item {
+        if (SettingsSection.System in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsCard(
                     icon = Icons.Rounded.Folder,
@@ -4334,8 +4368,8 @@ private fun SettingsPage(
             }
         }
 
-        item { SectionLabel(stringResource(R.string.about)) }
-        item {
+        item { SettingsSectionHeader(SettingsSection.About, openSections, toggleSection) }
+        if (SettingsSection.About in openSections) item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 UpdateSettingsCard(
                     status = updateStatus,
@@ -6509,13 +6543,45 @@ private fun SourceCoverageBlock(
 }
 
 @Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.primary,
-        modifier = Modifier.padding(start = 18.dp, top = 6.dp, bottom = 2.dp),
-    )
+private fun SettingsSectionHeader(
+    section: SettingsSection,
+    openSections: Set<SettingsSection>,
+    onToggle: (SettingsSection) -> Unit,
+) {
+    val view = LocalView.current
+    val open = section in openSections
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.small)
+            .clickable(
+                onClickLabel = stringResource(
+                    if (open) R.string.settings_section_collapse else R.string.settings_section_expand,
+                ),
+            ) {
+                clickHaptic(view)
+                onToggle(section)
+            }
+            .heightIn(min = 44.dp)
+            .padding(start = 18.dp, top = 6.dp, end = 6.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(section.title),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            // The count of what is inside is deliberately absent: a closed section is one line whatever it
+            // holds, and a number here would be a promise about a list nobody asked to see yet.
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+            // Decorative: the whole row is the control, and its label says what pressing it does.
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 /**

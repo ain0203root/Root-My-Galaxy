@@ -23,12 +23,21 @@ internal object SettingsTarget {
     const val PartitionReadOnly = "partition_read_only"
 
     /**
+     * Every target this build knows.
+     *
+     * The one place both the intent filter and the section map read, so a new target cannot be added as a
+     * constant and forgotten in one of them: a card no section claims is a jump that opens nothing and
+     * scrolls nowhere.
+     */
+    val all = listOf(PartitionReadOnly)
+
+    /**
      * The target an extra names, or null when it names nothing this build knows.
      *
      * Null rather than a pass-through, so an extra from a newer build - or a stray string from
      * anywhere else - lands on the settings page rather than on a scroll to nowhere.
      */
-    fun named(raw: String?): String? = raw?.takeIf { it == PartitionReadOnly }
+    fun named(raw: String?): String? = raw?.takeIf { it in all }
 }
 
 /** How long a card that was jumped to stays outlined. Long enough to find, short enough not to nag. */
@@ -43,6 +52,16 @@ internal const val SETTINGS_HIGHLIGHT_MILLIS = 2_000L
  * real search short.
  */
 private const val JUMP_SEARCH_LIMIT = 60
+
+/**
+ * How long a jump waits for the section it opened to put its rows in the list.
+ *
+ * The search asks the list what it has and gives up at the end of it, so a list that has not been rebuilt
+ * yet - ten rows where it needs twelve - answers "not here" for a card that is about to be there. This is
+ * the bound on waiting for those rows: a frame or two in practice, and a jump that never lands rather than
+ * a highlight left standing over a card nobody was taken to.
+ */
+internal const val JUMP_OPEN_WAIT_MILLIS = 1_000L
 
 /**
  * The next row to bring on screen when looking for one that is not composed yet, or null when there is

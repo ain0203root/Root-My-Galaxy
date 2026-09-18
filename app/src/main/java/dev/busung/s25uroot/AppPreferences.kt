@@ -66,6 +66,24 @@ object AppPreferences {
     private const val LEGACY_PAYLOAD_REPOSITORY = "payload_repository"
     private const val LEGACY_PAYLOAD_BRANCH = "payload_branch"
     private const val CONSUMED_INSTALL_REQUEST = "consumed_install_request"
+    private const val OPEN_SETTINGS_SECTIONS = "open_settings_sections"
+
+    /**
+     * The settings sections left open, by name.
+     *
+     * Stored rather than kept on the page because the page is rebuilt every time the tab is left and
+     * returned to, and a section that closed itself on the way back would be worse than a page that never
+     * opened one. Nothing open is the state a fresh install starts in: the page is a list of headings, and
+     * the heading someone needs is one tap.
+     */
+    internal fun openSettingsSections(context: Context): Set<SettingsSection> =
+        SettingsSection.named(prefs(context).getStringSet(OPEN_SETTINGS_SECTIONS, emptySet()).orEmpty().toSet())
+
+    internal fun setOpenSettingsSections(context: Context, sections: Set<SettingsSection>) {
+        prefs(context).edit()
+            .putStringSet(OPEN_SETTINGS_SECTIONS, sections.map { it.name }.toSet())
+            .apply()
+    }
 
     fun payloadSources(context: Context): List<PayloadSource> {
         val stored = prefs(context).getString(PAYLOAD_SOURCES, null)
