@@ -90,6 +90,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Difference
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
+import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.ExpandLess
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
@@ -1601,6 +1602,9 @@ private fun ManagerVersionRow(
 /** How tall the version list may grow before it scrolls, so the dialog still fits a short screen. */
 private val MANAGER_VERSION_LIST_MAX = 220.dp
 
+/** How tall the staged-file list may grow before it scrolls inside the dialog. */
+private val RESIDUE_LIST_MAX = 300.dp
+
 @Composable
 private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Unit) {
     val context = LocalContext.current
@@ -2777,6 +2781,19 @@ private fun SettingsPage(
     var flavorMenuTop by remember { mutableStateOf(0.dp) }
     var showColorDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+    // What this app has left in /data/local/tmp, read once when the screen is opened rather than on
+    // every pass: the staging changes during a run, not while a settings list is on screen, and the
+    // reading is a stat per catalogued path. Null is "not read yet" and is shown as such, because a
+    // check that has not answered must not look like a check that found nothing.
+    var residue by remember { mutableStateOf<ResidueReport?>(null) }
+    var showResidueDialog by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        val report = withContext(Dispatchers.IO) { StagedResidue.read() }
+        residue = report
+        // Filed where the reading can be copied out of, because the list is worth having outside the
+        // app for exactly one reason: to compare it against what something else reports seeing.
+        AppLog.info(AppLogTags.STAGING, report.logLine(context))
+    }
     var showShizukuMissingDialog by remember { mutableStateOf(false) }
     var shizukuStarting by remember { mutableStateOf(false) }
     // Read live, not once at composition: Shizuku hands out its binder asynchronously after the
@@ -2999,6 +3016,14 @@ private fun SettingsPage(
 
     if (showAboutDialog) {
         AboutDialog(onDismiss = { showAboutDialog = false })
+    }
+
+    if (showResidueDialog) {
+        StagedResidueDialog(
+            initial = residue,
+            onDismiss = { showResidueDialog = false },
+            onRead = { report -> residue = report },
+        )
     }
 
     if (showPayloadModeDialog) {
@@ -4046,6 +4071,24 @@ private fun SettingsPage(
             }
         }
 
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                SettingsCard(
+                    icon = Icons.Rounded.Folder,
+                    title = stringResource(R.string.residue_card_title),
+                    description = stringResource(R.string.residue_card_summary),
+                    value = residue?.summaryLine(context)
+                        ?: stringResource(R.string.residue_reading),
+                    // The same shape the battery card above rests at: one card, alone in its section.
+                    position = SettingsCardPosition.GroupedSingle,
+                    onClick = {
+                        clickHaptic(view)
+                        showResidueDialog = true
+                    },
+                )
+            }
+        }
+
         item { SectionLabel(stringResource(R.string.about)) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -4072,6 +4115,138 @@ private fun SettingsPage(
                 )
             }
         }
+    }
+}
+
+/**
+ * What this app has left in `/data/local/tmp`, one row per file, read the way another app reads it.
+ *
+ * Read again here rather than handed the reading the card took: the card's reading was taken when
+ * Settings was opened, and a run could have happened since - the list this is for is the one that is
+ * true now. The fresh reading is passed back so the card's own line follows it, which is what keeps
+ * the two from disagreeing about the same device.
+ */
+@Composable
+private fun StagedResidueDialog(
+    initial: ResidueReport?,
+    onDismiss: () -> Unit,
+    onRead: (ResidueReport) -> Unit,
+) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    var report by remember { mutableStateOf(initial) }
+    LaunchedEffect(Unit) {
+        val fresh = withContext(Dispatchers.IO) { StagedResidue.read() }
+        report = fresh
+        onRead(fresh)
+    }
+    val reading = report
+    val present = reading?.present.orEmpty()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.residue_dialog_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    stringResource(R.string.residue_dialog_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                when {
+                    reading == null -> Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        LoadingIndicator(modifier = Modifier.size(18.dp))
+                        Text(
+                            stringResource(R.string.residue_reading),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+
+                    reading.blind -> Text(
+                        stringResource(R.string.residue_blind_body),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    present.isEmpty() -> Text(
+                        stringResource(R.string.residue_clean_body, reading.findings.size),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+
+                    else -> LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = RESIDUE_LIST_MAX),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        items(present, key = { it.staged.path }) { finding ->
+                            ResidueRow(finding)
+                        }
+                    }
+                }
+                // What the check looked at, said out loud, because the count of what it found means
+                // nothing without the count of what it asked about - and because a path that could not
+                // be read is not a path that is not there.
+                if (reading != null && !reading.blind) {
+                    Text(
+                        text = stringResource(
+                            R.string.residue_dialog_checked,
+                            reading.findings.size,
+                            reading.findings.count { it.reading is ResidueReading.Unreadable },
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                enabled = reading != null && present.isNotEmpty(),
+                onClick = {
+                    clickHaptic(view)
+                    copyLogToClipboard(
+                        context,
+                        present.joinToString("\n") { finding ->
+                            val at = finding.reading as ResidueReading.Present
+                            "${finding.staged.name}\t${StagedResidue.sizeLabel(at.sizeBytes)}\t" +
+                                StagedResidue.ageLabelOf(at.modifiedAtMillis)
+                        },
+                    )
+                },
+            ) {
+                Text(stringResource(R.string.residue_copy))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.action_close))
+            }
+        },
+    )
+}
+
+/** One staged file: the name a detector matches on, then what it is and how long it has been there. */
+@Composable
+private fun ResidueRow(finding: ResidueFinding) {
+    val reading = finding.reading as? ResidueReading.Present ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = finding.staged.name,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+        )
+        Text(
+            text = stringResource(
+                R.string.residue_row_detail,
+                stringResource(finding.staged.role.labelRes),
+                StagedResidue.sizeLabel(reading.sizeBytes),
+                StagedResidue.ageLabelOf(reading.modifiedAtMillis),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

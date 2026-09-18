@@ -38,6 +38,9 @@ internal object AppLogTags {
     const val WIRELESS_ADB = "Wireless-ADB"
     const val PERMISSIONS = "Permissions"
     const val UPDATER = "Updater"
+
+    /** What this app leaves on the device, read back the way another app would see it. */
+    const val STAGING = "Staging"
     const val APP = "App"
 }
 
