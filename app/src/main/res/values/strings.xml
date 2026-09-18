@@ -410,6 +410,17 @@
     <string name="failure_reason">Reason</string>
     <string name="failure_evidence">Last payload output</string>
     <string name="history_failure">Failed at %1$s: %2$s</string>
+    <string name="history_filter_all">All</string>
+    <string name="history_filter_all_sources">All sources</string>
+    <string name="history_filter_no_source">No source</string>
+    <string name="history_filter_count">Showing %1$d of %2$d runs</string>
+    <string name="history_empty_filtered_title">No runs match</string>
+    <string name="history_empty_filtered_body">No run in the history fits this filter. Pick All, or the source the run came from, to see the rest.</string>
+    <string name="history_filter_clear">Show all runs</string>
+    <plurals name="history_run_count">
+        <item quantity="one">%1$d run</item>
+        <item quantity="other">%1$d runs</item>
+    </plurals>
     <string name="error_payload_exit">Payload execution failed with code %1$d%2$s</string>
     <string name="error_success_marker">Exploit success markers were not found</string>
     <string name="error_local_adb_shell">The device\'s ADB shell is not available: %1$s</string>

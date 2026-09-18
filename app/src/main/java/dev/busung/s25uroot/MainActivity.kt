@@ -2016,8 +2016,31 @@ private fun HistoryPage(
             )
         }
     }
-    val selectedEntry = history.firstOrNull { it.id == selectedHistoryId }
-    val selectableIds = history
+    // saveable for the same reason the export ids are: another activity can recreate this screen, and a
+    // filter that quietly resets itself while the user is reading a filtered list is worse than none.
+    var resultFilter by rememberSaveable { mutableStateOf(HistoryFilter.All) }
+    var sourceKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val resultChoices = historyResultFilters(history, resultFilter)
+    val sourceChoices = historySourceOptions(history)
+    val filtered = filterHistory(history, resultFilter, sourceKey)
+    val filtersActive = resultFilter != HistoryFilter.All || sourceKey != null
+    // Picking a filter drops the selection: the stand-down is the safe direction, since a selection the
+    // new filter hides would otherwise sit there counting itself on a button nobody can see it under.
+    val onResultFilter: (HistoryFilter) -> Unit = { choice ->
+        resultFilter = choice
+        selectionIds = emptySet()
+    }
+    val onSourceFilter: (String?) -> Unit = { key ->
+        sourceKey = key
+        selectionIds = emptySet()
+    }
+    val clearFilters: () -> Unit = {
+        resultFilter = HistoryFilter.All
+        sourceKey = null
+        selectionIds = emptySet()
+    }
+    val selectedEntry = filtered.firstOrNull { it.id == selectedHistoryId }
+    val selectableIds = filtered
         .filter { it.result != InstallRunResult.Running }
         .map { it.id }
         .toSet()
@@ -2068,7 +2091,16 @@ private fun HistoryPage(
         if (entry == null) {
             HistoryList(
                 padding = padding,
-                history = history,
+                history = filtered,
+                totalRuns = history.size,
+                filtersActive = filtersActive,
+                resultFilter = resultFilter,
+                resultChoices = resultChoices,
+                onResultFilter = onResultFilter,
+                sourceKey = sourceKey,
+                sourceChoices = sourceChoices,
+                onSourceFilter = onSourceFilter,
+                onClearFilters = clearFilters,
                 selectionIds = selectionIds,
                 selectableIds = selectableIds,
                 onToggleSelection = { id ->
@@ -2104,6 +2136,15 @@ private fun HistoryPage(
 private fun HistoryList(
     padding: PaddingValues,
     history: List<InstallHistoryEntry>,
+    totalRuns: Int,
+    filtersActive: Boolean,
+    resultFilter: HistoryFilter,
+    resultChoices: List<HistoryFilter>,
+    onResultFilter: (HistoryFilter) -> Unit,
+    sourceKey: String?,
+    sourceChoices: List<HistorySourceOption>,
+    onSourceFilter: (String?) -> Unit,
+    onClearFilters: () -> Unit,
     selectionIds: Set<String>,
     selectableIds: Set<String>,
     onToggleSelection: (String) -> Unit,
@@ -2131,14 +2172,27 @@ private fun HistoryList(
                     modifier = Modifier.fillMaxWidth().padding(top = 20.dp, bottom = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(
-                        modifier = Modifier.weight(1f).height(48.dp),
-                        contentAlignment = Alignment.CenterStart,
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
                     ) {
                         Text(
                             text = stringResource(R.string.history_title),
                             style = MaterialTheme.typography.headlineLarge,
                         )
+                        // What the filter is leaving out, said before the list rather than after it: a
+                        // short list and a filtered list look the same otherwise.
+                        if (totalRuns > 0) {
+                            Text(
+                                text = if (filtersActive) {
+                                    stringResource(R.string.history_filter_count, history.size, totalRuns)
+                                } else {
+                                    pluralStringResource(R.plurals.history_run_count, totalRuns, totalRuns)
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     AnimatedVisibility(
                         visible = selecting,
@@ -2168,8 +2222,57 @@ private fun HistoryList(
                     }
                 }
             }
+            // One chip per kind of run this history holds, so a filter cannot be offered that would
+            // only ever empty the list. Hidden entirely with nothing to filter.
+            if (totalRuns > 0) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            resultChoices.forEach { choice ->
+                                HistoryFilterChip(
+                                    label = stringResource(historyFilterLabel(choice)),
+                                    selected = choice == resultFilter,
+                                    onClick = { onResultFilter(choice) },
+                                )
+                            }
+                        }
+                        // Only worth a row when there is a choice to make: with one source in the whole
+                        // history, every chip would say the same thing.
+                        if (sourceChoices.size > 1) {
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                HistoryFilterChip(
+                                    label = stringResource(R.string.history_filter_all_sources),
+                                    selected = sourceKey == null,
+                                    onClick = { onSourceFilter(null) },
+                                )
+                                sourceChoices.forEach { option ->
+                                    HistoryFilterChip(
+                                        label = option.label.ifEmpty {
+                                            stringResource(R.string.history_filter_no_source)
+                                        },
+                                        selected = sourceKey == option.key,
+                                        onClick = { onSourceFilter(option.key) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (history.isEmpty()) {
-                item { EmptyHistoryCard() }
+                item {
+                    if (filtersActive && totalRuns > 0) {
+                        EmptyHistoryFilterCard(onClearFilters)
+                    } else {
+                        EmptyHistoryCard()
+                    }
+                }
             } else {
                 itemsIndexed(history, key = { _, entry -> entry.id }) { _, entry ->
                     HistoryEntryCard(
@@ -2219,6 +2322,71 @@ private fun HistoryList(
                     icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
                     text = { Text(stringResource(R.string.history_delete_selected, selectionIds.size)) },
                 )
+            }
+        }
+    }
+}
+
+/** The label a result chip wears: the same words the card for that result uses. */
+private fun historyFilterLabel(filter: HistoryFilter): Int = when (filter) {
+    HistoryFilter.All -> R.string.history_filter_all
+    HistoryFilter.Succeeded -> R.string.history_succeeded
+    HistoryFilter.RootOnly -> R.string.history_root_only
+    HistoryFilter.Failed -> R.string.history_failed
+    HistoryFilter.Stopped -> R.string.history_stopped
+    HistoryFilter.Running -> R.string.history_running
+}
+
+@Composable
+private fun HistoryFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    val view = LocalView.current
+    FilterChip(
+        selected = selected,
+        onClick = {
+            clickHaptic(view)
+            onClick()
+        },
+        label = { Text(label) },
+    )
+}
+
+/**
+ * Shown when a filter emptied the list.
+ *
+ * It says which of the two empty states this is and offers the way out, because "no runs yet" on a phone
+ * with runs in it reads as a bug - and the chips that would explain it are above the fold in a list that
+ * is now empty.
+ */
+@Composable
+private fun EmptyHistoryFilterCard(onClearFilters: () -> Unit) {
+    val view = LocalView.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                stringResource(R.string.history_empty_filtered_title),
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                stringResource(R.string.history_empty_filtered_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            FilledTonalButton(
+                onClick = {
+                    clickHaptic(view)
+                    onClearFilters()
+                },
+            ) {
+                Text(stringResource(R.string.history_filter_clear))
             }
         }
     }
