@@ -109,7 +109,7 @@ class LocalAdbClient(
                 throw error
             }
         } else if (message.command == A_AUTH && message.arg0 == ADB_AUTH_TOKEN) {
-            writeBytes(A_AUTH, ADB_AUTH_SIGNATURE, 0, signToken(message.data!!))
+            writeBytes(A_AUTH, ADB_AUTH_SIGNATURE, 0, signToken(adbAuthTokenToSign(message.data)))
             message = read()
             if (message.command != A_CNXN) {
                 writeBytes(A_AUTH, ADB_AUTH_RSAPUBLICKEY, 0, keyManager.adbPublicKey)
@@ -610,6 +610,18 @@ internal fun adbShellResult(raw: String): LocalAdbClient.ShellResult {
     }
     return LocalAdbClient.ShellResult(code, raw.substring(0, markerIndex).trim())
 }
+
+/**
+ * The token to sign out of an `A_AUTH`/`TOKEN` frame.
+ *
+ * The one place this client reads a frame from the far end on the strength of its *kind* rather than its
+ * contents, which is why it is a function of its own: adbd always sends the twenty bytes, so an absent
+ * payload means something else is on the port - and a refusal that says so is worth more than the
+ * `NullPointerException` a bare assertion produces, whose message is empty by the time any screen or log
+ * line shows it.
+ */
+internal fun adbAuthTokenToSign(frame: ByteArray?): ByteArray =
+    frame ?: error("ADB asked for a signature with no token to sign")
 
 /** The user a usable wireless-debugging shell runs as: `shell`, not `root` and not the app's own uid. */
 private const val SHELL_UID = "uid=2000"

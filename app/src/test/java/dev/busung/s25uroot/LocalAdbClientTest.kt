@@ -7,6 +7,7 @@ import java.util.Base64
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -58,6 +59,20 @@ class LocalAdbClientTest {
 
         assertEquals(7, result.exitCode)
         assertEquals("${marker}99\nreal output", result.output)
+    }
+
+    @Test
+    fun `a token frame with no token is refused, not dereferenced`() {
+        // adbd always sends the twenty bytes, so this is the case where something else answered on the
+        // port - and the failure has to be a sentence rather than a blank NPE in the log.
+        val refusal = assertThrows(IllegalStateException::class.java) { adbAuthTokenToSign(null) }
+        assertTrue(refusal.message!!.contains("no token"))
+    }
+
+    @Test
+    fun `a token frame with a token is signed as it came`() {
+        val token = ByteArray(20) { it.toByte() }
+        assertEquals(token, adbAuthTokenToSign(token))
     }
 
     @Test
