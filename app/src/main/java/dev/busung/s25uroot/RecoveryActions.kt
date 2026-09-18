@@ -78,15 +78,9 @@ internal suspend fun runRecoveryAction(context: Context, tool: RecoveryTool): Re
     // open until the child acknowledges them, so none of it may run on the UI thread.
     withContext(Dispatchers.IO) {
         val bootToken = kernelBootToken()
-        // Asked for rather than assumed: the in-process reading of KernelSU can say no on a device
-        // where root is usable, so each tier is whichever transport actually answers a command.
-        val rootReachable = KernelSuRuntime.rootShell("id") != null
-        val tier = shellTier(
-            rootReachable = rootReachable,
-            // Asked only when root did not answer, so the common case does not pay a second round trip
-            // to learn what the first one already settled.
-            unprivilegedReachable = !rootReachable && KernelSuRuntime.unprivilegedShell("id") != null,
-        )
+        // Asked for rather than assumed, and shared with the reboot menu - which has to answer the same
+        // question before anything is pressed, so that a row it greys out is greyed out for a reason.
+        val tier = currentShellTier()
         val refusalDetail by lazy {
             context.getString(
                 when (recoveryRefusalFor(tier, tool, KernelSuRuntime.loadedInThisBoot())) {

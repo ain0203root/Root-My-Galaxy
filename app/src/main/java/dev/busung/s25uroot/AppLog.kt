@@ -39,6 +39,12 @@ internal object AppLogTags {
     const val PERMISSIONS = "Permissions"
     const val UPDATER = "Updater"
 
+    /**
+     * A restart this app asked for, including the ones that leave Android - a phone that comes back from
+     * Odin or Download mode has this line to say why it went there.
+     */
+    const val RESTART = "Restart"
+
     /** What this app leaves on the device, read back the way another app would see it. */
     const val STAGING = "Staging"
     const val APP = "App"

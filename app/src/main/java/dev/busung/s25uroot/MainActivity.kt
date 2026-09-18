@@ -657,6 +657,7 @@ private fun RootApp(
     }
     var showInstallConfirmation by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
+    var showRebootSheet by remember { mutableStateOf(false) }
     var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
     var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     val device = remember { DeviceSnapshot.current() }
@@ -819,6 +820,10 @@ private fun RootApp(
         )
     }
 
+    if (showRebootSheet) {
+        RebootSheet(onDismiss = { showRebootSheet = false })
+    }
+
     if (showTargetPicker) {
         TargetSelectionSheet(
             device = device,
@@ -964,6 +969,7 @@ private fun RootApp(
                     onStartArmedRetry = onStartArmedRetry,
                     onCancelArmedRetry = onCancelArmedRetry,
                     onOpenSettings = { selectedPage = AppPage.Settings },
+                    onOpenReboot = { showRebootSheet = true },
                     onInstall = {
                         selectedProfile = null
                         if (advancedMode) {
@@ -1142,8 +1148,9 @@ private fun AppNavBarItem(page: AppPage, selected: Boolean, onClick: () -> Unit)
     }
 }
 
+/** Shared with the reboot sheet, which is a dialog of its own. */
 @Composable
-private fun DialogDimAmount(amount: Float) {
+internal fun DialogDimAmount(amount: Float) {
     val window = (LocalView.current.parent as DialogWindowProvider).window
     SideEffect { window.setDimAmount(amount) }
 }
@@ -1166,8 +1173,10 @@ private fun OverviewPage(
     onCancelArmedRetry: () -> Unit,
     onInstall: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenReboot: () -> Unit,
 ) {
     val context = LocalContext.current
+    val view = LocalView.current
     // Read live, because these change without this screen doing anything: Shizuku hands out its binder
     // after it starts, a grant can be made or revoked in the Shizuku app, KernelSU is loaded per boot,
     // and a manager app can be installed or removed - and the one thing that changes all of them at
@@ -1258,6 +1267,19 @@ private fun OverviewPage(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
                 )
+                // Where the KernelSU manager keeps its own power menu, and for the same reason: a way out
+                // of the running Android is not a setting, it is the thing you reach for while looking at
+                // the phone. What this device can actually do is decided inside.
+                IconButton(onClick = {
+                    clickHaptic(view)
+                    onOpenReboot()
+                }) {
+                    Icon(
+                        Icons.Rounded.PowerSettingsNew,
+                        contentDescription = stringResource(R.string.reboot_sheet_title),
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
             }
         }
         if (
