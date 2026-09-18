@@ -160,6 +160,28 @@ class StagingSweepTest {
     }
 
     @Test
+    fun `a successful run sweeps before it asks for the restart that would end it`() {
+        // The failure this prevents is silent, and it was real: the sweep lived only in the runner's own
+        // `finally`, while a successful run asks for the userspace restart from inside the `try` - so the
+        // process was gone before the shell could answer, and a loaded root left its staged helper and
+        // payload in /data/local/tmp for a detector to find, on exactly the runs that worked. The order
+        // is the fix, so the order is what this asserts, against the source that holds it.
+        val source = sourceFiles().firstOrNull { it.name == "InstallViewModel.kt" }
+        requireNotNull(source) { "InstallViewModel.kt was not found; the scan is looking at the wrong directory" }
+        val text = source.readText()
+
+        // The first mention of each: the success path's sweep, and the restart it has to precede.
+        val sweep = text.indexOf("sweepStaging(app)")
+        val restart = text.indexOf("RecoveryTool.SoftReboot")
+        assertTrue("the run never sweeps its staging", sweep >= 0)
+        assertTrue("the run never asks for the restart", restart >= 0)
+        assertTrue(
+            "the restart is asked for before the sweep, and the restart ends the process that sweeps",
+            sweep < restart,
+        )
+    }
+
+    @Test
     fun `a row's delete removes exactly the path that row names`() {
         // The row's own button goes through the same command as a sweep, so the quoting and the `rm -f`
         // are all that stand between a name in a list and the filesystem - and it must not be the
