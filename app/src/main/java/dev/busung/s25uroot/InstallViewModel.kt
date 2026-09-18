@@ -189,6 +189,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private val mutableTargetCatalog = MutableStateFlow(TargetCatalogUiState())
     private var discoveryJob: Job? = null
     private var installJob: Job? = null
+
+    /**
+     * Whether the run in flight was started by the boot gate rather than by a screen.
+     *
+     * Held because [setPhase] needs it and is called from all over the run: the gate has a notification of
+     * its own, and a second one from here would be two notifications for one install.
+     */
+    private var runIsUnattended = false
     private var activeHistoryEntry: InstallHistoryEntry? = null
 
     /** Which stage the run is in, for the failure report. */
@@ -610,7 +618,12 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         protectedFrom = -1
         protectedDevices = 0
         payloadTerminationUnconfirmed = false
+        runIsUnattended = unattended
+        // A stop written by an earlier run's notification is not this run's: the request names a process,
+        // and one left in place would stop the next run on its first tick.
+        RunStopSignal.clear(app)
         installJob = viewModelScope.launch(Dispatchers.IO) {
+
             // Said before anything is staged, so a sweep in the app's other process cannot take the
             // payload out from under this run. Best-effort and silent: a boot that cannot be read means
             // no record, which is the behaviour this app had before the record existed.
@@ -1050,6 +1063,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // about to restart the userspace has already swept for the same reason, and it says so.
                 RunInFlight.end(app)
                 if (!stagingSwept) sweepStaging(app)
+                // The run is over, so what the shade said about it is a claim about nothing. An unattended
+                // run leaves its own notification alone: the gate owns that one.
+                if (!runIsUnattended) RunNotification.clear(app)
             }
         }
     }
@@ -1254,6 +1270,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         (activeCeilings.totalMillis / 60_000L).toInt(),
                     )
                 }
+                // The notification's Stop arrives here: this loop is the run's longest wait by far, and
+                // checking it on the same tick that already reads the payload's output costs nothing.
+                stopIfAskedFromOutside()
                 delay(if (shizuku) SHIZUKU_LOG_POLL_INTERVAL else LOG_POLL_INTERVAL)
             }
 
@@ -1688,6 +1707,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 AppLog.warn(RUN_LOG_TAG, "Boot settle skipped on the user's word")
                 return
             }
+            // Minutes of waiting, and the one other place a stop reaches: the settle is the longest part
+            // of a run that is not the exploit, and a run that has not started the payload yet is the
+            // safest one to stop.
+            stopIfAskedFromOutside()
             val left = BootSettle.remainingMillis(required, BootSettle.elapsedMillis())
             if (left <= 0L) {
                 appendLog(app.getString(R.string.log_boot_settled, BootSettle.label(required)))
@@ -1701,9 +1724,32 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Ends the run when the Stop in its notification was tapped.
+     *
+     * The same ending as [stopRun], reached the other way: the flag is set first, because the cancellation
+     * handler reads it to tell "stopped" from "broke", and the exception is what actually cancels - thrown
+     * from inside the run rather than from a `cancel()` call, so it arrives at the next tick of whatever wait
+     * the run is in rather than at the first suspension point of some other coroutine.
+     *
+     * Called from the two waits that can last minutes: the boot settle and the exploit's own poll loop.
+     */
+    private fun stopIfAskedFromOutside() {
+        if (!RunStopSignal.consumeFor(app, currentBootToken())) return
+        stopRequested = true
+        AppLog.warn(RUN_LOG_TAG, "Stop requested from the run notification")
+        throw CancellationException("stop requested from the run notification")
+    }
+
     private fun setPhase(phase: InstallPhase, message: String) {
         mutableState.value = mutableState.value.copy(phase = phase, message = message)
         appendLog("[*] $message")
+        // The run, in the shade, for the length of a run that is usually spent with the phone in a pocket.
+        // Not for an unattended run: that one has the boot gate's own notification, and two of them saying
+        // the same thing is how the shade stops being read.
+        if (!runIsUnattended) {
+            RunNotification.post(app, message, installProgress(phase, failureStage = null))
+        }
     }
 
     private fun appendLog(line: String) {

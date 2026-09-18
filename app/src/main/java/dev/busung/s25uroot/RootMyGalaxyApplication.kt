@@ -34,6 +34,11 @@ class RootMyGalaxyApplication : Application() {
         // itself, and a boot install has no screen to be explained on at the time.
         AppLog.install(this)
 
+        // A run killed with its process cannot take its own notification down, and one left claiming an
+        // install that is not happening is worse than none: it would keep someone waiting and its Stop
+        // would do nothing. Asked of the record every process shares, so a boot run in flight keeps its own.
+        RunNotification.clearStale(this)
+
         if (!isShizukuProviderProcess) {
             ShizukuProvider.requestBinderForNonProviderProcess(this)
         }

@@ -90,6 +90,9 @@
         <receiver
             android:name=".AutoRootActionReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".RunActionReceiver"
+            android:exported="false" />
         <service
             android:name=".AdbPairingService"
             android:exported="false"

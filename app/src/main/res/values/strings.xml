@@ -756,6 +756,11 @@
     <string name="kernel_match_exact">Exact kernel release match</string>
     <string name="kernel_match_version">Kernel version match only (%1$s)</string>
     <string name="kernel_match_none">Kernel release not listed</string>
+    <string name="run_notification_title">Install running</string>
+    <string name="run_notification_channel_name">Root run</string>
+    <string name="run_notification_channel_description">What a running install is doing, with stop and copy-log actions</string>
+    <string name="run_notification_stopping">Stopping…</string>
+    <string name="run_notification_log_copied">Log copied to the clipboard</string>
     <string name="report_row_title">Copy diagnostic report</string>
     <string name="report_copied">Report copied</string>
     <string name="preflight_title">Pre-flight check</string>
