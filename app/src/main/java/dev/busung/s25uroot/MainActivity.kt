@@ -4920,7 +4920,9 @@ private fun PayloadSourcesEditor(
     fun checkSource(source: PayloadSource, onCovered: () -> Unit = {}) {
         scope.launch {
             checking = source.id
-            val outcome = runCatching {
+            // Cancellable: the row this check belongs to can be removed, or the sheet closed, while
+            // the read is out - and the failure branch of the result is what the row then shows.
+            val outcome = runCatchingCancellable {
                 withContext(Dispatchers.IO) { PayloadRepository(context).inspect(source, device) }
             }
             checks = checks + (source.id to outcome)
@@ -5261,7 +5263,10 @@ private fun RevisionPicker(
 
     LaunchedEffect(source.id) {
         loading = true
-        runCatching {
+        // Cancellable, and here it is the effect's own key that changes: this is keyed on the source,
+        // so leaving the picker cancels the read, and a cancellation reported as a read that failed
+        // would put an error under a list that has nothing to do with it.
+        runCatchingCancellable {
             withContext(Dispatchers.IO) { PayloadRepository(context).revisions(source) }
         }.onSuccess { listed ->
             revisions = listed
@@ -5276,7 +5281,10 @@ private fun RevisionPicker(
         reading = true
         coverage = null
         coverageFailure = null
-        runCatching {
+        // Cancellable, and this one is keyed on the *choice* as well as the source: picking a different
+        // revision cancels the read of the previous one, whose cancellation would otherwise arrive as
+        // "this revision could not be read" under the revision now selected.
+        runCatchingCancellable {
             withContext(Dispatchers.IO) {
                 val repository = PayloadRepository(context)
                 when (chosen) {
@@ -5371,7 +5379,7 @@ private fun RevisionPicker(
                 scope.launch {
                     applying = true
                     applyFailure = null
-                    runCatching {
+                    runCatchingCancellable {
                         withContext(Dispatchers.IO) {
                             PayloadRepository(context).resolveNamedRevision(source.repository, ref)
                         }

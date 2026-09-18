@@ -209,7 +209,10 @@ internal object ShizukuStarter {
         onLog: (String) -> Unit,
     ): ShizukuStartOutcome {
         onLog("[*] No root: running Shizuku's starter in the device's own adb shell")
-        val outcome = runCatching {
+        // Cancellable rather than plain: everything below this line is work, and a cancelled start that
+        // read its own cancellation as "that shell did not work" would go on to make the request route
+        // too, from inside a coroutine nobody is waiting for any more.
+        val outcome = runCatchingCancellable {
             TemporaryWirelessAdb.use(context, onLog = onLog) {
                 WirelessAdbSession.open(context, portDiscoveryTimeoutMs = LOCAL_ADB_PORT_TIMEOUT_MILLIS)
                     .use { session ->

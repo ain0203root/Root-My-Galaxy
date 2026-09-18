@@ -74,7 +74,9 @@ internal object PermissionGrant {
             )
         }
 
-        runCatching {
+        // Cancellable rather than plain: the branch below writes to the shared app log, and a grant
+        // request that was cancelled is not a transport that failed to answer.
+        runCatchingCancellable {
             TemporaryWirelessAdb.use(context) {
                 WirelessAdbSession.open(context).use { session ->
                     val result = session.shell(command)
