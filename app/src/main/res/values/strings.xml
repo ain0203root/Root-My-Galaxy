@@ -93,6 +93,7 @@
     <string name="autoroot_failed">Installation failed: %1$s</string>
     <string name="autoroot_failed_at">Installation failed at %1$s: %2$s</string>
     <string name="autoroot_succeeded">Root is active</string>
+    <string name="autoroot_succeeded_without_shell">Root is active. Shizuku was not up, and this payload does not need a shell, so this boot ran without it.</string>
     <string name="autoroot_boot_changed">The kernel changed before installation started</string>
     <string name="autoroot_timed_out">The operation did not finish in time</string>
     <string name="autoroot_shizuku_waiting">Waiting for Shizuku to start: %1$s</string>

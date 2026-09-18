@@ -102,6 +102,60 @@ internal fun shizukuWait(
 }
 
 /**
+ * What a boot run should do about Shizuku, from the setting, the device, and the payload itself.
+ *
+ * The gate is the one caller that cannot fall back by itself, so its whole rule is a value rather than
+ * whatever branch it happens to take. The input that is new here is the payload's own answer - whether it
+ * needs a shell at all - and it is what turns "Shizuku did not come up" from a refusal into a run. It
+ * also settles a contradiction that was there before: a run whose payload does not need a shell already
+ * goes the standard way when Shizuku is silent ([chooseRunTransport]), and the gate holding that same
+ * payload back - for two minutes and then with a refusal about a transport it never needed - was a
+ * refusal about the wrong thing.
+ */
+internal enum class BootShizukuPlan {
+    /** Run as the settings ask: Shizuku is off, or it is up and this app may use it. */
+    AsAsked,
+
+    /**
+     * Run now, without a shell.
+     *
+     * Use Shizuku is on and Shizuku is not up, and the payload does not need a shell - so the wait and
+     * the refusal would both be about a transport this run does not need. This is the same run the
+     * screen offers by hand as "run without Shizuku"; here the payload's own policy chooses it instead
+     * of a person, which is the only way an unattended boot can make that choice at all.
+     */
+    WithoutShell,
+
+    /** The payload needs a shell and something here can start one: hold until it is usable. */
+    Wait,
+
+    /** The payload needs a shell and nothing here can start one: refuse, naming what is missing. */
+    Unstartable,
+}
+
+/**
+ * The Shizuku wait's answer, adjusted by whether the payload needs the transport being waited for.
+ *
+ * Pure, and built on [shizukuWait] rather than repeating any of it, because both are asked about the
+ * same device: a second copy of the setting/usable/startable rules is how a boot comes to disagree with
+ * a run about when to wait. Note what cannot happen here - a payload that does not need a shell produces
+ * neither [BootShizukuPlan.Wait] nor [BootShizukuPlan.Unstartable], because both are answers about
+ * getting a shell, and this payload does not need one.
+ */
+internal fun bootShizukuPlan(
+    requested: Boolean,
+    usable: Boolean,
+    startable: Boolean,
+    shellRequired: Boolean,
+): BootShizukuPlan = when (shizukuWait(requested, usable, startable)) {
+    ShizukuWait.NotRequested, ShizukuWait.Ready -> BootShizukuPlan.AsAsked
+    // Both ends of "it is not coming": neither the wait nor the refusal is about this payload.
+    ShizukuWait.Await -> if (shellRequired) BootShizukuPlan.Wait else BootShizukuPlan.WithoutShell
+    ShizukuWait.Unstartable ->
+        if (shellRequired) BootShizukuPlan.Unstartable else BootShizukuPlan.WithoutShell
+}
+
+/**
  * Whether a run that is about to start should stop and ask about Shizuku instead of going ahead.
  *
  * Use Shizuku says the run should go through Shizuku, and the only thing that changes Shizuku not

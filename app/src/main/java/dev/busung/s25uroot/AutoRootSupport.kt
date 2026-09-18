@@ -30,6 +30,28 @@ internal enum class AutoRootDecision {
 }
 
 /**
+ * Whether the payload a boot run will use says it needs a shell.
+ *
+ * Pure, because the interesting part is not the reading but which reading counts: a boot that is
+ * repeating an attempt runs the attempted payload, and a root-on-boot run runs the cached one, so the
+ * two descriptors can disagree and only the one the run will actually resolve is the answer. Neither is
+ * consulted at all on a device with nothing recorded.
+ *
+ * True when nothing answers, and that default is the conservative one. A boot whose payload cannot be
+ * read is a boot that waits and then offers its two answers, which is exactly what it did before this
+ * question existed; answering "no shell" there would spend the one attempt this boot gets running a
+ * payload a way it may not be able to run.
+ */
+internal fun bootPayloadNeedsShell(
+    preferAttempted: Boolean,
+    attempted: CachedPayload?,
+    cached: CachedPayload?,
+): Boolean = ((if (preferAttempted) attempted else null) ?: cached)
+    ?.routePolicy
+    ?.prefersShellTransport
+    ?: true
+
+/**
  * The gate's whole rule, as one pure decision.
  *
  * Order matters and is the reason this is not spread through the service: a boot that already has
@@ -75,6 +97,20 @@ internal object AutoRootSupport {
     fun hasVerifiedInstall(context: Context): Boolean =
         context.getSharedPreferences(RECEIPT, Context.MODE_PRIVATE)
             .getBoolean(RECEIPT_VERIFIED, false) && KnownGoodPayloadStore.hasValid(context)
+
+    /**
+     * Whether the payload this boot is about to run says it needs a shell.
+     *
+     * The descriptors are read here and the rule about which of them counts is [bootPayloadNeedsShell],
+     * which is where a test can reach it: what this adds is the reading, from the same two places a run
+     * resolves its payload from and not from the catalog, because a boot may have no network at all and
+     * the payload a boot run uses is by definition one that is already on the device.
+     */
+    fun bootPayloadNeedsShell(context: Context, preferAttempted: Boolean): Boolean = bootPayloadNeedsShell(
+        preferAttempted = preferAttempted,
+        attempted = AttemptedPayloadStore.describe(context),
+        cached = KnownGoodPayloadStore.describe(context),
+    )
 
     /** The boot an install was last verified in, or null when none has been. */
     fun verifiedBootToken(context: Context): String? {

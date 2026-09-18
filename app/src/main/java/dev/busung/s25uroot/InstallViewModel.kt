@@ -363,8 +363,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         unattended: Boolean = false,
         payloadOffline: Boolean = false,
         preferAttemptedPayload: Boolean = false,
+        /**
+         * Runs this attempt the way it would run with Use Shizuku off.
+         *
+         * The boot gate's own answer, and the only way an unattended run goes another transport: the
+         * gate reads the payload's policy before it decides about Shizuku ([bootShizukuPlan]), and this
+         * is how that decision travels - the run itself may not make it, because a run that quietly went
+         * a different way from the one it was promised is the silence the refusal below exists to stop.
+         */
+        withoutShizuku: Boolean = false,
     ) {
-        install(selectionId, unattended, payloadOffline, preferAttemptedPayload)
+        install(selectionId, unattended, payloadOffline, preferAttemptedPayload, withoutShizuku)
         installJob?.join()
     }
 
@@ -526,7 +535,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
          * setting on ended up installing in the app's own process after every reboot: the preference was
          * not consulted at all. It is consulted now, and the one thing this takes away is the ability to
          * ask - so an unattended run that was promised Shizuku gets a refusal rather than another
-         * transport, because it cannot say afterwards that it went a different way.
+         * transport, because it cannot say afterwards that it went a different way. The gate may unpromise
+         * it before the run starts, which is a decision rather than a fallback: see [withoutShizuku].
          */
         unattended: Boolean = false,
         /**

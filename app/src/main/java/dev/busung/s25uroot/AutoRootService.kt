@@ -189,15 +189,23 @@ class AutoRootService : Service() {
                     return@withTimeout
                 }
                 // Shizuku first, and before the run rather than inside it: this is the one caller that
-                // runs unattended, so it is the one that cannot fall back by itself. What it can do is
-                // wait, and then say what stopped it - with the two answers the run screen asks the same
-                // question with, because the person reading this notification is the person who would
-                // otherwise have had to start the app and press one of them.
-                shizukuBlocker()?.let { refusal ->
-                    finish(refusal.message, answers = refusal.answers)
-                    return@withTimeout
+                // runs unattended. What it can do is wait, and then say what stopped it - with the two
+                // answers the run screen asks the same question with, because the person reading this
+                // notification is the person who would otherwise have had to start the app and press one
+                // of them. What it must not do is spend the boot on a transport the payload does not
+                // need: see [bootShizukuPlan], which runs the standard way instead of holding when the
+                // payload can carry itself, so a boot with no Wi-Fi and no root still makes progress.
+                val payloadNeedsShell = AutoRootSupport.bootPayloadNeedsShell(
+                    context = this@AutoRootService,
+                    preferAttempted = retryArmedThisBoot,
+                )
+                when (val step = shizukuStep(payloadNeedsShell)) {
+                    is ShizukuStep.Refuse -> {
+                        finish(step.refusal.message, answers = step.refusal.answers)
+                        return@withTimeout
+                    }
+                    is ShizukuStep.Run -> runInstall(bootToken, withoutShell = step.withoutShell)
                 }
-                runInstall(bootToken)
             }
         } catch (timeout: TimeoutCancellationException) {
             AppLog.error(
@@ -262,41 +270,73 @@ class AutoRootService : Service() {
      *
      * The two travel together because the second is a property of the first: "nothing here can start
      * Shizuku" must not be reported with a button that tries to, and the two are decided by the same
-     * reading of the device - see [shizukuWait] and [ShizukuRefusalActions].
+     * reading of the device - see [bootShizukuPlan] and [ShizukuRefusalActions].
      */
     private data class GateRefusal(val message: String, val answers: ShizukuRefusalActions)
 
     /**
-     * Holds the boot run for Shizuku when the run asked for it, and says what stopped it if it never
-     * arrives.
+     * What the gate decided about Shizuku before the run: start it, or say what stopped it.
      *
-     * Null means the run may start. The setting decides here rather than inside the run because the two
-     * answers are not interchangeable: the app's own process is a different execution context, not a
-     * degraded one, and for a profile that wants a shell it is not available at all. A boot that quietly
-     * took it would be a boot that did not do what the user asked, with nobody watching to notice - so
-     * instead of taking it, this hands the choice to the notification.
+     * A refusal had to stay distinguishable from a start, and [withoutShell] is the third answer - the
+     * run may go ahead, but not the way the setting asked for. It is carried to the run rather than
+     * implied, because the run refuses an unattended start it was promised Shizuku for, and it must: the
+     * promise is what the gate is allowed to break, not something a run may quietly decide for itself.
      */
-    private suspend fun shizukuBlocker(): GateRefusal? = when (
-        shizukuWait(
+    private sealed interface ShizukuStep {
+        data class Run(val withoutShell: Boolean) : ShizukuStep
+        data class Refuse(val refusal: GateRefusal) : ShizukuStep
+    }
+
+    /**
+     * Holds the boot run for Shizuku when the run asked for it, says what stopped it if it never
+     * arrives, and goes the standard way when the payload never needed it.
+     *
+     * The setting decides here rather than inside the run because the two transports are not
+     * interchangeable: the app's own process is a different execution context, not a degraded one, and
+     * for a profile that wants a shell it is not available at all. A boot that quietly took it would be a
+     * boot that did not do what the user asked, with nobody watching to notice - so what may be taken
+     * quietly is decided by [bootShizukuPlan] from the payload's own policy, and everything else is
+     * handed to the notification as two answers.
+     *
+     * The plan is logged before it is acted on, including the shell reading that produced it: this is the
+     * one place where a boot can decide to install without Shizuku, and a device whose payload was read
+     * as not needing a shell has to be able to see that it was read that way.
+     */
+    private suspend fun shizukuStep(shellRequired: Boolean): ShizukuStep {
+        val plan = bootShizukuPlan(
             requested = AppPreferences.shizukuMode(this),
             usable = shizukuUsable(),
             startable = shizukuStartable(),
+            shellRequired = shellRequired,
         )
-    ) {
-        ShizukuWait.NotRequested, ShizukuWait.Ready -> null
-        ShizukuWait.Unstartable -> GateRefusal(
-            getString(R.string.autoroot_shizuku_unstartable),
-            ShizukuRefusalActions.StandardOnly,
+        AppLog.info(
+            AppLogTags.BOOT,
+            "Shizuku for this boot: ${plan.name} (the payload needs a shell=$shellRequired)",
         )
-        ShizukuWait.Await ->
-            if (awaitShizuku()) null
-            else GateRefusal(
-                getString(
-                    R.string.autoroot_shizuku_unavailable,
-                    BootSettle.formatRemaining(SHIZUKU_WAIT_MILLIS),
+        return when (plan) {
+            BootShizukuPlan.AsAsked -> ShizukuStep.Run(withoutShell = false)
+            // The one outcome a boot reaches by itself, and the one the notification has to explain
+            // afterwards: the run is the same code as the screen's "run without Shizuku", so what it
+            // installs is exactly what that answer would have installed.
+            BootShizukuPlan.WithoutShell -> ShizukuStep.Run(withoutShell = true)
+            BootShizukuPlan.Wait ->
+                if (awaitShizuku()) ShizukuStep.Run(withoutShell = false)
+                else ShizukuStep.Refuse(
+                    GateRefusal(
+                        getString(
+                            R.string.autoroot_shizuku_unavailable,
+                            BootSettle.formatRemaining(SHIZUKU_WAIT_MILLIS),
+                        ),
+                        ShizukuRefusalActions.RetryOrStandard,
+                    ),
+                )
+            BootShizukuPlan.Unstartable -> ShizukuStep.Refuse(
+                GateRefusal(
+                    getString(R.string.autoroot_shizuku_unstartable),
+                    ShizukuRefusalActions.StandardOnly,
                 ),
-                ShizukuRefusalActions.RetryOrStandard,
             )
+        }
     }
 
     /**
@@ -375,8 +415,14 @@ class AutoRootService : Service() {
         }
     }
 
-    /** Drives the ordinary install with the cached payload; there is no network at boot to rely on. */
-    private suspend fun runInstall(bootToken: String) {
+    /**
+     * Drives the ordinary install with the cached payload; there is no network at boot to rely on.
+     *
+     * [withoutShell] is the gate's own decision, passed on rather than re-derived: it is the difference
+     * between running as the settings ask and running the standard way, and the run is told which one it
+     * is because it cannot ask.
+     */
+    private suspend fun runInstall(bootToken: String, withoutShell: Boolean = false) {
         val model = InstallViewModel(application)
         viewModel = model
         progressJob = scope.launch {
@@ -394,6 +440,10 @@ class AutoRootService : Service() {
             // the device. Root on boot has no attempt to honour by definition - it is not repeating
             // anything - so it keeps resolving from the cache.
             preferAttemptedPayload = retryArmedThisBoot,
+            // The promise the gate could not keep, dropped before the run rather than inside it: the run
+            // refuses an unattended start that was told to use Shizuku and has none, and that refusal is
+            // what makes this an explicit decision instead of a silent fallback.
+            withoutShizuku = withoutShell,
         )
         progressJob?.cancel()
         progressJob = null
@@ -405,7 +455,17 @@ class AutoRootService : Service() {
             // KernelSU is loaded and its modules are not: this run happened in a userspace that was
             // already built, so the offer to build it again is the difference between a phone that is
             // rooted and a phone whose modules do anything.
-            finish(getString(R.string.autoroot_succeeded), offerSoftReboot = true)
+            //
+            // A run that went the standard way says so here, because this notification is the whole of
+            // what anyone sees of a boot install: with Use Shizuku on, a rooted phone and a message that
+            // reads as if nothing was different is the setting being ignored without saying so.
+            finish(
+                getString(
+                    if (withoutShell) R.string.autoroot_succeeded_without_shell
+                    else R.string.autoroot_succeeded,
+                ),
+                offerSoftReboot = true,
+            )
             return
         }
         val failure = state.failure
