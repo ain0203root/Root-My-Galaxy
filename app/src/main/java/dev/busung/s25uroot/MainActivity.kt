@@ -940,101 +940,108 @@ private fun RootApp(
         )
     }
 
-    Scaffold(
-        bottomBar = {
-            AppNavBar(
-                selected = selectedPage,
-                onSelect = { page ->
-                    clickHaptic(view)
-                    selectedPage = page
-                },
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-    ) { padding ->
-        AnimatedContent(targetState = selectedPage, label = "page") { page ->
-            when (page) {
-                AppPage.Overview -> OverviewPage(
-                    padding = padding,
-                    device = device,
-                    installState = installState,
-                    armedRetry = armedRetry,
-                    retryPayload = retryPayload,
-                    updateStatus = updateStatus,
-                    updateCardDismissed = updateCardDismissed,
-                    onDismissUpdateCard = { updateCardDismissed = true },
-                    frameworkRestart = frameworkRestart.takeIf { !frameworkRestartDismissed },
-                    onDismissFrameworkRestart = { frameworkRestartDismissed = true },
-                    onStartDownload = startDownload,
-                    onCheckForUpdate = checkForUpdate,
-                    onStartArmedRetry = onStartArmedRetry,
-                    onCancelArmedRetry = onCancelArmedRetry,
-                    onOpenSettings = { selectedPage = AppPage.Settings },
-                    onOpenReboot = { showRebootSheet = true },
-                    onInstall = {
-                        selectedProfile = null
-                        if (advancedMode) {
-                            showTargetPicker = true
-                            installViewModel.loadTargetCatalog()
-                        } else {
-                            showInstallConfirmation = true
-                        }
-                    },
-                )
-                AppPage.History -> HistoryPage(
-                    padding,
-                    history,
-                    onDeleteEntries = installViewModel::deleteHistoryEntries,
-                )
-                AppPage.Logs -> LogsPage(padding)
-                AppPage.Settings -> SettingsPage(
-                    padding = padding,
-                    device = device,
-                    accentColor = accentColor,
-                    themeMode = themeMode,
-                    advancedMode = advancedMode,
-					disableKsuModules = disableKsuModules,
-                    loadKernelSu = loadKernelSu,
-                    kernelsuFlavor = kernelsuFlavor,
-                    shizukuMode = shizukuMode,
-                    payloadSources = payloadSources,
-                    bootRootMode = bootRootMode,
-                    restartAfterRoot = restartAfterRoot,
-                    shizukuBootMode = shizukuBootMode,
-                    bootSettleSeconds = bootSettleSeconds,
-                    autoRootSettleSeconds = autoRootSettleSeconds,
-                    runLimits = runLimits,
-                    shizukuToken = shizukuToken,
-                    partitionReadOnly = partitionReadOnly,
-                    payloadMode = payloadMode,
-                    batteryUnrestricted = batteryUnrestricted,
-                    onAccentColorChanged = onAccentColorChanged,
-                    onThemeModeChanged = onThemeModeChanged,
-                    onAdvancedModeChanged = onAdvancedModeChanged,
-					onDisableKsuModulesChanged = onDisableKsuModulesChanged,
-                    onLoadKernelSuChanged = onLoadKernelSuChanged,
-                    onKernelsuFlavorChanged = onKernelsuFlavorChanged,
-                    onManagerVersionChanged = onManagerVersionChanged,
-                    onShizukuModeChanged = onShizukuModeChanged,
-                    onPayloadSourcesChanged = onPayloadSourcesChanged,
-                    onBootRootModeChanged = onBootRootModeChanged,
-                    onRestartAfterRootChanged = onRestartAfterRootChanged,
-                    onShizukuBootModeChanged = onShizukuBootModeChanged,
-                    onBootSettleChanged = onBootSettleChanged,
-                    onAutoRootSettleChanged = onAutoRootSettleChanged,
-                    onRunLimitChanged = onRunLimitChanged,
-                    onShizukuTokenChanged = onShizukuTokenChanged,
-                    onPartitionReadOnlyChanged = onPartitionReadOnlyChanged,
-                    onPayloadModeChanged = onPayloadModeChanged,
-                    onForgetCachedPayload = onForgetCachedPayload,
-                    onRequestNotificationPermission = requestNotificationPermission,
-                    onRequestBatteryExemption = onRequestBatteryExemption,
-                    runPlan = runPlan,
-                    openTarget = settingsTarget,
-                    onOpenTargetHandled = onSettingsTargetHandled,
-                )
+    // The bar floats over the pages rather than being handed a strip of its own. A pill that reserved its
+    // row left the bottom of every screen empty - the page stopped above it and the last card sat in the
+    // middle of the screen with an empty band below - while the pill itself covered nothing that could not
+    // be scrolled past. As a sibling it costs no layout at all: the pages run to the navigation inset and
+    // the bar is drawn last, over whatever is under it.
+    Box(modifier = Modifier.fillMaxSize()) {
+        Scaffold(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ) { padding ->
+            AnimatedContent(targetState = selectedPage, label = "page") { page ->
+                when (page) {
+                    AppPage.Overview -> OverviewPage(
+                        padding = padding,
+                        device = device,
+                        installState = installState,
+                        armedRetry = armedRetry,
+                        retryPayload = retryPayload,
+                        updateStatus = updateStatus,
+                        updateCardDismissed = updateCardDismissed,
+                        onDismissUpdateCard = { updateCardDismissed = true },
+                        frameworkRestart = frameworkRestart.takeIf { !frameworkRestartDismissed },
+                        onDismissFrameworkRestart = { frameworkRestartDismissed = true },
+                        onStartDownload = startDownload,
+                        onCheckForUpdate = checkForUpdate,
+                        onStartArmedRetry = onStartArmedRetry,
+                        onCancelArmedRetry = onCancelArmedRetry,
+                        onOpenSettings = { selectedPage = AppPage.Settings },
+                        onOpenReboot = { showRebootSheet = true },
+                        onInstall = {
+                            selectedProfile = null
+                            if (advancedMode) {
+                                showTargetPicker = true
+                                installViewModel.loadTargetCatalog()
+                            } else {
+                                showInstallConfirmation = true
+                            }
+                        },
+                    )
+                    AppPage.History -> HistoryPage(
+                        padding,
+                        history,
+                        onDeleteEntries = installViewModel::deleteHistoryEntries,
+                    )
+                    AppPage.Logs -> LogsPage(padding)
+                    AppPage.Settings -> SettingsPage(
+                        padding = padding,
+                        device = device,
+                        accentColor = accentColor,
+                        themeMode = themeMode,
+                        advancedMode = advancedMode,
+                        disableKsuModules = disableKsuModules,
+                        loadKernelSu = loadKernelSu,
+                        kernelsuFlavor = kernelsuFlavor,
+                        shizukuMode = shizukuMode,
+                        payloadSources = payloadSources,
+                        bootRootMode = bootRootMode,
+                        restartAfterRoot = restartAfterRoot,
+                        shizukuBootMode = shizukuBootMode,
+                        bootSettleSeconds = bootSettleSeconds,
+                        autoRootSettleSeconds = autoRootSettleSeconds,
+                        runLimits = runLimits,
+                        shizukuToken = shizukuToken,
+                        partitionReadOnly = partitionReadOnly,
+                        payloadMode = payloadMode,
+                        batteryUnrestricted = batteryUnrestricted,
+                        onAccentColorChanged = onAccentColorChanged,
+                        onThemeModeChanged = onThemeModeChanged,
+                        onAdvancedModeChanged = onAdvancedModeChanged,
+                        onDisableKsuModulesChanged = onDisableKsuModulesChanged,
+                        onLoadKernelSuChanged = onLoadKernelSuChanged,
+                        onKernelsuFlavorChanged = onKernelsuFlavorChanged,
+                        onManagerVersionChanged = onManagerVersionChanged,
+                        onShizukuModeChanged = onShizukuModeChanged,
+                        onPayloadSourcesChanged = onPayloadSourcesChanged,
+                        onBootRootModeChanged = onBootRootModeChanged,
+                        onRestartAfterRootChanged = onRestartAfterRootChanged,
+                        onShizukuBootModeChanged = onShizukuBootModeChanged,
+                        onBootSettleChanged = onBootSettleChanged,
+                        onAutoRootSettleChanged = onAutoRootSettleChanged,
+                        onRunLimitChanged = onRunLimitChanged,
+                        onShizukuTokenChanged = onShizukuTokenChanged,
+                        onPartitionReadOnlyChanged = onPartitionReadOnlyChanged,
+                        onPayloadModeChanged = onPayloadModeChanged,
+                        onForgetCachedPayload = onForgetCachedPayload,
+                        onRequestNotificationPermission = requestNotificationPermission,
+                        onRequestBatteryExemption = onRequestBatteryExemption,
+                        runPlan = runPlan,
+                        openTarget = settingsTarget,
+                        onOpenTargetHandled = onSettingsTargetHandled,
+                    )
+                }
             }
         }
+
+        AppNavBar(
+            selected = selectedPage,
+            onSelect = { page ->
+                clickHaptic(view)
+                selectedPage = page
+            },
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
     }
 }
 
@@ -1062,10 +1069,27 @@ private fun AppVersionText(
  * items on a phone means four narrow columns of wrapped text, and this way the name that matters is
  * wide enough to read while the bar stays one calm piece under whatever the page is showing.
  */
+/**
+ * What the floating bar takes of the bottom of a page.
+ *
+ * The bar is drawn over the pages rather than given a strip of its own, so a page's own padding stops at the
+ * system navigation inset and this is added back where it matters: under the last row of a list, and under
+ * whatever a page keeps in its bottom corner. One value for both, because the two have to clear the same
+ * pill - and a list left out of the count is a last row you can only read by scrolling it under the bar.
+ *
+ * The sum: the pill is 64dp tall (48dp items inside 8dp of padding), it stands 10dp off the navigation
+ * inset, and this leaves another 10dp of air above it.
+ */
+internal val NAV_BAR_HEIGHT = 84.dp
+
 @Composable
-private fun AppNavBar(selected: AppPage, onSelect: (AppPage) -> Unit) {
+private fun AppNavBar(
+    selected: AppPage,
+    onSelect: (AppPage) -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 10.dp),
@@ -2237,7 +2261,9 @@ private fun HistoryList(
                 start = 20.dp,
                 top = 20.dp,
                 end = 20.dp,
-                bottom = 96.dp,
+                // The selection buttons and, above them, the bar the whole app draws over its pages - the
+                // last run has to be readable with both stacked over the bottom corner.
+                bottom = 96.dp + NAV_BAR_HEIGHT,
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -2344,7 +2370,12 @@ private fun HistoryList(
             }
         }
         Column(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            // Lifted by the bar's height, because the bar is drawn over this page: the stack's own 20dp of
+            // air, then the pill, or the export and delete buttons would sit behind it.
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(20.dp)
+                .padding(bottom = NAV_BAR_HEIGHT),
             horizontalAlignment = Alignment.End,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {

@@ -39,6 +39,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 
@@ -50,8 +51,9 @@ import kotlinx.coroutines.launch
  * with it. The state is the caller's, since a page that jumps to a card needs to drive the same state this
  * draws over.
  *
- * The list's own bottom padding is extended by the room the button needs, so the last card cannot end up
- * sitting under it. Pages keep their own padding and do not have to know the button's size.
+ * The list's own bottom padding is extended by the room the button and the floating navigation bar need, so
+ * the last card cannot end up sitting under either. Pages keep their own padding and do not have to know
+ * what is drawn over them.
  */
 @Composable
 internal fun PageList(
@@ -71,14 +73,14 @@ internal fun PageList(
                 start = contentPadding.calculateStartPadding(layoutDirection),
                 top = contentPadding.calculateTopPadding(),
                 end = contentPadding.calculateEndPadding(layoutDirection),
-                bottom = contentPadding.calculateBottomPadding() + BACK_TO_TOP_CLEARANCE,
+                bottom = contentPadding.calculateBottomPadding() + pageBottomClearance(),
             ),
             verticalArrangement = verticalArrangement,
             content = content,
         )
         BackToTopFab(
             listState = listState,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            modifier = Modifier.align(Alignment.BottomEnd).pageBottomInset(),
         )
     }
 }
@@ -207,3 +209,18 @@ private fun BackToTopButton(
  * A small button is 40dp and sits 20dp off the edge, so this leaves the last row a little air above it.
  */
 private val BACK_TO_TOP_CLEARANCE = 72.dp
+
+/**
+ * The room a page's last row keeps under it: the button's clearance, plus the bar the button now sits above.
+ *
+ * Both are needed rather than the larger of the two - the button stands on top of the bar, so the row it must
+ * not sit under is the higher of the two, and that is the sum.
+ */
+private fun pageBottomClearance(): Dp = BACK_TO_TOP_CLEARANCE + NAV_BAR_HEIGHT
+
+/**
+ * Where the button sits in a page's bottom corner: its own air, then the bar's height, because the bar is
+ * drawn over the page rather than beside it and the button would otherwise be behind the pill.
+ */
+private fun Modifier.pageBottomInset(): Modifier =
+    padding(20.dp).padding(bottom = NAV_BAR_HEIGHT)
