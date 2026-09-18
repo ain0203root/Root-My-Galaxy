@@ -962,6 +962,7 @@ private fun RootApp(
                     onStartArmedRetry = onStartArmedRetry,
                     onCancelArmedRetry = onCancelArmedRetry,
                     onOpenSettings = { selectedPage = AppPage.Settings },
+                    onOpenLogs = { selectedPage = AppPage.Logs },
                     onInstall = {
                         selectedProfile = null
                         if (advancedMode) {
@@ -1174,6 +1175,7 @@ private fun OverviewPage(
     onCancelArmedRetry: () -> Unit,
     onInstall: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenLogs: () -> Unit,
 ) {
     val context = LocalContext.current
     // Read live, because these change without this screen doing anything: Shizuku hands out its binder
@@ -1197,6 +1199,9 @@ private fun OverviewPage(
         )
     }
     var resumeTick by remember { mutableStateOf(0) }
+    // Reachable from here as well as from Settings: the version and the links are what a reader wants
+    // after a run, which is the one thing this screen is about.
+    var showAbout by remember { mutableStateOf(false) }
     LaunchedEffect(installState.phase, resumeTick) {
         // Off the main thread: the KernelSU reading may start `su`, and finding the manager apps walks
         // the package list - neither is worth a frozen frame.
@@ -1306,7 +1311,26 @@ private fun OverviewPage(
         }
         item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
-        item { HowItWorksCard() }
+        // The two rows that lead off this screen rather than report on it, and they come last for that
+        // reason: everything above answers "what is this phone doing", these answer "where else is
+        // there to look". The run they follow up on finishes here, so this is where they are wanted.
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HomeLinkRow(
+                    icon = Icons.Rounded.Terminal,
+                    title = stringResource(R.string.nav_logs),
+                    onClick = onOpenLogs,
+                )
+                HomeLinkRow(
+                    icon = Icons.Rounded.Info,
+                    title = stringResource(R.string.about),
+                    onClick = { showAbout = true },
+                )
+            }
+        }
+    }
+    if (showAbout) {
+        AboutDialog(onDismiss = { showAbout = false })
     }
 }
 
@@ -1482,45 +1506,45 @@ private fun UpdateCard(
     }
 }
 
+/**
+ * A row that leads somewhere, rather than one that reports a state.
+ *
+ * Two things separate it from the settings cards it otherwise sits with: there is no description, so the
+ * icon, the name and the chevron are the whole row, and the chevron is what says a tap opens something
+ * - a card whose value changes in place has nothing to promise the way a page does.
+ */
 @Composable
-private fun HowItWorksCard() {
+private fun HomeLinkRow(icon: ImageVector, title: String, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val view = LocalView.current
     Card(
+        onClick = {
+            clickHaptic(view)
+            onClick()
+        },
         modifier = Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
+        shape = expressiveClickableCardShape(interactionSource, SettingsCardPosition.Single),
+        interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(stringResource(R.string.how_it_works), style = MaterialTheme.typography.titleMedium)
-            installerSteps.forEach { step ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Surface(
-                        modifier = Modifier.size(36.dp),
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(step.icon, contentDescription = null, modifier = Modifier.size(20.dp))
-                        }
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(stringResource(step.title), style = MaterialTheme.typography.titleSmall)
-                        Text(
-                            stringResource(step.detail),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-            }
+            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                Icons.Rounded.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

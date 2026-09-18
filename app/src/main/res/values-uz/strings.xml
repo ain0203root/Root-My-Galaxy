@@ -17,7 +17,6 @@
     <string name="install_tap_retry">Qayta urinish uchun bosing</string>
     <string name="install_tap_start">KernelSU\'ni o\'rnatish uchun bosing</string>
     <string name="device">Qurilma</string>
-    <string name="how_it_works">Bu qanday ishlaydi</string>
     <string name="kernelsu_card_title">KernelSU</string>
     <string name="kernelsu_card_description">Android uchun karnel-asoslangan rootlash</string>
     <string name="firmware">Proshivka</string>

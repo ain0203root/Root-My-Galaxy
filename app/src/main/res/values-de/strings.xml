@@ -17,7 +17,6 @@
     <string name="install_tap_retry">Tippen zum Wiederholen</string>
     <string name="install_tap_start">Tippen um KernelSU zu installieren</string>
     <string name="device">Gerät</string>
-    <string name="how_it_works">So funktioniert es</string>
     <string name="kernelsu_card_title">KernelSU</string>
     <string name="kernelsu_card_description">Eine kernelbasierte Root-Lösung für Android</string>
     <string name="firmware">Firmware</string>

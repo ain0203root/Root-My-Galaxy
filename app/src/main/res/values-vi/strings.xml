@@ -148,7 +148,6 @@
     <string name="export_log_saved">Đã lưu nhật ký</string>
     <string name="export_log_failed">Không thể lưu nhật ký</string>
     <string name="install_tap_open_manager">Chạm để mở KernelSU Manager</string>
-    <string name="how_it_works">Cách hoạt động</string>
     <string name="kernelsu_card_description">Giải pháp root dựa trên kernel cho Android</string>
     <string name="history_shizuku_used">Đã dùng Shizuku</string>
     <string name="history_shizuku_not_used">Không dùng Shizuku</string>

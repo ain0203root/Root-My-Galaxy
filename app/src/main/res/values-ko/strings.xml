@@ -36,7 +36,6 @@
     <string name="export_log_saved">로그가 저장되었습니다</string>
     <string name="export_log_failed">로그를 저장하지 못했습니다</string>
     <string name="install_tap_open_manager">클릭해서 KSU 매니저 열기</string>
-    <string name="how_it_works">작동 방식</string>
     <string name="kernelsu_card_description">Android용 커널 기반 루트 솔루션</string>
     <string name="history_shizuku_used">Shizuku 사용됨</string>
     <string name="history_shizuku_not_used">Shizuku 사용 안 함</string>
