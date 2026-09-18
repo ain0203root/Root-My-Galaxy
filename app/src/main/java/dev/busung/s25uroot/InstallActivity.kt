@@ -56,6 +56,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -75,9 +76,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.busung.s25uroot.ui.theme.RootMyGalaxyTheme
 import kotlinx.coroutines.delay
@@ -418,12 +421,18 @@ private fun InstallScreen(
         }
     }
 
-    // All three answers are named in the body, in the order they are offered, because what separates
-    // them is what each one buys rather than how it feels: the restart puts everything this boot has
-    // done out of the way of the next attempt, the wait lets the state a failed attempt leaves behind
-    // clear itself without one, and trying again at once buys only speed. The restart is first because
-    // it is the best odds; the two in-boot answers are the ones that can be withdrawn, which is why
-    // they are the ones the notice above speaks for.
+    // All three answers are named where they are offered, in the order they are offered, because what
+    // separates them is what each one buys rather than how it feels: the restart puts everything this
+    // boot has done out of the way of the next attempt, the wait lets the state a failed attempt leaves
+    // behind clear itself without one, and trying again at once buys only speed. The restart is first
+    // because it is the best odds.
+    //
+    // Stacked - one full-width answer per row, each carrying the line that says what it buys - rather
+    // than an AlertDialog, whose actions all live in a single run at the end of the message. Four
+    // answers with labels this long do not fit in that run on a phone: it wraps, which puts the primary
+    // answer on a line of its own and crowds the other three together underneath it, and that crowding
+    // is what this dialog looked like. A list survives any label length and any screen width, and it
+    // reads in the order the answers are worth taking.
     if (showRetryChoice) {
         val scope = rememberCoroutineScope()
         var arming by remember { mutableStateOf(false) }
@@ -431,89 +440,101 @@ private fun InstallScreen(
         // is the answer that clears it, so the dialog keeps that one and says why the other two are
         // missing rather than leaving their absence to be noticed.
         val blocked = installState.failure?.inBootRetryBlocked
-        AlertDialog(
-            onDismissRequest = { if (!arming) showRetryChoice = false },
-            icon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
-            title = { Text(stringResource(R.string.retry_choice_title)) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // The body describes the answers that are on the dialog, so a boot that cannot be
-                    // run in again does not get a paragraph about two answers it cannot have.
-                    Text(
-                        text = stringResource(
-                            if (blocked == null) R.string.retry_choice_body
-                            else R.string.retry_choice_body_blocked,
-                        ),
-                    )
-                    // Then, only when something is missing, why it is missing - which is the whole
-                    // reason the failure carried it this far.
-                    val missing = when (blocked) {
-                        InBootRetryBlock.PayloadMayStillRun -> R.string.retry_single_payload_hint
-                        InBootRetryBlock.PipeBudgetSpent -> R.string.retry_pipe_budget_hint
-                        null -> null
-                    }
-                    if (missing != null) {
+        Dialog(onDismissRequest = { if (!arming) showRetryChoice = false }) {
+            Surface(
+                // A share of the width rather than a fixed size, so it is as wide as the alerts this app
+                // already shows and still fits the narrowest screen.
+                modifier = Modifier.fillMaxWidth(0.92f),
+                shape = MaterialTheme.shapes.extraLarge,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 6.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.RestartAlt,
+                            contentDescription = null,
+                            modifier = Modifier.size(28.dp),
+                        )
+                        Spacer(Modifier.height(12.dp))
                         Text(
-                            text = stringResource(missing),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = stringResource(R.string.retry_choice_title),
+                            style = MaterialTheme.typography.headlineSmall,
+                            textAlign = TextAlign.Center,
                         )
                     }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = !arming,
-                    onClick = {
-                        clickHaptic(view)
-                        arming = true
-                        scope.launch {
-                            val rebooted = onRebootAndRetry()
-                            arming = false
-                            showRetryChoice = false
-                            retryNotice = rebooted
-                        }
-                    },
-                ) {
-                    Text(stringResource(R.string.retry_after_reboot))
-                }
-            },
-            dismissButton = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
+                    Spacer(Modifier.height(6.dp))
+                    RetryOption(
+                        label = stringResource(R.string.retry_after_reboot),
+                        detail = stringResource(R.string.retry_option_reboot_detail),
                         enabled = !arming,
+                        emphasis = RetryOptionEmphasis.Primary,
                         onClick = {
                             clickHaptic(view)
-                            showRetryChoice = false
+                            arming = true
+                            scope.launch {
+                                val rebooted = onRebootAndRetry()
+                                arming = false
+                                showRetryChoice = false
+                                retryNotice = rebooted
+                            }
                         },
-                    ) {
-                        Text(stringResource(R.string.action_cancel))
-                    }
+                    )
                     if (blocked == null) {
-                        TextButton(
+                        RetryOption(
+                            label = stringResource(R.string.retry_wait),
+                            detail = stringResource(R.string.retry_option_wait_detail),
                             enabled = !arming,
                             onClick = {
                                 clickHaptic(view)
                                 showRetryChoice = false
                                 waitRemaining = InBootRetry.remainingSeconds(0)
                             },
-                        ) {
-                            Text(stringResource(R.string.retry_wait))
-                        }
-                        TextButton(
+                        )
+                        RetryOption(
+                            label = stringResource(R.string.retry_now),
+                            detail = stringResource(R.string.retry_option_now_detail),
                             enabled = !arming,
+                            emphasis = RetryOptionEmphasis.Quiet,
                             onClick = {
                                 clickHaptic(view)
                                 showRetryChoice = false
                                 onRetry()
                             },
-                        ) {
-                            Text(stringResource(R.string.retry_now))
-                        }
+                        )
+                    } else {
+                        // Why the answers that are not here are not here - which is the whole reason the
+                        // failure carried the block this far.
+                        Text(
+                            text = stringResource(
+                                when (blocked) {
+                                    InBootRetryBlock.PayloadMayStillRun -> R.string.retry_single_payload_hint
+                                    InBootRetryBlock.PipeBudgetSpent -> R.string.retry_pipe_budget_hint
+                                },
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(
+                        enabled = !arming,
+                        onClick = {
+                            clickHaptic(view)
+                            showRetryChoice = false
+                        },
+                        modifier = Modifier.align(Alignment.End),
+                    ) {
+                        Text(stringResource(R.string.action_cancel))
                     }
                 }
-            },
-        )
+            }
+        }
     }
 
     // What a reboot that could not be asked for means: the retry is armed either way, so the only
@@ -568,6 +589,76 @@ private fun InBootRetryNotice(block: InBootRetryBlock) {
                 text = stringResource(block.notice),
                 style = MaterialTheme.typography.bodyMedium,
             )
+        }
+    }
+}
+
+/**
+ * How much weight an answer carries, which is the only thing that separates the three of them.
+ */
+private enum class RetryOptionEmphasis { Primary, Secondary, Quiet }
+
+/**
+ * One answer on the retry dialog: what it is called, and the line that says what it buys.
+ *
+ * The second line sits inside the button rather than beside it because the pairing is the point: an
+ * answer read without its trade-off is picked on its name, and "Retry now" is the name that says least
+ * about what it costs. Faded rather than recoloured, so the same line is legible on all three of the
+ * containers an answer can be drawn in.
+ */
+@Composable
+private fun RetryOption(
+    label: String,
+    detail: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    emphasis: RetryOptionEmphasis = RetryOptionEmphasis.Secondary,
+) {
+    val body: @Composable () -> Unit = {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                textAlign = TextAlign.Start,
+            )
+            Text(
+                text = detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalContentColor.current.copy(alpha = 0.75f),
+                textAlign = TextAlign.Start,
+            )
+        }
+    }
+    val padding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+    when (emphasis) {
+        RetryOptionEmphasis.Primary -> Button(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            enabled = enabled,
+            contentPadding = padding,
+        ) {
+            body()
+        }
+        RetryOptionEmphasis.Secondary -> FilledTonalButton(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            enabled = enabled,
+            contentPadding = padding,
+        ) {
+            body()
+        }
+        RetryOptionEmphasis.Quiet -> OutlinedButton(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            enabled = enabled,
+            contentPadding = padding,
+        ) {
+            body()
         }
     }
 }
