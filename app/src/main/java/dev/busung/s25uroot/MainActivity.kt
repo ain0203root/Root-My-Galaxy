@@ -5293,15 +5293,21 @@ private fun TargetSelectionSheet(
     onRetry: () -> Unit,
     onNext: (TargetProfile) -> Unit,
 ) {
-    var showOnlyMyDevice by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    // Read once and written on every change: the answer is a standing preference, not a question for
+    // this visit, and a sheet that forgot it would have to be corrected at every run - which is how
+    // the wrong target gets picked.
+    var showOnlyMyDevice by remember { mutableStateOf(AppPreferences.targetFitsDeviceOnly(context)) }
+    var query by rememberSaveable { mutableStateOf("") }
     var selectedSelectionId by remember { mutableStateOf<String?>(null) }
     val view = LocalView.current
-    val visibleProfiles = remember(catalog.profiles, showOnlyMyDevice, device) {
-        if (showOnlyMyDevice) {
-            catalog.profiles.filter { it.matches(device) }
-        } else {
-            catalog.profiles
-        }
+    val visibleProfiles = remember(catalog.profiles, showOnlyMyDevice, device, query) {
+        visibleTargets(
+            profiles = catalog.profiles,
+            device = device,
+            fitsDeviceOnly = showOnlyMyDevice,
+            query = query,
+        )
     }
     val selectedProfile = catalog.profiles.firstOrNull { it.selectionId == selectedSelectionId }
 
@@ -5347,6 +5353,7 @@ private fun TargetSelectionSheet(
                         onValueChange = { enabled ->
                             clickHaptic(view)
                             showOnlyMyDevice = enabled
+                            AppPreferences.setTargetFitsDeviceOnly(context, enabled)
                             if (enabled && selectedProfile?.matches(device) == false) {
                                 selectedSelectionId = null
                             }
@@ -5359,6 +5366,30 @@ private fun TargetSelectionSheet(
                 Checkbox(checked = showOnlyMyDevice, onCheckedChange = null)
                 Text(stringResource(R.string.show_my_device_only), style = MaterialTheme.typography.titleMedium)
             }
+
+            // Beside the toggle rather than over the list: with a dozen sources configured the sheet
+            // can hold every device its catalogs know, and the row being looked for is found by name
+            // long before it is found by scrolling.
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text(stringResource(R.string.target_search)) },
+                leadingIcon = { Icon(Icons.Rounded.Search, contentDescription = null) },
+                trailingIcon = if (query.isEmpty()) {
+                    null
+                } else {
+                    {
+                        IconButton(onClick = {
+                            clickHaptic(view)
+                            query = ""
+                        }) {
+                            Icon(Icons.Rounded.Close, contentDescription = null)
+                        }
+                    }
+                },
+            )
 
             if (catalog.sourceFailures.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -5394,11 +5425,31 @@ private fun TargetSelectionSheet(
                         Text(stringResource(R.string.action_retry))
                     }
                 }
-                visibleProfiles.isEmpty() -> Text(
-                    stringResource(R.string.no_matching_devices),
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                // Which of the two controls emptied the list, said rather than left to be worked out -
+                // and with the way out of it under the sentence, since a search that matches nothing
+                // is one tap from a list that does.
+                visibleProfiles.isEmpty() -> Column(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = if (query.isBlank()) {
+                            stringResource(R.string.no_matching_devices)
+                        } else {
+                            stringResource(R.string.no_matching_devices_query, query.trim())
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    FilledTonalButton(onClick = {
+                        clickHaptic(view)
+                        query = ""
+                        showOnlyMyDevice = false
+                        AppPreferences.setTargetFitsDeviceOnly(context, false)
+                    }) {
+                        Text(stringResource(R.string.target_show_everything))
+                    }
+                }
                 else -> LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()

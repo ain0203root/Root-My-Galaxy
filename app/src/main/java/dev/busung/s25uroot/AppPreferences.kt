@@ -70,6 +70,7 @@ object AppPreferences {
     // were open, and the two are opposite readings of the same names, so the old one is left unread rather
     // than migrated - a page that comes up with everything open is the page this change is for.
     private const val CLOSED_SETTINGS_SECTIONS = "closed_settings_sections"
+    private const val TARGET_FITS_DEVICE = "target_fits_device"
 
     /**
      * The settings sections the user has collapsed, by name.
@@ -88,6 +89,20 @@ object AppPreferences {
         prefs(context).edit()
             .putStringSet(CLOSED_SETTINGS_SECTIONS, sections.map { it.name }.toSet())
             .apply()
+    }
+
+    /**
+     * Whether the target sheet offers only what fits this phone.
+     *
+     * Stored rather than remembered on the sheet, because it is a standing preference and not a
+     * question asked once: whoever turns it off is testing other devices' payloads, and having to
+     * turn it off again at every run is the sort of errand that ends in picking the wrong target.
+     */
+    internal fun targetFitsDeviceOnly(context: Context): Boolean =
+        prefs(context).getBoolean(TARGET_FITS_DEVICE, true)
+
+    internal fun setTargetFitsDeviceOnly(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean(TARGET_FITS_DEVICE, enabled).apply()
     }
 
     fun payloadSources(context: Context): List<PayloadSource> {

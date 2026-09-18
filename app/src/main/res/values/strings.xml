@@ -756,6 +756,9 @@
     <string name="kernel_match_exact">Exact kernel release match</string>
     <string name="kernel_match_version">Kernel version match only (%1$s)</string>
     <string name="kernel_match_none">Kernel release not listed</string>
+    <string name="target_search">Search device, model or kernel</string>
+    <string name="no_matching_devices_query">Nothing matches "%1$s"</string>
+    <string name="target_show_everything">Search every device</string>
     <string name="show_my_device_only">Show only my device</string>
     <string name="no_matching_devices">No payload matches this model and kernel version.</string>
     <string name="device_mismatch_title">Device mismatch</string>
