@@ -160,6 +160,36 @@ class StagingSweepTest {
     }
 
     @Test
+    fun `clearing asks what is there before and after, and deletes by glob rather than by name`() {
+        // The difference from a sweep is the whole point of this command: a sweep names this app's own
+        // paths, and a clear takes whatever is in the directory, so what it deletes cannot be written as
+        // a list. Checked as the exact text, because the order is the report and only the text is true.
+        val expected = """
+            for e in /data/local/tmp/* /data/local/tmp/.[!.]*; do [ -e "${'$'}e" ] || continue; printf 'had %s\n' "${'$'}e"; done
+            rm_out=${'$'}(rm -rf -- /data/local/tmp/* /data/local/tmp/.[!.]* 2>&1)
+            [ -n "${'$'}rm_out" ] && printf 'said %s\n' "${'$'}rm_out"
+            for e in /data/local/tmp/* /data/local/tmp/.[!.]*; do [ -e "${'$'}e" ] || continue; printf 'left %s\n' "${'$'}e"; done
+            exit 0
+        """.trimIndent()
+        assertEquals(expected, StagingSweep.clearCommand())
+    }
+
+    @Test
+    fun `clearing empties the directory without removing the directory`() {
+        val command = StagingSweep.clearCommand()
+        val delete = command.lineSequence().first { it.contains("rm -rf") }
+
+        // Every target is a glob inside the directory...
+        assertTrue(delete.contains("/data/local/tmp/*"))
+        assertTrue(delete.contains("/data/local/tmp/.[!.]*"))
+        // ...and the directory itself is not one of them: it belongs to the shell uid, with a mode an
+        // app has no business rewriting, and a run stages into it again afterwards.
+        assertFalse("the directory itself is a delete target", delete.contains("/data/local/tmp "))
+        // Dot-names are staging markers here, so a clear that skipped them would leave the markers.
+        assertTrue(command.trimEnd().endsWith("exit 0"))
+    }
+
+    @Test
     fun `what a sweep printed is read back as paths`() {
         val output = """
             rm: /data/local/tmp/temp_su.sock: Permission denied

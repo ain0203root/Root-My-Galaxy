@@ -129,6 +129,19 @@ internal sealed interface SweepOutcome {
             SweepVerdict.NothingToDo -> null
         }
     }
+
+    /**
+     * The line for the app log when the directory was emptied on purpose, which is not a sweep.
+     *
+     * Its own sentence because the two are different claims about the same directory: a sweep says what
+     * this app left behind, a clear says everything that was in there is gone - the stronger of the
+     * two, and the one worth being able to find in the log afterwards.
+     */
+    fun clearLogLine(context: Context): String = when (this) {
+        NoShell -> context.getString(R.string.residue_log_clear_none)
+        SkippedRun -> context.getString(R.string.residue_log_clear_skipped)
+        is Done -> context.getString(R.string.residue_log_clear, removed, left.size)
+    }
 }
 
 /** What a sweep came to, in the four ways it can: the sentence for each is string assembly. */
@@ -216,6 +229,59 @@ internal object StagingSweep {
                 .joinToString(", ")
                 .take(COMPLAINT_LIMIT),
         )
+    }
+
+    /**
+     * Empties the directory, which is more than a sweep does.
+     *
+     * A sweep is this app clearing up after itself: it names its own paths and leaves every other name
+     * alone, because a name it does not write is not its to delete. This is the user asking for the
+     * directory to be empty - the button somebody presses after a detector has told them what is in
+     * there - so it removes what the listing found, the entries this app cannot account for included.
+     *
+     * That is a wider claim than `rm` of known names, so the screen that offers it names what is about
+     * to go, and this refuses while a run is in flight: the payload is executed out of this directory,
+     * which is the one thing here another process may be mid-way through using.
+     */
+    fun clearWhenQuiet(context: Context): SweepOutcome {
+        if (RunInFlight.holder(context) != null) return SweepOutcome.SkippedRun
+        return clear()
+    }
+
+    /** The clear itself, through the first shell that answers. Root first, since it can remove more. */
+    fun clear(): SweepOutcome {
+        val command = clearCommand()
+        val result = KernelSuRuntime.rootShell(command)
+            ?: KernelSuRuntime.unprivilegedShell(command)
+            ?: return SweepOutcome.NoShell
+        return SweepOutcome.Done(
+            found = pathsIn(result.output, FOUND_PREFIX),
+            left = pathsIn(result.output, LEFT_PREFIX),
+            complaint = pathsIn(result.output, SAID_PREFIX)
+                .joinToString(", ")
+                .take(COMPLAINT_LIMIT),
+        )
+    }
+
+    /**
+     * The clear, as one command: say what is there, delete all of it with `rm -rf`, say what `rm` said,
+     * say what is still there.
+     *
+     * The globs are the same two the listing uses, and for the same reason: a dot-name is exactly the
+     * shape a staging marker takes. `-r` because a leftover can be a directory - `dalvik-cache` is one
+     * on a real device - and `-f` so that an unmatched glob is silence rather than an error. The
+     * directory itself is never removed, only its contents: it is a system directory with a mode this
+     * app has no business rewriting.
+     */
+    internal fun clearCommand(directory: String = StagedResidue.DIRECTORY): String {
+        val globs = "$directory/* $directory/.[!.]*"
+        fun askedUnder(prefix: String) = "for e in $globs; do [ -e \"\$e\" ] || continue; " +
+            "printf '$prefix%s\\n' \"\$e\"; done"
+        return askedUnder(FOUND_PREFIX) +
+            "\nrm_out=\$(rm -rf -- $globs 2>&1)\n" +
+            "[ -n \"\$rm_out\" ] && printf '$SAID_PREFIX%s\\n' \"\$rm_out\"\n" +
+            askedUnder(LEFT_PREFIX) +
+            "\nexit 0"
     }
 
     /** What a path still there is reported under. Both are prefixes of a whole line, not of a name. */

@@ -119,6 +119,7 @@ import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -4146,12 +4147,19 @@ private fun StagedResidueDialog(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     var report by remember { mutableStateOf(initial) }
     LaunchedEffect(Unit) {
         val fresh = withContext(Dispatchers.IO) { StagedResidue.read() }
         report = fresh
         onRead(fresh)
     }
+    // Emptying the directory is a second step and a wider claim than anything else on this screen: it
+    // takes the names this app cannot account for as well, so it is asked for, confirmed, and only
+    // then attempted - and what came of it is said where the button was.
+    var confirmingClear by remember { mutableStateOf(false) }
+    var clearOutcome by remember { mutableStateOf<SweepOutcome?>(null) }
+    var clearing by remember { mutableStateOf(false) }
     val reading = report
     val present = reading?.present.orEmpty()
     // The half a catalog cannot produce: names the app does not write, listed through a shell. Shown
@@ -4254,6 +4262,38 @@ private fun StagedResidueDialog(
                         )
                     }
                 }
+                // The one action that changes the device rather than describing it, and the only one
+                // here that can take something that is not this app's - so it is offered last, in the
+                // error colour, and only when there is something to remove.
+                if (reading != null && !reading.blind && (present.isNotEmpty() || extras.isNotEmpty())) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FilledTonalButton(
+                            enabled = !clearing,
+                            onClick = {
+                                clickHaptic(view)
+                                confirmingClear = true
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer,
+                            ),
+                        ) {
+                            if (clearing) {
+                                LoadingIndicator(modifier = Modifier.size(18.dp))
+                            } else {
+                                Text(stringResource(R.string.residue_clear))
+                            }
+                        }
+                        clearOutcome?.let { outcome ->
+                            Text(
+                                text = clearOutcomeLine(context, outcome),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -4278,6 +4318,57 @@ private fun StagedResidueDialog(
             }
         },
     )
+
+    if (confirmingClear) {
+        AlertDialog(
+            onDismissRequest = { confirmingClear = false },
+            title = { Text(stringResource(R.string.residue_clear_title)) },
+            text = { Text(stringResource(R.string.residue_clear_body, extras.size)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    confirmingClear = false
+                    clearing = true
+                    scope.launch {
+                        val outcome = withContext(Dispatchers.IO) {
+                            StagingSweep.clearWhenQuiet(context)
+                        }
+                        // The list is the receipt, not the outcome: what the read finds afterwards is the
+                        // only thing that says whether the delete actually happened.
+                        val fresh = withContext(Dispatchers.IO) { StagedResidue.read() }
+                        report = fresh
+                        onRead(fresh)
+                        AppLog.info(AppLogTags.STAGING, outcome.clearLogLine(context))
+                        clearOutcome = outcome
+                        clearing = false
+                    }
+                }) {
+                    Text(stringResource(R.string.residue_clear_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    confirmingClear = false
+                }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
+}
+
+/** What a clear came to, said where the button that asked for it was. */
+private fun clearOutcomeLine(context: Context, outcome: SweepOutcome): String = when (outcome) {
+    SweepOutcome.NoShell -> context.getString(R.string.residue_clear_no_shell)
+    SweepOutcome.SkippedRun -> context.getString(R.string.residue_clear_skipped)
+    is SweepOutcome.Done -> when {
+        outcome.complaint.isNotEmpty() ->
+            context.getString(R.string.residue_clear_refused, outcome.complaint)
+        outcome.left.isNotEmpty() ->
+            context.getString(R.string.residue_clear_left, outcome.left.size)
+        else -> context.getString(R.string.residue_clear_done, outcome.removed)
+    }
 }
 
 /** One staged file: the name a detector matches on, then what it is and how long it has been there. */

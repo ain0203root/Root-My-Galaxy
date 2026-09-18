@@ -202,22 +202,22 @@ internal data class ResidueReport(
      * report, and both of the facts that used to be appended to it are in the list behind it: which
      * files they are, and how long each has been there.
      */
+    /**
+     * The card's value, which is about this app's own staging and nothing else.
+     *
+     * What else is in the directory is named in the list behind the card and counted in the app log,
+     * and deliberately not in this line: the card answers one question, and a value a sentence long was
+     * answering a different one. Nothing here claims the directory is empty either - an entry this app
+     * cannot account for reads as "nothing this app staged" rather than as "nothing left".
+     */
     fun summaryLine(context: Context): String = when (verdict) {
         ResidueVerdict.Blind -> context.getString(R.string.residue_blind)
         ResidueVerdict.Clean -> context.getString(R.string.residue_clean)
         ResidueVerdict.CleanByName -> context.getString(R.string.residue_clean_by_name)
-        ResidueVerdict.Staged -> StagedResidue.sizeLabel(totalBytes)
-        ResidueVerdict.Others -> othersLabel(context)
-        ResidueVerdict.StagedAndOthers -> context.getString(
-            R.string.residue_summary_and_others,
-            StagedResidue.sizeLabel(totalBytes),
-            othersLabel(context),
-        )
+        ResidueVerdict.Others -> context.getString(R.string.residue_nothing_staged)
+        ResidueVerdict.Staged, ResidueVerdict.StagedAndOthers ->
+            StagedResidue.sizeLabel(totalBytes)
     }
-
-    /** How many entries are there that this app did not stage, as a card value. */
-    fun othersLabel(context: Context): String =
-        context.resources.getQuantityString(R.plurals.residue_others, extras.size, extras.size)
 
     /** The same facts with the names, which is what makes a line in the log actionable. */
     fun logLine(context: Context): String = when (verdict) {
@@ -269,7 +269,8 @@ private const val EXTRA_NAMES_LIMIT = 12
  * An enum rather than one string per case, for the same reason [SweepVerdict] is one: which sentence a
  * device has earned is the part worth testing, and a `Context` in the middle of it would be the part
  * that cannot be. [ResidueReport.summaryLine] and [ResidueReport.logLine] are then two spellings of the
- * same decision, and a case added here has to be spelled in both.
+ * same decision - the card short, the log with every name - and a case added here has to be spelled in
+ * both.
  */
 internal enum class ResidueVerdict {
     /** This app cannot see the directory at all, so nothing can be said about it. */
