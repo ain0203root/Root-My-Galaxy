@@ -160,6 +160,28 @@ class StagingSweepTest {
     }
 
     @Test
+    fun `a row's delete removes exactly the path that row names`() {
+        // The row's own button goes through the same command as a sweep, so the quoting and the `rm -f`
+        // are all that stand between a name in a list and the filesystem - and it must not be the
+        // recursive form, which would take a directory this app never staged.
+        val path = "/data/local/tmp/ksu_late_load.log"
+        val command = StagingSweep.command(listOf(path))
+
+        assertTrue(command.contains("rm -f -- '$path'"))
+        assertFalse("a row's delete used the recursive form", command.contains("rm -rf"))
+    }
+
+    @Test
+    fun `a delete of nothing is not a failure`() {
+        // The screen can call this with a path list that came back empty, and "nothing to do" has to
+        // stay distinct from "the shell refused": one is a no-op, the other is news for the log.
+        val outcome = StagingSweep.remove(emptyList()) as SweepOutcome.Done
+
+        assertEquals(SweepVerdict.NothingToDo, outcome.verdict)
+        assertEquals(0, outcome.removed)
+    }
+
+    @Test
     fun `clearing asks what is there before and after, and deletes by glob rather than by name`() {
         // The difference from a sweep is the whole point of this command: a sweep names this app's own
         // paths, and a clear takes whatever is in the directory, so what it deletes cannot be written as

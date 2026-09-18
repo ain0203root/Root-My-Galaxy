@@ -4159,6 +4159,11 @@ private fun StagedResidueDialog(
     // then attempted - and what came of it is said where the button was.
     var confirmingClear by remember { mutableStateOf(false) }
     var clearOutcome by remember { mutableStateOf<SweepOutcome?>(null) }
+    // A row's own delete, waiting for its confirmation. Held with its label and whether it is this
+    // app's, because that is what the confirmation has to say: taking an entry this app did not stage
+    // out of a shared directory is a different claim from clearing up after itself.
+    var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
+    var deleteOutcome by remember { mutableStateOf<Pair<PendingDelete, SweepOutcome>?>(null) }
     var clearing by remember { mutableStateOf(false) }
     val reading = report
     val present = reading?.present.orEmpty()
@@ -4217,7 +4222,17 @@ private fun StagedResidueDialog(
                                 ResidueSectionLabel(stringResource(R.string.residue_section_staged))
                             }
                             items(present, key = { it.staged.path }) { finding ->
-                                ResidueRow(finding)
+                                ResidueRow(
+                                    finding = finding,
+                                    deleteEnabled = !clearing,
+                                    onDelete = {
+                                        pendingDelete = PendingDelete(
+                                            label = finding.staged.name,
+                                            path = finding.staged.path,
+                                            mine = true,
+                                        )
+                                    },
+                                )
                             }
                         }
                         if (extras.isNotEmpty()) {
@@ -4234,7 +4249,17 @@ private fun StagedResidueDialog(
                                 }
                             }
                             items(extras, key = { "extra:${it.name}" }) { entry ->
-                                TempEntryRow(entry)
+                                TempEntryRow(
+                                    entry = entry,
+                                    deleteEnabled = !clearing,
+                                    onDelete = {
+                                        pendingDelete = PendingDelete(
+                                            label = entry.name,
+                                            path = entry.path,
+                                            mine = false,
+                                        )
+                                    },
+                                )
                             }
                         }
                     }
@@ -4292,6 +4317,13 @@ private fun StagedResidueDialog(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
+                        deleteOutcome?.let { (deleted, outcome) ->
+                            Text(
+                                text = deleteOutcomeLine(context, deleted.label, outcome),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
             }
@@ -4329,6 +4361,7 @@ private fun StagedResidueDialog(
                     clickHaptic(view)
                     confirmingClear = false
                     clearing = true
+                    deleteOutcome = null
                     scope.launch {
                         val outcome = withContext(Dispatchers.IO) {
                             StagingSweep.clearWhenQuiet(context)
@@ -4356,7 +4389,80 @@ private fun StagedResidueDialog(
             },
         )
     }
+
+    pendingDelete?.let { pending ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.residue_delete_title, pending.label)) },
+            text = {
+                Text(
+                    stringResource(
+                        if (pending.mine) {
+                            R.string.residue_delete_mine
+                        } else {
+                            R.string.residue_delete_other
+                        },
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    pendingDelete = null
+                    clearing = true
+                    clearOutcome = null
+                    scope.launch {
+                        val outcome = withContext(Dispatchers.IO) {
+                            StagingSweep.removeWhenQuiet(context, listOf(pending.path))
+                        }
+                        // The list is read again here for the same reason it is after a clear: a row's
+                        // absence is the receipt, and a name that survived the delete has to come back.
+                        val fresh = withContext(Dispatchers.IO) { StagedResidue.read() }
+                        report = fresh
+                        onRead(fresh)
+                        AppLog.info(
+                            AppLogTags.STAGING,
+                            context.getString(R.string.residue_log_delete, pending.label),
+                        )
+                        if (outcome !is SweepOutcome.Done || outcome.left.isNotEmpty() ||
+                            outcome.complaint.isNotEmpty()
+                        ) {
+                            AppLog.info(AppLogTags.STAGING, outcome.clearLogLine(context))
+                        }
+                        deleteOutcome = pending to outcome
+                        clearing = false
+                    }
+                }) {
+                    Text(stringResource(R.string.residue_clear_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    pendingDelete = null
+                }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
+    }
 }
+
+/** A row's delete, held between the button that asked and the confirmation that agrees to it. */
+private data class PendingDelete(val label: String, val path: String, val mine: Boolean)
+
+/** What one row's delete came to, said under the list rather than beside a row that may be gone. */
+private fun deleteOutcomeLine(context: Context, label: String, outcome: SweepOutcome): String =
+    when (outcome) {
+        SweepOutcome.NoShell -> context.getString(R.string.residue_clear_no_shell)
+        SweepOutcome.SkippedRun -> context.getString(R.string.residue_clear_skipped)
+        is SweepOutcome.Done -> when {
+            outcome.complaint.isNotEmpty() ->
+                context.getString(R.string.residue_delete_refused, label, outcome.complaint)
+            outcome.left.isNotEmpty() -> context.getString(R.string.residue_delete_left, label)
+            else -> context.getString(R.string.residue_delete_done, label)
+        }
+    }
 
 /** What a clear came to, said where the button that asked for it was. */
 private fun clearOutcomeLine(context: Context, outcome: SweepOutcome): String = when (outcome) {
@@ -4373,23 +4479,59 @@ private fun clearOutcomeLine(context: Context, outcome: SweepOutcome): String = 
 
 /** One staged file: the name a detector matches on, then what it is and how long it has been there. */
 @Composable
-private fun ResidueRow(finding: ResidueFinding) {
+private fun ResidueRow(
+    finding: ResidueFinding,
+    deleteEnabled: Boolean,
+    onDelete: () -> Unit,
+) {
     val reading = finding.reading as? ResidueReading.Present ?: return
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            text = finding.staged.name,
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
-        )
-        Text(
-            text = stringResource(
-                R.string.residue_row_detail,
-                stringResource(finding.staged.role.labelRes),
-                StagedResidue.sizeLabel(reading.sizeBytes),
-                StagedResidue.ageLabelOf(reading.modifiedAtMillis),
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = finding.staged.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                text = stringResource(
+                    R.string.residue_row_detail,
+                    stringResource(finding.staged.role.labelRes),
+                    StagedResidue.sizeLabel(reading.sizeBytes),
+                    StagedResidue.ageLabelOf(reading.modifiedAtMillis),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        ResidueDeleteButton(name = finding.staged.name, enabled = deleteEnabled, onDelete = onDelete)
+    }
+}
+
+/**
+ * The delete at the end of a row, which is the only thing in this list that changes the device.
+ *
+ * One per row rather than a selection mode with a shared action, because a residue list is read one
+ * name at a time - the name is what makes somebody want it gone - and a mode would be a second thing
+ * to explain before anything could be deleted at all.
+ */
+@Composable
+private fun ResidueDeleteButton(name: String, enabled: Boolean, onDelete: () -> Unit) {
+    val view = LocalView.current
+    IconButton(
+        enabled = enabled,
+        onClick = {
+            clickHaptic(view)
+            onDelete()
+        },
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Delete,
+            contentDescription = stringResource(R.string.residue_delete_row, name),
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.error,
         )
     }
 }
@@ -4413,25 +4555,35 @@ private fun ResidueSectionLabel(text: String) {
  * knowing here is the name, because the name is the whole of what a detector matches on.
  */
 @Composable
-private fun TempEntryRow(entry: TempEntry) {
+private fun TempEntryRow(
+    entry: TempEntry,
+    deleteEnabled: Boolean,
+    onDelete: () -> Unit,
+) {
     val context = LocalContext.current
     val at = entry.reading as? ResidueReading.Present
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(
-            text = entry.name,
-            style = MaterialTheme.typography.bodyMedium,
-            fontFamily = FontFamily.Monospace,
-        )
-        Text(
-            text = stringResource(
-                R.string.residue_row_detail,
-                stringResource(R.string.residue_role_other),
-                tempEntrySizeLabel(context, entry),
-                StagedResidue.ageLabelOf(at?.modifiedAtMillis),
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = entry.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontFamily = FontFamily.Monospace,
+            )
+            Text(
+                text = stringResource(
+                    R.string.residue_row_detail,
+                    stringResource(R.string.residue_role_other),
+                    tempEntrySizeLabel(context, entry),
+                    StagedResidue.ageLabelOf(at?.modifiedAtMillis),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        ResidueDeleteButton(name = entry.name, enabled = deleteEnabled, onDelete = onDelete)
     }
 }
 

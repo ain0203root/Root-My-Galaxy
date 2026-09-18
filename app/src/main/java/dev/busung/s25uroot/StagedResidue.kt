@@ -121,7 +121,16 @@ internal data class TempEntry(
     val reading: ResidueReading,
     /** A directory rather than a file, which the listing cannot say and the stat can. */
     val isDirectory: Boolean = false,
-)
+) {
+    /**
+     * Where it is, put together the same way the catalogue's own paths are.
+     *
+     * A name is all the listing gives, and a delete needs a path: building it here rather than at each
+     * caller keeps one spelling of the directory in the app, which is the same rule the catalogue
+     * follows.
+     */
+    val path: String get() = "${StagedResidue.DIRECTORY}/$name"
+}
 
 /** What one stat says: the reading, and the one other thing a stat can say. */
 internal data class StagedStat(val reading: ResidueReading, val isDirectory: Boolean)

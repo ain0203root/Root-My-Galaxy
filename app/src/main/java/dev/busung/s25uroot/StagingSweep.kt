@@ -212,8 +212,21 @@ internal object StagingSweep {
     }
 
     /** The sweep itself, through the first shell that answers. */
-    fun sweep(context: Context): SweepOutcome {
-        val paths = removable.map { it.path }
+    fun sweep(context: Context): SweepOutcome = remove(removable.map { it.path })
+
+    /**
+     * Removes these paths, one at a time from the caller's point of view and in one round trip here.
+     *
+     * The same command as a sweep, with the list the caller named instead of the catalogue: a row's own
+     * delete button wants exactly this, and a delete of one file is not a different kind of operation
+     * from a delete of twenty - it is the same `rm -f`, measured against the same "what was there" lines.
+     *
+     * `-f` and not `-r`: every name here is a path this app writes, and a name in the catalogue is a
+     * file. A leftover that is a directory is another app's or an old build's, which the screen offers
+     * through the clear rather than through a row.
+     */
+    fun remove(paths: List<String>): SweepOutcome {
+        if (paths.isEmpty()) return SweepOutcome.Done(emptyList(), emptyList(), "")
         val command = command(paths)
         // Root first, then Shizuku's own shell: whichever one put the files there can take them away,
         // and the order keeps the quiet route - a Shizuku server that already answers as root - first.
@@ -229,6 +242,18 @@ internal object StagingSweep {
                 .joinToString(", ")
                 .take(COMPLAINT_LIMIT),
         )
+    }
+
+    /**
+     * Removes these paths unless a run is in flight.
+     *
+     * The same guard the sweep takes, for the same reason and with more force here: a row's delete can
+     * name the payload itself, and the payload is executed out of this directory by the process that is
+     * running it.
+     */
+    fun removeWhenQuiet(context: Context, paths: List<String>): SweepOutcome {
+        if (RunInFlight.holder(context) != null) return SweepOutcome.SkippedRun
+        return remove(paths)
     }
 
     /**

@@ -169,6 +169,15 @@ class StagedResidueTest {
     }
 
     @Test
+    fun `an entry's path is its name under the directory the check reads`() {
+        // The listing gives a name and a row's delete needs a path, so the two have to be put together
+        // the one way this app puts paths together - the same way the catalog's are.
+        val entry = TempEntry("uipref.xml", ResidueReading.Present(337L, 0L))
+
+        assertEquals("${StagedResidue.DIRECTORY}/uipref.xml", entry.path)
+    }
+
+    @Test
     fun `the listing is read from the shell's own marked names`() {
         // The marker is what separates an empty directory from a shell that never got as far as listing
         // it: without it, a refusal would read as a directory with nothing in it.

@@ -46,6 +46,14 @@
     <string name="residue_clean_by_name">Nothing this app knows of</string>
     <string name="residue_nothing_staged">Nothing this app staged</string>
     <string name="residue_clear">Delete everything in it</string>
+    <string name="residue_delete_row">Delete %1$s</string>
+    <string name="residue_delete_title">Delete %1$s?</string>
+    <string name="residue_delete_mine">This is part of what this app staged in /data/local/tmp. A finished run does not need it - the app holds its own copy of everything it staged.</string>
+    <string name="residue_delete_other">This app did not stage this entry. It is in /data/local/tmp, and deleting it will take it out of there all the same.</string>
+    <string name="residue_delete_done">Deleted %1$s.</string>
+    <string name="residue_delete_left">%1$s is still there: the shell would not remove it.</string>
+    <string name="residue_delete_refused">The shell refused %1$s: %2$s</string>
+    <string name="residue_log_delete">Staging: deleted %1$s from /data/local/tmp</string>
     <string name="residue_clear_title">Clear the temp directory?</string>
     <string name="residue_clear_body">This deletes every entry in /data/local/tmp, including the %1$d that this app did not stage. Nothing in there is needed by a run that has finished.</string>
     <string name="residue_clear_confirm">Delete</string>
