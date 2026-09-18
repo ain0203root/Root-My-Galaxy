@@ -962,7 +962,6 @@ private fun RootApp(
                     onStartArmedRetry = onStartArmedRetry,
                     onCancelArmedRetry = onCancelArmedRetry,
                     onOpenSettings = { selectedPage = AppPage.Settings },
-                    onOpenLogs = { selectedPage = AppPage.Logs },
                     onInstall = {
                         selectedProfile = null
                         if (advancedMode) {
@@ -1175,7 +1174,6 @@ private fun OverviewPage(
     onCancelArmedRetry: () -> Unit,
     onInstall: () -> Unit,
     onOpenSettings: () -> Unit,
-    onOpenLogs: () -> Unit,
 ) {
     val context = LocalContext.current
     // Read live, because these change without this screen doing anything: Shizuku hands out its binder
@@ -1311,22 +1309,15 @@ private fun OverviewPage(
         }
         item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
-        // The two rows that lead off this screen rather than report on it, and they come last for that
-        // reason: everything above answers "what is this phone doing", these answer "where else is
-        // there to look". The run they follow up on finishes here, so this is where they are wanted.
+        // The one row that leads off this screen rather than reports on it, and it comes last for that
+        // reason: everything above answers "what is this phone doing", this answers "where else is
+        // there to look". Logs is not repeated here - the bar at the bottom already goes there.
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HomeLinkRow(
-                    icon = Icons.Rounded.Terminal,
-                    title = stringResource(R.string.nav_logs),
-                    onClick = onOpenLogs,
-                )
-                HomeLinkRow(
-                    icon = Icons.Rounded.Info,
-                    title = stringResource(R.string.about),
-                    onClick = { showAbout = true },
-                )
-            }
+            HomeLinkRow(
+                icon = Icons.Rounded.Info,
+                title = stringResource(R.string.about),
+                onClick = { showAbout = true },
+            )
         }
     }
     if (showAbout) {
