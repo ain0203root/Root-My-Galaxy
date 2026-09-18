@@ -24,7 +24,9 @@ import androidx.annotation.StringRes
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Spring
@@ -35,6 +37,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -55,6 +58,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -138,8 +142,6 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
@@ -933,23 +935,13 @@ private fun RootApp(
 
     Scaffold(
         bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                tonalElevation = 0.dp,
-            ) {
-                AppPage.entries.forEach { page ->
-                    NavigationBarItem(
-                        selected = selectedPage == page,
-                        onClick = {
-                            clickHaptic(view)
-                            selectedPage = page
-                        },
-                        modifier = Modifier.padding(top = 4.dp),
-                        icon = { Icon(page.icon, contentDescription = null) },
-                        label = { Text(stringResource(page.label)) },
-                    )
-                }
-            }
+            AppNavBar(
+                selected = selectedPage,
+                onSelect = { page ->
+                    clickHaptic(view)
+                    selectedPage = page
+                },
+            )
         },
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
     ) { padding ->
@@ -1064,6 +1056,98 @@ private fun clickHaptic(view: View) {
             HapticFeedbackConstants.LONG_PRESS
         },
     )
+}
+
+/**
+ * The bottom navigation, as a bar that sits clear of the screen edges rather than as a strip across
+ * the whole width.
+ *
+ * The page you are on is the only one that spells its name; the others are icons. Four labelled
+ * items on a phone means four narrow columns of wrapped text, and this way the name that matters is
+ * wide enough to read while the bar stays one calm piece under whatever the page is showing.
+ */
+@Composable
+private fun AppNavBar(selected: AppPage, onSelect: (AppPage) -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = 20.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            tonalElevation = 0.dp,
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .selectableGroup()
+                    .padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AppPage.entries.forEach { page ->
+                    AppNavBarItem(
+                        page = page,
+                        selected = page == selected,
+                        onClick = { onSelect(page) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AppNavBarItem(page: AppPage, selected: Boolean, onClick: () -> Unit) {
+    val label = stringResource(page.label)
+    val container by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.secondaryContainer
+        } else {
+            Color.Transparent
+        },
+        label = "navItemContainer",
+    )
+    val content by animateColorAsState(
+        targetValue = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        },
+        label = "navItemContent",
+    )
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(container)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            page.icon,
+            contentDescription = if (selected) null else label,
+            tint = content,
+            modifier = Modifier.size(22.dp),
+        )
+        AnimatedVisibility(
+            visible = selected,
+            enter = expandHorizontally() + fadeIn(),
+            exit = shrinkHorizontally() + fadeOut(),
+        ) {
+            Text(
+                label,
+                color = content,
+                style = MaterialTheme.typography.labelLarge,
+                maxLines = 1,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
 }
 
 @Composable
