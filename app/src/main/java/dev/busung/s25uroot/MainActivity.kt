@@ -3156,7 +3156,9 @@ private fun LogsPage(padding: PaddingValues) {
     val entries by AppLog.log.collectAsStateWithLifecycle()
     var minLevel by remember { mutableStateOf(AppLogLevel.Debug) }
     var query by rememberSaveable { mutableStateOf("") }
+    var selectedTags by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var confirmClear by remember { mutableStateOf(false) }
+    val filter = LogFilter(minLevel = minLevel, query = query, tags = selectedTags.toSet())
 
     // The file is the record and this process is not the only one that writes to it: a boot install,
     // and everything logged before this screen existed, is in there and nowhere else. Read on opening
@@ -3165,13 +3167,18 @@ private fun LogsPage(padding: PaddingValues) {
         withContext(Dispatchers.IO) { AppLog.reload() }
     }
 
-    val shown = remember(entries, minLevel, query) {
+    val shown = remember(entries, filter) {
         entries
-            .filter { AppLogFormat.matches(it, minLevel, query) }
+            .filter(filter::matches)
             .takeLast(MAX_LOG_ROWS)
     }
-    val hiddenRows = remember(entries, minLevel, query) {
-        (entries.count { AppLogFormat.matches(it, minLevel, query) } - shown.size).coerceAtLeast(0)
+    val hiddenRows = remember(entries, filter) {
+        (entries.count(filter::matches) - shown.size).coerceAtLeast(0)
+    }
+    // From the level and the text, not from the selection itself: the row has to keep saying what
+    // can be selected while something is selected.
+    val tagCounts = remember(entries, filter.minLevel, filter.query, filter.tags) {
+        logTagCounts(entries, filter)
     }
 
     if (confirmClear) {
@@ -3189,6 +3196,7 @@ private fun LogsPage(padding: PaddingValues) {
                     AppLog.clear()
                     query = ""
                     minLevel = AppLogLevel.Debug
+                    selectedTags = emptyList()
                     confirmClear = false
                 }) {
                     Text(stringResource(R.string.logs_clear))
@@ -3262,22 +3270,47 @@ private fun LogsPage(padding: PaddingValues) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // A floor rather than a match: a warning is what makes someone open this tab, and the
-                // reason for it is in the lines below it.
+                // reason for it is in the lines below it. Problems is that same floor under a name
+                // that says what it is for.
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    LogLevelChip(AppLogLevel.Debug, R.string.logs_filter_all, minLevel) {
-                        minLevel = it
-                    }
-                    LogLevelChip(AppLogLevel.Info, R.string.logs_filter_info, minLevel) {
-                        minLevel = it
-                    }
-                    LogLevelChip(AppLogLevel.Warn, R.string.logs_filter_warn, minLevel) {
-                        minLevel = it
-                    }
-                    LogLevelChip(AppLogLevel.Error, R.string.logs_filter_error, minLevel) {
-                        minLevel = it
+                    LogFilterChip(
+                        label = R.string.logs_filter_all,
+                        selected = filter.minLevel == AppLogLevel.Debug,
+                    ) { minLevel = AppLogLevel.Debug }
+                    LogFilterChip(
+                        label = R.string.logs_filter_info,
+                        selected = filter.minLevel == AppLogLevel.Info,
+                    ) { minLevel = AppLogLevel.Info }
+                    LogFilterChip(
+                        label = R.string.logs_filter_problems,
+                        selected = filter.problemsOnly,
+                    ) { minLevel = filter.withProblemsOnly(!filter.problemsOnly).minLevel }
+                    LogFilterChip(
+                        label = R.string.logs_filter_error,
+                        selected = filter.minLevel == AppLogLevel.Error,
+                    ) { minLevel = AppLogLevel.Error }
+                }
+                if (tagCounts.isNotEmpty()) {
+                    // The count beside each tag is what makes the row worth its height: it says where
+                    // the lines are before the log is read, and it moves with the level above it.
+                    LogSectionLabel(stringResource(R.string.logs_tags_label))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        tagCounts.forEach { tag ->
+                            FilterChip(
+                                selected = tag.tag in filter.tags,
+                                onClick = {
+                                    clickHaptic(view)
+                                    selectedTags = filter.togglingTag(tag.tag).tags.toList()
+                                },
+                                label = { Text("${tag.tag} ${tag.count}") },
+                            )
+                        }
                     }
                 }
                 OutlinedTextField(
@@ -3323,18 +3356,17 @@ private fun LogsPage(padding: PaddingValues) {
 private const val MAX_LOG_ROWS = 1000
 
 @Composable
-private fun LogLevelChip(
-    level: AppLogLevel,
+private fun LogFilterChip(
     label: Int,
-    selected: AppLogLevel,
-    onSelected: (AppLogLevel) -> Unit,
+    selected: Boolean,
+    onSelected: () -> Unit,
 ) {
     val view = LocalView.current
     FilterChip(
-        selected = level == selected,
+        selected = selected,
         onClick = {
             clickHaptic(view)
-            onSelected(level)
+            onSelected()
         },
         label = { Text(stringResource(label)) },
     )
