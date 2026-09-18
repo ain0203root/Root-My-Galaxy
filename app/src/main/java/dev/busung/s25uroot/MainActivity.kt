@@ -99,6 +99,7 @@ import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
@@ -683,6 +684,7 @@ private fun RootApp(
     var showInstallConfirmation by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
     var showRebootSheet by remember { mutableStateOf(false) }
+    var showPreflight by remember { mutableStateOf(false) }
     // What the sheet is opened with when a shortcut's own attempt was refused, so the sheet can show the
     // device's words instead of the same rows that were already tried. Cleared with the sheet.
     var rebootNotice by remember { mutableStateOf<RecoveryOutcome?>(null) }
@@ -965,6 +967,10 @@ private fun RootApp(
         )
     }
 
+    if (showPreflight) {
+        PreflightSheet(onDismiss = { showPreflight = false })
+    }
+
     if (showTargetPicker) {
         TargetSelectionSheet(
             device = device,
@@ -1141,6 +1147,7 @@ private fun RootApp(
                         startShizuku = startShizuku,
                         requestShizukuPermission = requestShizukuPermission,
                         onRequestBatteryExemption = onRequestBatteryExemption,
+                        onOpenPreflight = { showPreflight = true },
                         onInstall = {
                             selectedProfile = null
                             if (advancedMode) {
@@ -1406,6 +1413,8 @@ private fun OverviewPage(
     startShizuku: () -> Unit,
     requestShizukuPermission: suspend () -> Boolean,
     onRequestBatteryExemption: () -> Unit,
+    /** Opens the check that says what a run would find, before this boot's attempt is spent on it. */
+    onOpenPreflight: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -1604,10 +1613,18 @@ private fun OverviewPage(
         // the last thing on the page is not the one list made of two floating cards.
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                // First in the group because it is about the thing the rest of this page is about: what
+                // would happen if the run were started now.
+                HomeLinkRow(
+                    icon = Icons.Rounded.FactCheck,
+                    title = stringResource(R.string.preflight_row_title),
+                    position = SettingsCardPosition.Top,
+                    onClick = onOpenPreflight,
+                )
                 HomeLinkRow(
                     icon = Icons.Rounded.SystemUpdate,
                     title = stringResource(R.string.updater_check),
-                    position = SettingsCardPosition.Top,
+                    position = SettingsCardPosition.Middle,
                     value = updateRowValue(updateStatus),
                     busy = updateStatus.busy,
                     onClick = {
