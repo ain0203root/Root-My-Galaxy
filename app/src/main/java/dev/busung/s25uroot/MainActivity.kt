@@ -966,6 +966,7 @@ private fun RootApp(
                     frameworkRestart = frameworkRestart.takeIf { !frameworkRestartDismissed },
                     onDismissFrameworkRestart = { frameworkRestartDismissed = true },
                     onStartDownload = startDownload,
+                    onCheckForUpdate = checkForUpdate,
                     onStartArmedRetry = onStartArmedRetry,
                     onCancelArmedRetry = onCancelArmedRetry,
                     onOpenSettings = { selectedPage = AppPage.Settings },
@@ -1007,9 +1008,6 @@ private fun RootApp(
                     partitionReadOnly = partitionReadOnly,
                     payloadMode = payloadMode,
                     batteryUnrestricted = batteryUnrestricted,
-                    updateStatus = updateStatus,
-                    onCheckForUpdate = checkForUpdate,
-                    onStartDownload = startDownload,
                     onAccentColorChanged = onAccentColorChanged,
                     onThemeModeChanged = onThemeModeChanged,
                     onAdvancedModeChanged = onAdvancedModeChanged,
@@ -1169,6 +1167,7 @@ private fun OverviewPage(
     frameworkRestart: FrameworkRestartReport?,
     onDismissFrameworkRestart: () -> Unit,
     onStartDownload: (UpdateInfo) -> Unit,
+    onCheckForUpdate: () -> Unit,
     onStartArmedRetry: () -> Unit,
     onCancelArmedRetry: () -> Unit,
     onInstall: () -> Unit,
@@ -1324,15 +1323,38 @@ private fun OverviewPage(
         }
         item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
-        // The one row that leads off this screen rather than reports on it, and it comes last for that
-        // reason: everything above answers "what is this phone doing", this answers "where else is
-        // there to look". Logs is not repeated here - the bar at the bottom already goes there.
+        // The two rows that do something rather than report something, and they come last for that
+        // reason: everything above answers "what is this phone doing", these answer "what else is
+        // there to do". Logs is not repeated here - the bar at the bottom already goes there.
+        //
+        // Check for updates lives here rather than in Settings because this is the screen it is about:
+        // the version and the build label were already here, the update banner already appears here, and
+        // the check was the one piece of it behind a section that had to be opened first. One group, so
+        // the last thing on the page is not the one list made of two floating cards.
         item {
-            HomeLinkRow(
-                icon = Icons.Rounded.Info,
-                title = stringResource(R.string.about),
-                onClick = { showAbout = true },
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                HomeLinkRow(
+                    icon = Icons.Rounded.SystemUpdate,
+                    title = stringResource(R.string.updater_check),
+                    position = SettingsCardPosition.Top,
+                    value = updateRowValue(updateStatus),
+                    busy = updateStatus.busy,
+                    onClick = {
+                        // The settings card's own rule: a check is what this row is for, and once there
+                        // is something to install, a tap installs rather than checking again.
+                        val status = updateStatus
+                        if (status is UpdateStatus.Available) onStartDownload(status.info)
+                        else if (!status.busy) onCheckForUpdate()
+                    },
+                )
+                HomeLinkRow(
+                    icon = Icons.Rounded.Info,
+                    title = stringResource(R.string.about),
+                    position = SettingsCardPosition.Bottom,
+                    chevron = true,
+                    onClick = { showAbout = true },
+                )
+            }
         }
     }
     if (showAbout) {
@@ -1513,23 +1535,37 @@ private fun UpdateCard(
 }
 
 /**
- * A row that leads somewhere, rather than one that reports a state.
+ * A row on the home screen that does something, rather than one that reports a state.
  *
  * Two things separate it from the settings cards it otherwise sits with: there is no description, so the
- * icon, the name and the chevron are the whole row, and the chevron is what says a tap opens something
- * - a card whose value changes in place has nothing to promise the way a page does.
+ * icon, the name and whatever ends the row are the whole row, and what ends it is the only promise the
+ * row makes - a chevron for a row that opens something, or the state itself for one that acts in place.
+ *
+ * [busy] dims the row and takes its tap, because a row that is already working has nothing to offer a
+ * second tap, and a spinner where the icon was says which row is doing the work.
  */
 @Composable
-private fun HomeLinkRow(icon: ImageVector, title: String, onClick: () -> Unit) {
+private fun HomeLinkRow(
+    icon: ImageVector,
+    title: String,
+    position: SettingsCardPosition = SettingsCardPosition.Single,
+    /** What this row reports, where a chevron would otherwise be. Blank draws nothing. */
+    value: String = "",
+    busy: Boolean = false,
+    /** True only for a row that opens something, which is the one thing a chevron should promise. */
+    chevron: Boolean = false,
+    onClick: () -> Unit,
+) {
     val interactionSource = remember { MutableInteractionSource() }
     val view = LocalView.current
     Card(
+        enabled = !busy,
         onClick = {
             clickHaptic(view)
             onClick()
         },
         modifier = Modifier.fillMaxWidth(),
-        shape = expressiveClickableCardShape(interactionSource, SettingsCardPosition.Single),
+        shape = expressiveClickableCardShape(interactionSource, position),
         interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
@@ -1540,19 +1576,50 @@ private fun HomeLinkRow(icon: ImageVector, title: String, onClick: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            if (busy) {
+                LoadingIndicator(modifier = Modifier.size(28.dp))
+            } else {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+            }
             Text(
                 title,
                 style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f),
             )
-            Icon(
-                Icons.Rounded.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (value.isNotBlank()) {
+                Text(
+                    value,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    // Capped like a settings card's value: an unweighted Row child is measured before
+                    // the weighted one beside it, so a long one would leave the title a character per
+                    // line. One line here, because a row this height has no second line to give.
+                    modifier = Modifier.widthIn(max = SETTINGS_VALUE_MAX_WIDTH),
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else if (chevron) {
+                Icon(
+                    Icons.Rounded.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
+}
+
+/** What the updates row says it is doing, in the one line a home row has room for. */
+@Composable
+private fun updateRowValue(status: UpdateStatus): String = when (status) {
+    is UpdateStatus.Available ->
+        stringResource(R.string.updater_available_body_short, status.info.versionName)
+    is UpdateStatus.Downloading -> stringResource(R.string.updater_downloading)
+    is UpdateStatus.Checking -> stringResource(R.string.updater_checking)
+    is UpdateStatus.UpToDate -> stringResource(R.string.updater_up_to_date)
+    is UpdateStatus.Failed -> stringResource(R.string.updater_failed)
+    UpdateStatus.Idle -> ""
 }
 
 /**
@@ -3011,9 +3078,6 @@ private fun SettingsPage(
     partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
     batteryUnrestricted: Boolean,
-    updateStatus: UpdateStatus,
-    onCheckForUpdate: () -> Unit,
-    onStartDownload: (UpdateInfo) -> Unit,
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
@@ -3050,7 +3114,6 @@ private fun SettingsPage(
     var managerVersionDraft by remember { mutableStateOf("") }
     var flavorMenuTop by remember { mutableStateOf(0.dp) }
     var showColorDialog by remember { mutableStateOf(false) }
-    var showAboutDialog by remember { mutableStateOf(false) }
     // What this app has left in /data/local/tmp, read once when the screen is opened rather than on
     // every pass: the staging changes during a run, not while a settings list is on screen, and the
     // reading is a stat per catalogued path. Null is "not read yet" and is shown as such, because a
@@ -3282,10 +3345,6 @@ private fun SettingsPage(
             },
             onDismiss = { showColorDialog = false },
         )
-    }
-
-    if (showAboutDialog) {
-        AboutDialog(onDismiss = { showAboutDialog = false })
     }
 
     if (showResidueDialog) {
@@ -4387,32 +4446,6 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.About, openSections, toggleSection) }
-        if (SettingsSection.About in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                UpdateSettingsCard(
-                    status = updateStatus,
-                    position = SettingsCardPosition.Top,
-                    onCheckForUpdate = onCheckForUpdate,
-                    onStartDownload = onStartDownload,
-                )
-                SettingsCard(
-                    // Named for the app rather than for the section: the label above it already says
-                    // About, and a card that repeated it would be a title under a title.
-                    icon = Icons.Rounded.Info,
-                    title = stringResource(R.string.app_name),
-                    description = stringResource(R.string.settings_about_app),
-                    // The build this is, not just the version it is: two installs of the same
-                    // version differ only by this label.
-                    value = BuildConfig.BUILD_LABEL,
-                    position = SettingsCardPosition.Bottom,
-                    onClick = {
-                        clickHaptic(view)
-                        showAboutDialog = true
-                    },
-                )
-            }
-        }
     }
 }
 
@@ -4885,86 +4918,6 @@ private fun tempEntryLine(context: Context, entry: TempEntry): String {
     return "${entry.name}\t${tempEntrySizeLabel(context, entry)}\t" +
         StagedResidue.ageLabelOf(at?.modifiedAtMillis) + "\t" +
         context.getString(R.string.residue_role_other)
-}
-
-@Composable
-private fun UpdateSettingsCard(
-    status: UpdateStatus,
-    position: SettingsCardPosition,
-    onCheckForUpdate: () -> Unit,
-    onStartDownload: (UpdateInfo) -> Unit,
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val view = LocalView.current
-    val busy = status.busy
-    Card(
-        onClick = {
-            clickHaptic(view)
-            when {
-                busy -> Unit
-                status is UpdateStatus.Available -> onStartDownload(status.info)
-                else -> onCheckForUpdate()
-            }
-        },
-        modifier = Modifier.fillMaxWidth(),
-        shape = expressiveClickableCardShape(interactionSource, position),
-        interactionSource = interactionSource,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        ),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            when {
-                status is UpdateStatus.Checking -> LoadingIndicator(modifier = Modifier.size(28.dp))
-                status is UpdateStatus.Downloading -> CircularProgressIndicator(
-                    progress = { status.progress },
-                    modifier = Modifier.size(28.dp),
-                )
-                else -> Icon(
-                    Icons.Rounded.SystemUpdate,
-                    contentDescription = null,
-                    modifier = Modifier.size(28.dp),
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = when (status) {
-                        is UpdateStatus.Available, is UpdateStatus.Downloading ->
-                            stringResource(R.string.updater_available_title)
-                        else -> stringResource(R.string.updater_check)
-                    },
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text = when {
-                        status is UpdateStatus.Downloading -> stringResource(R.string.updater_downloading)
-                        status is UpdateStatus.Checking -> stringResource(R.string.updater_checking)
-                        status is UpdateStatus.Available ->
-                            stringResource(R.string.updater_available_body_short, status.info.versionName)
-                        status is UpdateStatus.UpToDate -> stringResource(R.string.updater_up_to_date)
-                        status is UpdateStatus.Failed -> stringResource(R.string.updater_failed)
-                        else -> ""
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (status is UpdateStatus.Available) {
-                Text(
-                    text = stringResource(R.string.updater_button_download),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                )
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

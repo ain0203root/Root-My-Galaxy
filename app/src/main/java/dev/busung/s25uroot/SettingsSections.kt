@@ -25,8 +25,7 @@ internal enum class SettingsSection(
     WirelessAdb(R.string.settings_section_wireless_adb),
     Root(R.string.settings_section_root),
     Recovery(R.string.settings_recovery),
-    System(R.string.settings_section_system),
-    About(R.string.about);
+    System(R.string.settings_section_system);
 
     companion object {
         /**

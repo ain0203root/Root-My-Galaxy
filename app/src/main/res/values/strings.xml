@@ -230,7 +230,6 @@
     <string name="log_boot_settled">[+] Boot settled after %1$s</string>
     <string name="log_boot_settle_skipped">[!] Boot settle skipped: starting now</string>
     <string name="run_plan_boot_settle">Boot settle</string>
-    <string name="settings_about_app">App version, build information, and project links</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
     <string name="theme_dark">Dark</string>

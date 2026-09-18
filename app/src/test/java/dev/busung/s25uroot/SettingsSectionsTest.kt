@@ -61,11 +61,18 @@ class SettingsSectionsTest {
     fun `stored names survive, and names from another build are dropped`() {
         val stored = setOf(
             SettingsSection.Root.name,
-            SettingsSection.About.name,
+            SettingsSection.Recovery.name,
+            // A section this build no longer has: About moved out of the settings page entirely, and a
+            // stored name left by a build that still had it must be dropped rather than crash the page
+            // on the way in.
+            "About",
             "ASectionThisBuildDoesNotHave",
         )
 
-        assertEquals(setOf(SettingsSection.Root, SettingsSection.About), SettingsSection.named(stored))
+        assertEquals(
+            setOf(SettingsSection.Root, SettingsSection.Recovery),
+            SettingsSection.named(stored),
+        )
     }
 
     @Test
