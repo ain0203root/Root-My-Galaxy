@@ -439,7 +439,15 @@ class AutoRootService : Service() {
                     "No Wi-Fi network is connected, and every route left to start Shizuku needs " +
                         "wireless debugging, which the framework keeps off without one",
                 )
-                val arrived = NetworkReach.awaitConnected(this, NETWORK_WAIT_MILLIS) { remaining ->
+                val waited = NetworkReach.awaitConnected(
+                    context = this,
+                    timeoutMillis = NETWORK_WAIT_MILLIS,
+                    // Asked inside the wait rather than only at the top of this loop, which is where the
+                    // setting is otherwise checked: this branch blocks for minutes, and checking a
+                    // setting that can be turned off during it at the point where it stops being true
+                    // is the whole difference between respecting it and having read it once.
+                    stillWanted = { AppPreferences.shizukuMode(this) },
+                ) { remaining ->
                     notifyOngoing(
                         getString(
                             R.string.autoroot_shizuku_waiting_for_network,
@@ -447,7 +455,16 @@ class AutoRootService : Service() {
                         ),
                     )
                 }
-                if (!arrived) {
+                if (waited == NetworkWait.Abandoned) {
+                    AppLog.info(
+                        AppLogTags.BOOT,
+                        "Shizuku was switched off while the gate waited for a network; it stops waiting",
+                    )
+                    // The same answer the top of this loop gives for the same reason: the wait is not
+                    // wanted, so there is nothing left to hold the boot for.
+                    return ShizukuWaitEnd.Arrived
+                }
+                if (waited == NetworkWait.TimedOut) {
                     AppLog.warn(
                         AppLogTags.BOOT,
                         "No network arrived within ${NETWORK_WAIT_MILLIS / 1000} s, and the install " +
@@ -477,7 +494,10 @@ class AutoRootService : Service() {
                 attempts++
                 lastAttemptAt = BootSettle.elapsedMillis()
                 AppLog.info(AppLogTags.BOOT, "Starting Shizuku for the gate, attempt $attempts")
-                runCatching { ShizukuStarter.start(context = this, shell = kernelSuRootShell(this)) }
+                // Cancellable because this whole gate runs under a `withTimeout`: a start that ran long
+                // enough to hit it must end the gate the way the timeout says, not be filed as a start
+                // that failed while the gate carries on.
+                runCatchingCancellable { ShizukuStarter.start(context = this, shell = kernelSuRootShell(this)) }
                     .onFailure {
                         AppLog.warn(
                             AppLogTags.BOOT,

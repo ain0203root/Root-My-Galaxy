@@ -23,6 +23,18 @@ import kotlinx.coroutines.delay
  * privileged one - and the one command that can (`svc wifi enable`) needs the shell uid this app is
  * trying to obtain in the first place.
  */
+/** How a wait for a network ended. */
+internal enum class NetworkWait {
+    /** There is a Wi-Fi network, so the routes that need one can be tried. */
+    Connected,
+
+    /** The window ran out with none. */
+    TimedOut,
+
+    /** The caller decided it no longer wanted to wait, so nothing should be held for this. */
+    Abandoned,
+}
+
 internal object NetworkReach {
 
     /**
@@ -57,8 +69,10 @@ internal object NetworkReach {
     /**
      * Waits for a Wi-Fi network to be connected, reporting as it goes.
      *
-     * True when there is one - immediately, when there already is - and false when the wait runs out. An
-     * unreadable reading is true as well, for the reason above.
+     * [stillWanted] is asked on every pass, and it is not decoration: this is the longest wait in the
+     * app - five minutes - and it exists to make one caller's setting work, so a setting that is turned
+     * off in the middle of it has to end it. The caller cannot do that from outside, because the wait
+     * does not return until it is over.
      *
      * Polled rather than observed through a `NetworkCallback`, because both callers are already loops
      * that re-read the device once a second and a callback would be a second, differently-timed path
@@ -67,16 +81,45 @@ internal object NetworkReach {
     suspend fun awaitConnected(
         context: Context,
         timeoutMillis: Long,
+        stillWanted: () -> Boolean = { true },
         onWaiting: (remainingMillis: Long) -> Unit = {},
-    ): Boolean {
+    ): NetworkWait = awaitConnected(
+        timeoutMillis = timeoutMillis,
+        stillWanted = stillWanted,
+        isConnected = { connected(context) },
+        onWaiting = onWaiting,
+    )
+
+    /**
+     * The wait itself, over a reading the caller supplies.
+     *
+     * Split out for the reason the rest of this file is pure: the loop's decisions - a network that is
+     * there, a window that ran out, a caller that changed its mind - are worth pinning down, and the
+     * `Context` overload above cannot be driven from a local JVM test. [tickMillis] is the seam that
+     * does the same for the clock: it is the real second in production and a millisecond in a test,
+     * where the passages of the loop are what is being pinned rather than the time between them.
+     *
+     * The two endings are checked in a fixed order, and the order is the answer: a network that is
+     * already connected is reported as one even if the caller has since decided it no longer wants to
+     * wait for it, because the network is a fact about the device while the wait is a decision about
+     * this caller - and there is nothing left for the decision to do.
+     */
+    internal suspend fun awaitConnected(
+        timeoutMillis: Long,
+        isConnected: () -> Boolean,
+        stillWanted: () -> Boolean = { true },
+        tickMillis: Long = POLL_INTERVAL_MILLIS,
+        onWaiting: (remainingMillis: Long) -> Unit = {},
+    ): NetworkWait {
         var waited = 0L
         while (true) {
-            if (connected(context)) return true
+            if (isConnected()) return NetworkWait.Connected
+            if (!stillWanted()) return NetworkWait.Abandoned
             val remaining = timeoutMillis - waited
-            if (remaining <= 0L) return false
+            if (remaining <= 0L) return NetworkWait.TimedOut
             onWaiting(remaining)
-            delay(POLL_INTERVAL_MILLIS)
-            waited += POLL_INTERVAL_MILLIS
+            delay(tickMillis)
+            waited += tickMillis
         }
     }
 
