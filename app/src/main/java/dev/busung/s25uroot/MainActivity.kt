@@ -6760,14 +6760,17 @@ private fun SettingsSectionHeader(
  * The cards of one section that is open, drawn as the group they are.
  *
  * Full width and directly under the heading that opened it, which is what makes it that heading's content:
- * the pair read as one accordion - a heading card, a group's gap, then the cards - where an inset would say
- * the same thing with a step in the card's silhouette. The gap above is the page's own, paid here for the
- * same reason the heading pays it above itself, and the rows inside keep the seam.
+ * the pair read as one accordion - a heading card, then the cards - where an inset would say the same thing
+ * with a step in the card's silhouette.
+ *
+ * The gap above is deliberately **smaller** than the one above a heading. Both are between rounded cards and
+ * nothing else distinguishes them, so at equal gaps the page would read as a column of unrelated cards: the
+ * near pair is the heading and what it opened, and the far pair is the start of the next section.
  */
 @Composable
 private fun SettingsSectionBody(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier.padding(top = SETTINGS_BLOCK_GAP),
+        modifier = Modifier.padding(top = SETTINGS_BODY_GAP),
         verticalArrangement = Arrangement.spacedBy(SETTINGS_CARD_SEAM),
         content = content,
     )
@@ -6851,6 +6854,14 @@ private val SETTINGS_CARD_SEAM = 2.dp
  * arrangement is the seam, so a gap is paid by whichever row starts a card.
  */
 private val SETTINGS_BLOCK_GAP = 12.dp
+
+/**
+ * The gap between a heading and the content it opened, which is shorter than [SETTINGS_BLOCK_GAP] on purpose.
+ *
+ * Both separate two cards and neither can say anything else by itself, so the difference in distance is the
+ * whole of what pairs a heading with its own rows.
+ */
+private val SETTINGS_BODY_GAP = 6.dp
 
 /**
  * How much of a failed Shizuku start is worth showing.
