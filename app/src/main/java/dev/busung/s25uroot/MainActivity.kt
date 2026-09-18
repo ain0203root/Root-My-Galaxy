@@ -64,7 +64,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -3861,7 +3863,7 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SettingsSectionHeader(SettingsSection.Appearance, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.Appearance, openSections, indexRows, toggleSection)
         if (SettingsSection.Appearance in openSections) item {
             SettingsSectionBody {
                 ThemeModeSelector(themeMode, onThemeModeChanged)
@@ -3900,7 +3902,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Payloads, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.Payloads, openSections, indexRows, toggleSection)
         if (SettingsSection.Payloads in openSections) item {
             SettingsSectionBody {
                 SettingsCard(
@@ -3997,7 +3999,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Run, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.Run, openSections, indexRows, toggleSection)
 
         // Keyed by the card something else in the app may ask for: the run screen's read-only failure
         // names this setting and hands its key over, and a key is what lets the page find the row without
@@ -4112,7 +4114,7 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SettingsSectionHeader(SettingsSection.Shizuku, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.Shizuku, openSections, indexRows, toggleSection)
         if (SettingsSection.Shizuku in openSections) item {
             SettingsSectionBody {
                 SettingsSwitchCard(
@@ -4239,7 +4241,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.WirelessAdb, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.WirelessAdb, openSections, indexRows, toggleSection)
         if (SettingsSection.WirelessAdb in openSections) item {
             SettingsSectionBody {
                 // Read when the screen is built rather than on every recomposition: it is a file read
@@ -4323,7 +4325,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Root, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.Root, openSections, indexRows, toggleSection)
         if (SettingsSection.Root in openSections) item {
             SettingsSectionBody {
                 // The flavour is first because everything below it is about this flavour's module:
@@ -4544,7 +4546,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Recovery, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.Recovery, openSections, indexRows, toggleSection)
         if (SettingsSection.Recovery in openSections) item {
             SettingsSectionBody {
                 RootRecoverySection(
@@ -4561,7 +4563,7 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.System, openSections, indexRows, toggleSection) }
+        settingsSectionHeading(SettingsSection.System, openSections, indexRows, toggleSection)
         if (SettingsSection.System in openSections) item {
             SettingsSectionBody {
                 SettingsCard(
@@ -6667,6 +6669,34 @@ private fun SourceCoverageBlock(
                 color = MaterialTheme.colorScheme.error,
             )
         }
+    }
+}
+
+/**
+ * Draws one section's heading, pinned at the top of the page while its own rows scroll under it.
+ *
+ * A section with room for more than a screen is the case this exists for: once its heading has scrolled away,
+ * nothing on the screen says whose cards these are - and on this page every section is made of the same kind
+ * of card, so the answer cannot be read off the rows themselves. An **open** section's heading is therefore a
+ * sticky header: it stays put while its own cards pass beneath it, and the next section's heading pushes it
+ * away as that one arrives.
+ *
+ * A **closed** section's heading is an ordinary row of the index card, and deliberately so. A sticky header
+ * pins whatever is at the top of the list, and the index card's rows have no content under them at all - so a
+ * closed heading would be held over the rows of the section *below* it, claiming authorship of somebody
+ * else's content, which is the opposite of what the pin is for.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+private fun LazyListScope.settingsSectionHeading(
+    section: SettingsSection,
+    openSections: Set<SettingsSection>,
+    indexRows: Map<SettingsSection, SettingsIndexRow>,
+    onToggle: (SettingsSection) -> Unit,
+) {
+    if (section in openSections) {
+        stickyHeader { SettingsSectionHeader(section, openSections, indexRows, onToggle) }
+    } else {
+        item { SettingsSectionHeader(section, openSections, indexRows, onToggle) }
     }
 }
 

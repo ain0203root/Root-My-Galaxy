@@ -218,14 +218,41 @@ class SettingsSectionsTest {
         }
     }
 
+    @Test
+    fun `an open section's heading pins itself and a closed one does not`() {
+        val page = source("MainActivity.kt")
+        val heading = page.substringAfter("private fun LazyListScope.settingsSectionHeading").take(900)
+
+        assertTrue(
+            "an open section's heading scrolls away, so a section longer than a screen stops saying whose " +
+                "rows are on it",
+            heading.contains("stickyHeader {"),
+        )
+        assertTrue(
+            "a closed section's heading is pinned, and it would be held over the rows of the section below it",
+            heading.contains("item {"),
+        )
+        assertTrue(
+            "the heading is no longer drawn according to what is open, so nothing decides who pins",
+            heading.contains("if (section in openSections)"),
+        )
+        // One place draws a sticky header: a second one is a row with no content under it pinning itself over
+        // somebody else's, which is the state this rule exists to avoid.
+        assertEquals(
+            "more than one row of the page pins itself, so a row with nothing under it can claim a section",
+            1,
+            page.split("stickyHeader {").size - 1,
+        )
+    }
+
     /**
-     * The sections the page draws an index row for, in the order they appear.
+     * The sections the page draws a heading for, in the order they appear.
      *
      * Matched with the line wrapping left open, because the call wraps as soon as a row is given a value and
      * a search for the unwrapped text is a test that quietly stops looking at four of the eight rows.
      */
     private fun headerCalls(page: String): List<String> =
-        Regex("SettingsSectionHeader\\(\\s*SettingsSection\\.(\\w+),")
+        Regex("settingsSectionHeading\\(\\s*SettingsSection\\.(\\w+),")
             .findAll(page)
             .map { it.groupValues[1] }
             .toList()
