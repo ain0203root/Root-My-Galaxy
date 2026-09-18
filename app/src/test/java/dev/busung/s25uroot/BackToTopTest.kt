@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -25,23 +26,25 @@ class BackToTopTest {
     }
 
     @Test
-    fun `the run screen tells the page where its controls begin`() {
+    fun `the run screen no longer measures where its controls begin`() {
+        // It used to, and the rule that had to hold was that the measurement came before the buttons. The
+        // whole mechanism went when the controls moved into a bar over the page: nothing on the page is a
+        // control now, so there is nothing for the button to yield to - and no measurement that can be
+        // taken in the wrong place.
         val text = source("InstallActivity.kt")
 
-        assertTrue(text.contains("controlsTop = coordinates.positionInWindow().y"))
-        assertTrue(text.contains("controlsTop = controlsTop"))
+        assertFalse(text.contains("controlsTop"))
+        assertFalse(text.contains("positionInWindow"))
     }
 
     @Test
-    fun `the block it measures is the one the run's controls live in`() {
-        val text = source("InstallActivity.kt")
-        val measured = text.indexOf("controlsTop = coordinates.positionInWindow().y")
-        val stop = text.indexOf("R.string.action_stop_run")
-        val retry = text.indexOf("R.string.action_retry")
+    fun `the shared column has one rule for the button, not a rule per screen`() {
+        val shared = source("ScrollToTop.kt")
 
-        // Ahead of both, because both are inside the column that measurement wraps: a measurement taken
-        // after the buttons would report a position the button never stands down for.
-        assertTrue(measured > 0 && stop > measured && retry > measured)
+        assertFalse(
+            "the column can still be told to stand the button down, which is the mechanism the bar replaced",
+            shared.contains("standDown"),
+        )
     }
 
     @Test

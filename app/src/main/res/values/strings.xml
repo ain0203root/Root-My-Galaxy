@@ -115,7 +115,9 @@
     <string name="retry_option_now_detail">Quickest and least reliable. It goes straight back into the state that just failed</string>
     <string name="retry_wait">Wait, then retry</string>
     <string name="retry_option_wait_detail">No restart. The state the failed attempt leaves behind clears in about a minute</string>
-    <string name="retry_waiting_body">The payload runs again in %1$d s. The state left by the last attempt needs about a minute to clear.</string>
+    <!-- Short, because it now sits in the run's floating bar beside the two answers it counts down to; the
+         explanation of what the wait buys stays in the dialog that offers it (retry_option_wait_detail). -->
+    <string name="retry_waiting_body">Retrying in %1$d s</string>
     <string name="retry_waiting_start">Retry now</string>
     <string name="retry_waiting_cancel">Stop waiting</string>
     <string name="log_pipe_budget">[!] The payload was refused the pipe pages its race needs (%1$s). That budget is per boot and this one has spent it, so restart before another attempt.</string>

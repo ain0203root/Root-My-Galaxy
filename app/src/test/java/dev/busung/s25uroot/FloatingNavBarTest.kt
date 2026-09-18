@@ -52,15 +52,15 @@ class FloatingNavBarTest {
 
         assertTrue(
             "a page's last row would sit under the pill",
-            shared.contains("bottom = contentPadding.calculateBottomPadding() + pageBottomClearance()"),
+            shared.contains("bottom = contentPadding.calculateBottomPadding() + pageBottomClearance(NAV_BAR_HEIGHT)"),
         )
         assertTrue(
             "the clearance is the button's room plus the bar's, and the larger of the two would leave a row under one of them",
-            shared.contains("BACK_TO_TOP_CLEARANCE + NAV_BAR_HEIGHT"),
+            shared.contains("BACK_TO_TOP_CLEARANCE + barHeight"),
         )
         assertTrue(
             "the button would sit behind the pill, having only ever cleared the edge of the page",
-            shared.contains("padding(20.dp).padding(bottom = NAV_BAR_HEIGHT)"),
+            shared.contains("padding(20.dp).padding(bottom = barHeight)"),
         )
     }
 

@@ -8,8 +8,11 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
@@ -36,7 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -74,14 +77,14 @@ internal fun PageList(
                 start = contentPadding.calculateStartPadding(layoutDirection),
                 top = contentPadding.calculateTopPadding(),
                 end = contentPadding.calculateEndPadding(layoutDirection),
-                bottom = contentPadding.calculateBottomPadding() + pageBottomClearance(),
+                bottom = contentPadding.calculateBottomPadding() + pageBottomClearance(NAV_BAR_HEIGHT),
             ),
             verticalArrangement = verticalArrangement,
             content = content,
         )
         BackToTopFab(
             listState = listState,
-            modifier = Modifier.align(Alignment.BottomEnd).pageBottomInset(),
+            modifier = Modifier.align(Alignment.BottomEnd).pageBottomInset(NAV_BAR_HEIGHT),
         )
     }
 }
@@ -104,7 +107,8 @@ internal fun rememberScrolledState(listState: LazyListState): State<Boolean> = r
 internal fun rememberPageListState(): LazyListState = rememberLazyListState()
 
 /**
- * A screen that scrolls as a column, with the button that returns it to the top.
+ * A screen that scrolls as a column, with the button that returns it to the top and a place for the bar that
+ * floats over it.
  *
  * The same job [PageList] does for a list, for a screen whose content is not one - and the reason the button
  * is drawn here rather than at the call site: it has to be a sibling of the scrolling column, not a child of
@@ -117,33 +121,45 @@ internal fun PageColumn(
     modifier: Modifier = Modifier,
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     /**
-     * Where anything on this screen the button must never sit over starts, in window coordinates - or the
-     * default when the screen has nothing like that.
+     * The bar that floats over this screen, drawn over the column and measured for the room it takes.
      *
-     * Only a screen whose end is its own controls needs this. From this point down is something the user may
-     * be about to press, and the run screen's Stop button is the one that cannot afford to be covered, so
-     * while any of it is visible the button is not drawn at all. The comparison is against the bottom of the
-     * scrolling area rather than the window, because that is the edge the button is measured from.
+     * A slot rather than a page item for the same reason [PageList] keeps its button out of the list: a bar
+     * that scrolls with the content is not a bar - and on the screen this exists for, the bar was the thing
+     * the log ended against. The page ends clear of it by the bar's own measured height, so a screen that
+     * floats one does not have to know how tall it is: a row of one button is not a row of three. A bar that
+     * draws nothing measures zero, which is what makes an empty one cost nothing.
      */
-    controlsTop: Float = Float.POSITIVE_INFINITY,
+    bar: @Composable BoxScope.() -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    var viewportBottom by remember { mutableStateOf(0f) }
-    Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+    var barHeight by remember { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .onGloballyPositioned { coordinates ->
-                    viewportBottom = coordinates.positionInWindow().y + coordinates.size.height
-                }
+                .padding(padding)
                 .verticalScroll(scrollState),
             verticalArrangement = verticalArrangement,
-            content = content,
-        )
+        ) {
+            content()
+            // The room the button and the bar take, as the column's own last item: it has to be inside the
+            // scroll, or the page could not be scrolled far enough to bring its end above the bar.
+            if (barHeight > 0.dp) {
+                Spacer(Modifier.height(barHeight + BACK_TO_TOP_CLEARANCE))
+            }
+        }
         BackToTopFab(
             scrollState = scrollState,
-            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-            standDown = controlsTop < viewportBottom,
+            modifier = Modifier.align(Alignment.BottomEnd).pageBottomInset(barHeight),
+        )
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .onGloballyPositioned { coordinates ->
+                    barHeight = with(density) { coordinates.size.height.toDp() }
+                },
+            content = bar,
         )
     }
 }
@@ -165,20 +181,14 @@ internal fun BackToTopFab(listState: LazyListState, modifier: Modifier = Modifie
     }
 }
 
-/**
- * The same button for a screen that scrolls a column rather than a list.
- *
- * [standDown] is the screen's own answer about whether the button would be in the way; [PageColumn] is where
- * that comes from.
- */
+/** The same button for a screen that scrolls a column rather than a list. */
 @Composable
 internal fun BackToTopFab(
     scrollState: ScrollState,
     modifier: Modifier = Modifier,
-    standDown: Boolean = false,
 ) {
     val scrolled by remember(scrollState) { derivedStateOf { scrollState.value > 0 } }
-    BackToTopButton(visible = scrolled && !standDown, modifier = modifier) {
+    BackToTopButton(visible = scrolled, modifier = modifier) {
         scrollState.animateScrollTo(0)
     }
 }
@@ -225,12 +235,15 @@ private val BACK_TO_TOP_CLEARANCE = 72.dp
  *
  * Both are needed rather than the larger of the two - the button stands on top of the bar, so the row it must
  * not sit under is the higher of the two, and that is the sum.
+ *
+ * The height of the bar is the caller's, because the two screens that float one do not float the same one: the
+ * tab bar is a pill of four fixed items and the run screen's is whatever the run has to offer.
  */
-private fun pageBottomClearance(): Dp = BACK_TO_TOP_CLEARANCE + NAV_BAR_HEIGHT
+private fun pageBottomClearance(barHeight: Dp): Dp = BACK_TO_TOP_CLEARANCE + barHeight
 
 /**
  * Where the button sits in a page's bottom corner: its own air, then the bar's height, because the bar is
  * drawn over the page rather than beside it and the button would otherwise be behind the pill.
  */
-private fun Modifier.pageBottomInset(): Modifier =
-    padding(20.dp).padding(bottom = NAV_BAR_HEIGHT)
+private fun Modifier.pageBottomInset(barHeight: Dp): Modifier =
+    padding(20.dp).padding(bottom = barHeight)

@@ -77,8 +77,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -219,10 +217,6 @@ private fun InstallScreen(
     val logScrollState = rememberScrollState()
     // The page's own scroll, held out here so the button over it can drive the same state.
     val pageScrollState = rememberScrollState()
-    // Where this screen's buttons start, in window coordinates. The back-to-top button floats over the page,
-    // and the page ends in the controls that stop and close a run - so it stands down while any of them is
-    // on screen rather than sitting over the right end of the one control a hung run depends on.
-    var controlsTop by remember { mutableStateOf(Float.POSITIVE_INFINITY) }
     val view = LocalView.current
     var showRetryChoice by remember { mutableStateOf(false) }
     // Whether a reboot was *asked for*, which is all the app can know: null while nothing has been
@@ -260,7 +254,118 @@ private fun InstallScreen(
             scrollState = pageScrollState,
             modifier = Modifier.padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
-            controlsTop = controlsTop,
+            // The run's own controls, in a bar over the page rather than at the end of it. The page measured
+            // them so that the back-to-top button could yield to them, and the log - the one continuous
+            // account of a run - was what ended up in the space between. A bar over the page has neither
+            // problem: the button stands above it, and the log has the screen.
+            //
+            // Empty in the one phase that offers nothing - the screen open before a run has started - where
+            // the bar measures zero and the page ends where it would have.
+            bar = {
+                if (runControlsOffered(installState.phase, installState.busy)) {
+                    RunActionBar {
+                        // The wait can be cut short while the app is holding the run: the wait is a floor and
+                        // not a rule, and the user is the one who knows whether this boot has settled.
+                        if (installState.phase == InstallPhase.Settling) {
+                            FilledTonalButton(
+                                onClick = {
+                                    clickHaptic(view)
+                                    onSkipBootSettle()
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(stringResource(R.string.action_run_now))
+                            }
+                        }
+                        // Offered for the whole run rather than only while it is busy elsewhere: it is the one
+                        // way out of a run that has hung, since back is disabled for the length of one and
+                        // nothing else on the screen can be pressed.
+                        if (installState.busy) {
+                            FilledTonalButton(
+                                onClick = {
+                                    clickHaptic(view)
+                                    onStop()
+                                },
+                                modifier = Modifier.weight(1f),
+                            ) {
+                                Text(stringResource(R.string.action_stop_run))
+                            }
+                        }
+                        if (!installState.busy) {
+                            val waiting = waitRemaining
+                            when {
+                                // The countdown and its two answers in the bar itself, because that is where
+                                // the answers are: as a card it was a second surface inside this one.
+                                waiting != null -> {
+                                    Text(
+                                        text = stringResource(R.string.retry_waiting_body, waiting),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    TextButton(onClick = {
+                                        clickHaptic(view)
+                                        waitRemaining = null
+                                    }) {
+                                        Text(stringResource(R.string.retry_waiting_cancel))
+                                    }
+                                    Button(onClick = {
+                                        clickHaptic(view)
+                                        waitRemaining = null
+                                        onRetry()
+                                    }) {
+                                        Text(stringResource(R.string.retry_waiting_start))
+                                    }
+                                }
+                                installState.phase == InstallPhase.Failed ||
+                                    installState.phase == InstallPhase.Stopped -> {
+                                    FilledTonalButton(
+                                        onClick = {
+                                            clickHaptic(view)
+                                            onClose()
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(stringResource(R.string.action_close))
+                                    }
+                                    Button(
+                                        onClick = {
+                                            clickHaptic(view)
+                                            showRetryChoice = true
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Text(stringResource(R.string.action_retry))
+                                    }
+                                }
+                                else -> {
+                                    // The step after a successful load, and the reason it is here rather than
+                                    // only in Settings: KernelSU has just been loaded into the running kernel,
+                                    // and the modules that go with it are mounted but not yet in a Zygote. A
+                                    // userspace restart is what puts them there, and asking for it from the
+                                    // screen that just finished is the moment the user is thinking about it.
+                                    if (installState.phase == InstallPhase.Installed) {
+                                        RecoveryActionButton(
+                                            tool = RecoveryTool.SoftReboot,
+                                            label = stringResource(R.string.install_load_modules),
+                                            modifier = Modifier.weight(1f),
+                                            onOpenSetting = onOpenSetting,
+                                        )
+                                    }
+                                    // Quiet rather than filled: the restart above is the step that finishes a
+                                    // load, and this is only the way out of the screen.
+                                    TextButton(onClick = {
+                                        clickHaptic(view)
+                                        onClose()
+                                    }) {
+                                        Text(stringResource(R.string.action_done))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
         ) {
             Column(
                 modifier = Modifier.padding(top = 28.dp, bottom = 4.dp),
@@ -290,140 +395,14 @@ private fun InstallScreen(
                 output = installState.log,
                 // A height of its own, because this panel is the only continuous account of a run: as a
                 // weighted remainder it collapsed to nothing the moment a failure card had something to
-                // say. The status card is still capped, so the two together cannot push the buttons out
-                // of reach; the page scroll handles the rest.
+                // say. The status card is still capped, so the two together are a page rather than a
+                // report of arbitrary length - and the controls no longer sit below this at all, which is
+                // what the bar is for.
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(LOG_PANEL_HEIGHT),
                 scrollState = logScrollState,
             )
-
-            // The run's own controls, as one group rather than two separately padded buttons: a
-            // 20dp trailer on each of them plus the page's own 16dp between items put 36dp between two
-            // buttons and 16dp everywhere else, which reads as a missing panel rather than as spacing.
-            //
-            // Skipping the wait is offered only while the app is holding the run, because the wait is a
-            // floor and not a rule and the user is the one who knows whether this boot has settled.
-            // Stopping is offered for the whole run, since it is the only way out of one that has hung:
-            // back is disabled for the length of a run and nothing else can be pressed.
-            // The two groups below are one block rather than two items, so that where they begin can be
-            // measured in one place - and because they are one thing: what can be done about the run as it
-            // stands. The wrapping column's spacing is the page's own, so the layout is what it was.
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onGloballyPositioned { coordinates -> controlsTop = coordinates.positionInWindow().y },
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                if (installState.phase == InstallPhase.Settling || installState.busy) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        if (installState.phase == InstallPhase.Settling) {
-                            FilledTonalButton(
-                                onClick = {
-                                    clickHaptic(view)
-                                    onSkipBootSettle()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(stringResource(R.string.action_run_now))
-                            }
-                        }
-                        if (installState.busy) {
-                            FilledTonalButton(
-                                onClick = {
-                                    clickHaptic(view)
-                                    onStop()
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(stringResource(R.string.action_stop_run))
-                            }
-                        }
-                    }
-                }
-
-                if (!installState.busy) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 20.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        // The step after a successful load, and the reason it is here rather than only in
-                        // Settings: KernelSU has just been loaded into the running kernel, and the modules
-                        // that go with it are mounted but not yet in a Zygote. A userspace restart is what
-                        // puts them there, and asking for it from the screen that just finished is the
-                        // moment the user is thinking about it.
-                        if (installState.phase == InstallPhase.Installed) {
-                            RecoveryActionButton(
-                                tool = RecoveryTool.SoftReboot,
-                                label = stringResource(R.string.install_load_modules),
-                                modifier = Modifier.fillMaxWidth(),
-                                onOpenSetting = onOpenSetting,
-                            )
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            when (installState.phase) {
-                                InstallPhase.Failed, InstallPhase.Stopped -> {
-                                    val waiting = waitRemaining
-                                    if (waiting != null) {
-                                        WaitingRetryCard(
-                                            secondsLeft = waiting,
-                                            modifier = Modifier.weight(1f),
-                                            onRetryNow = {
-                                                clickHaptic(view)
-                                                waitRemaining = null
-                                                onRetry()
-                                            },
-                                            onStopWaiting = {
-                                                clickHaptic(view)
-                                                waitRemaining = null
-                                            },
-                                        )
-                                    } else {
-                                        FilledTonalButton(
-                                            onClick = {
-                                                clickHaptic(view)
-                                                onClose()
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text(stringResource(R.string.action_close))
-                                        }
-                                        Button(
-                                            onClick = {
-                                                clickHaptic(view)
-                                                showRetryChoice = true
-                                            },
-                                            modifier = Modifier.weight(1f),
-                                        ) {
-                                            Text(stringResource(R.string.action_retry))
-                                        }
-                                    }
-                                }
-                                InstallPhase.Installed, InstallPhase.RootOnly -> Button(
-                                    onClick = {
-                                        clickHaptic(view)
-                                        onClose()
-                                    },
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) {
-                                    Text(stringResource(R.string.action_done))
-                                }
-                                else -> Unit
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -665,45 +644,6 @@ private fun RetryOption(
             contentPadding = padding,
         ) {
             body()
-        }
-    }
-}
-
-/**
- * The wait between a failed run and a retry in the same boot.
- *
- * Shown instead of the retry button rather than beside it, because both would start the same run and
- * two ways to start one thing on one screen is how it gets started twice. The wait can be cut short,
- * so someone who knows this boot is settled is not held by a rule they disagree with.
- */
-@Composable
-private fun WaitingRetryCard(
-    secondsLeft: Int,
-    onRetryNow: () -> Unit,
-    onStopWaiting: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.retry_waiting_body, secondsLeft),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                TextButton(onClick = onStopWaiting) {
-                    Text(stringResource(R.string.retry_waiting_cancel))
-                }
-                Button(onClick = onRetryNow) {
-                    Text(stringResource(R.string.retry_waiting_start))
-                }
-            }
         }
     }
 }
