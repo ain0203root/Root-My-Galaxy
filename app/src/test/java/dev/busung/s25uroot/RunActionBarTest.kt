@@ -58,7 +58,7 @@ class RunActionBarTest {
     @Test
     fun `the run's controls are in the bar and not at the end of the page`() {
         val text = source("InstallActivity.kt")
-        val bar = text.indexOf("RunActionBar {")
+        val bar = text.indexOf("RunActionBar(")
 
         assertTrue("nothing draws the run's bar", bar > 0)
         listOf(
@@ -71,6 +71,31 @@ class RunActionBarTest {
             assertTrue("$control is not on this screen any more", at > 0)
             assertTrue("$control is still composed on the page rather than in the bar", at > bar)
         }
+    }
+
+    @Test
+    fun `the bar says how far the run has come, from the fraction the status card uses`() {
+        val text = source("InstallActivity.kt")
+        val bar = text.indexOf("RunActionBar(")
+
+        assertTrue("nothing draws the run's bar", bar > 0)
+        assertTrue(
+            "the bar over the log says nothing about how far the run has come",
+            text.indexOf("progress = installProgress(", bar) > 0,
+        )
+        // A failure's stage lives on the failure and a stop's on the state, so the strip has to read
+        // whichever of the two the run ended with - or a stopped run shows an empty line.
+        assertTrue(text.contains("installState.failure?.stage ?: installState.stoppedAt"))
+    }
+
+    @Test
+    fun `the bar is handed the run's fraction rather than working one out`() {
+        // One definition of where a run is, in `installProgress`, or the strip and the card's bar can
+        // disagree about the same run - which is worse than either of them being absent.
+        assertFalse(
+            "the bar derives a progress of its own",
+            source("RunActionBar.kt").contains("installProgress"),
+        )
     }
 
     @Test

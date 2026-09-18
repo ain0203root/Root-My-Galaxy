@@ -263,7 +263,14 @@ private fun InstallScreen(
             // the bar measures zero and the page ends where it would have.
             bar = {
                 if (runControlsOffered(installState.phase, installState.busy)) {
-                    RunActionBar {
+                    // The same fraction the status card's bar shows, so a run's position is one number
+                    // wherever it is drawn - and it stays on screen here when the card is scrolled off.
+                    RunActionBar(
+                        progress = installProgress(
+                            phase = installState.phase,
+                            failureStage = installState.failure?.stage ?: installState.stoppedAt,
+                        ),
+                    ) {
                         // The wait can be cut short while the app is holding the run: the wait is a floor and
                         // not a rule, and the user is the one who knows whether this boot has settled.
                         if (installState.phase == InstallPhase.Settling) {
