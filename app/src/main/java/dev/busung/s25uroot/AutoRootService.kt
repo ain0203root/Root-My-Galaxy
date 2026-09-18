@@ -319,9 +319,13 @@ class AutoRootService : Service() {
             // afterwards: the run is the same code as the screen's "run without Shizuku", so what it
             // installs is exactly what that answer would have installed.
             BootShizukuPlan.WithoutShell -> ShizukuStep.Run(withoutShell = true)
-            BootShizukuPlan.Wait ->
-                if (awaitShizuku()) ShizukuStep.Run(withoutShell = false)
-                else ShizukuStep.Refuse(
+            BootShizukuPlan.Wait -> when (awaitShizuku()) {
+                ShizukuWaitEnd.Arrived -> ShizukuStep.Run(withoutShell = false)
+                // Two refusals rather than one, because they ask for different things: a Shizuku that did
+                // not come up in the time it was given may come up on a second ask, while one that was
+                // never given a chance needs the network first. Reporting the second as the first would
+                // send the user back to the same wait.
+                ShizukuWaitEnd.TimedOut -> ShizukuStep.Refuse(
                     GateRefusal(
                         getString(
                             R.string.autoroot_shizuku_unavailable,
@@ -330,6 +334,13 @@ class AutoRootService : Service() {
                         ShizukuRefusalActions.RetryOrStandard,
                     ),
                 )
+                ShizukuWaitEnd.NoNetwork -> ShizukuStep.Refuse(
+                    GateRefusal(
+                        getString(R.string.autoroot_shizuku_needs_network),
+                        ShizukuRefusalActions.RetryOrStandard,
+                    ),
+                )
+            }
             BootShizukuPlan.Unstartable -> ShizukuStep.Refuse(
                 GateRefusal(
                     getString(R.string.autoroot_shizuku_unstartable),
@@ -358,11 +369,34 @@ class AutoRootService : Service() {
      * all this app has to do is wait for it.
      */
     private fun shizukuStartable(): Boolean =
-        shizukuBootStartWorthAttempting(
-            rootAlreadyActive = false,
-            localAdbPaired = AdbCredentialStore.hasStoredKey(this) && AppPreferences.adbPaired(this),
-            tokenConfigured = AppPreferences.shizukuAutomationToken(this).isNotBlank(),
-        ) || runCatching { ShizukuIntentStarter.ownBootReceiverEnabled(this) }.getOrDefault(false)
+        startRoute() != ShizukuStartRoute.Unavailable ||
+            runCatching { ShizukuIntentStarter.ownBootReceiverEnabled(this) }.getOrDefault(false)
+
+    /**
+     * The route this device would take, which is what decides whether a network is needed first.
+     *
+     * Root is passed as unavailable on purpose, and not as a shortcut: this path only runs when KernelSU
+     * has not been loaded, and a root shell is the one route that works with no network at all. Asking a
+     * device for a shell it has nothing to answer with would be the same mistake as counting root as a
+     * way to start Shizuku here.
+     */
+    private fun startRoute(): ShizukuStartRoute = shizukuStartRoute(
+        rootShellAvailable = false,
+        localAdbPaired = AdbCredentialStore.hasStoredKey(this) && AppPreferences.adbPaired(this),
+        tokenConfigured = AppPreferences.shizukuAutomationToken(this).isNotBlank(),
+    )
+
+    /** Why a wait for Shizuku ended, which is what the refusal afterwards has to be about. */
+    private enum class ShizukuWaitEnd {
+        /** Usable, or the setting was turned off while waiting: the run may start. */
+        Arrived,
+
+        /** The window ran out while an attempt could still have worked. */
+        TimedOut,
+
+        /** Nothing could be tried at all, because the routes left need a network and there was none. */
+        NoNetwork,
+    }
 
     /**
      * Waits for Shizuku to become usable, starting it as often as is worth trying.
@@ -375,25 +409,67 @@ class AutoRootService : Service() {
      * on boot - and that is fine rather than a problem: [ShizukuStarter] serializes the attempts across
      * processes and re-probes the binder before each launch, so the second caller concludes "already
      * running" instead of starting a second server.
+     *
+     * Two things are being measured here and they are not the same, which is why they are counted
+     * separately: how long Shizuku has had a chance to arrive, and how long the device has been given to
+     * make a chance possible. Only the first is spent while an attempt could work ([startNeedsNetworkFirst]),
+     * so a boot with no Wi-Fi does not burn its two minutes on starts the framework cannot answer - and a
+     * network that arrives late is used immediately, because the spacing between attempts is measured in
+     * real time while the window is not.
      */
-    private suspend fun awaitShizuku(): Boolean {
-        val startedAt = BootSettle.elapsedMillis()
+    private suspend fun awaitShizuku(): ShizukuWaitEnd {
         var attempts = 0
+        // Counted in ticks of this loop rather than from the clock, so the ticks spent with nothing to
+        // try do not come out of the window: see the two measurements above.
+        var spentMillis = 0L
         // Pushed one interval into the past so the first attempt is immediate: by the time the gate is
         // here, the boot has already waited out the settle floor.
-        var lastAttemptAt = startedAt - SHIZUKU_ATTEMPT_SPACING_MILLIS
+        var lastAttemptAt = BootSettle.elapsedMillis() - SHIZUKU_ATTEMPT_SPACING_MILLIS
         while (true) {
-            // The setting can be turned off while this waits - it is two minutes in which somebody may
-            // well open the app - and waiting for something no longer wanted is only a delay.
-            if (!AppPreferences.shizukuMode(this)) return true
-            if (shizukuUsable()) return true
-            val left = SHIZUKU_WAIT_MILLIS - (BootSettle.elapsedMillis() - startedAt)
+            // The setting can be turned off while this waits - it is minutes in which somebody may well
+            // open the app - and waiting for something no longer wanted is only a delay.
+            if (!AppPreferences.shizukuMode(this)) return ShizukuWaitEnd.Arrived
+            if (shizukuUsable()) return ShizukuWaitEnd.Arrived
+            // Re-read every pass rather than once: this wait is long enough for the device to change
+            // under it - Wi-Fi turned on, a pairing made, a token typed in - and every one of those is a
+            // reason the next attempt would be a different attempt.
+            if (startNeedsNetworkFirst(startRoute(), NetworkReach.connected(this))) {
+                AppLog.warn(
+                    AppLogTags.BOOT,
+                    "No Wi-Fi network is connected, and every route left to start Shizuku needs " +
+                        "wireless debugging, which the framework keeps off without one",
+                )
+                val arrived = NetworkReach.awaitConnected(this, NETWORK_WAIT_MILLIS) { remaining ->
+                    notifyOngoing(
+                        getString(
+                            R.string.autoroot_shizuku_waiting_for_network,
+                            BootSettle.formatRemaining(remaining),
+                        ),
+                    )
+                }
+                if (!arrived) {
+                    AppLog.warn(
+                        AppLogTags.BOOT,
+                        "No network arrived within ${NETWORK_WAIT_MILLIS / 1000} s, and the install " +
+                            "cannot go through Shizuku without one",
+                    )
+                    return ShizukuWaitEnd.NoNetwork
+                }
+                AppLog.info(
+                    AppLogTags.BOOT,
+                    "A network arrived; the Shizuku start for the gate can be tried now",
+                )
+                // Back to the top: the attempt that was never made is now overdue by the only measure
+                // that matters here, which is how long ago it was asked for.
+                continue
+            }
+            val left = SHIZUKU_WAIT_MILLIS - spentMillis
             if (left <= 0L) {
                 AppLog.warn(
                     AppLogTags.BOOT,
                     "Shizuku did not arrive within ${SHIZUKU_WAIT_MILLIS / 1000} s; the install cannot go through it",
                 )
-                return false
+                return ShizukuWaitEnd.TimedOut
             }
             if (attempts < SHIZUKU_START_ATTEMPTS &&
                 BootSettle.elapsedMillis() - lastAttemptAt >= SHIZUKU_ATTEMPT_SPACING_MILLIS
@@ -412,6 +488,7 @@ class AutoRootService : Service() {
             }
             notifyOngoing(getString(R.string.autoroot_shizuku_waiting, BootSettle.formatRemaining(left)))
             delay(SETTLE_TICK_MILLIS)
+            spentMillis += SETTLE_TICK_MILLIS
         }
     }
 

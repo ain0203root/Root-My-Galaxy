@@ -10,7 +10,8 @@ class ShizukuStartRouteTest {
     @Test
     fun `a paired adb identity starts Shizuku without root`() {
         // The route this app did not have: no root, so Shizuku's starter has to be run in some other
-        // shell, and the device's own adbd is the only one that needs neither a computer nor a network.
+        // shell, and the device's own adbd is the only one that needs no computer. It still needs a
+        // network - the port it dials is wireless debugging's - which is what the tests below are about.
         assertEquals(
             ShizukuStartRoute.LocalAdb,
             shizukuStartRoute(
@@ -126,5 +127,35 @@ class ShizukuStartRouteTest {
                 tokenConfigured = false,
             ),
         )
+    }
+
+    @Test
+    fun `only a root shell can start Shizuku with no network`() {
+        // Root is the one route that is a local process from end to end: KernelSU's shell, Shizuku's
+        // starter, a binder to check. Every other route goes through wireless debugging, which the
+        // framework turns off again while no Wi-Fi network is connected, so an attempt made without one
+        // is a question the device cannot answer.
+        assertFalse(startNeedsNetworkFirst(ShizukuStartRoute.NativeStarter, networkConnected = false))
+        assertTrue(startNeedsNetworkFirst(ShizukuStartRoute.LocalAdb, networkConnected = false))
+        assertTrue(startNeedsNetworkFirst(ShizukuStartRoute.AuthenticatedIntent, networkConnected = false))
+    }
+
+    @Test
+    fun `a route that is unavailable still waits for the network`() {
+        // Not an oversight, and the reason this asks about the network rather than about whether an
+        // attempt would be made: a device with no route of its own can still have Shizuku come up by
+        // itself at boot, and that path needs wireless debugging - and therefore a network - like the
+        // rest. Treating "nothing to try" as "nothing to wait for" would refuse exactly the boot where
+        // waiting was the only thing that could have worked.
+        assertTrue(startNeedsNetworkFirst(ShizukuStartRoute.Unavailable, networkConnected = false))
+    }
+
+    @Test
+    fun `a connected network is never a reason to wait`() {
+        // The whole matrix, because this is asked once per pass of the gate's wait: with a network up,
+        // no route is held back, including the ones that need one.
+        ShizukuStartRoute.entries.forEach { route ->
+            assertFalse("$route waited with a network connected", startNeedsNetworkFirst(route, true))
+        }
     }
 }

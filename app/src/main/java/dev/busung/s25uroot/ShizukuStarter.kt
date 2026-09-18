@@ -191,13 +191,13 @@ internal object ShizukuStarter {
     }
 
     /**
-     * The no-root route that also needs no network: this app's own adb identity, used as the shell.
+     * The no-root route: this app's own adb identity, used as the shell.
      *
      * A paired device has an authenticated adb connection to its *own* adbd, which is a shell-uid
-     * context - exactly what Shizuku's starter needs - and the connection is to `127.0.0.1`, so nothing
-     * here cares whether the device is on a network. That is the difference from the request route: the
-     * token asks the Shizuku app to start itself, and on a build whose own start method is wireless
-     * debugging, that method waits for a wifi connection this app cannot supply.
+     * context - exactly what Shizuku's starter needs - and the connection is to `127.0.0.1`, so no
+     * computer is involved. What it does not remove is the network: the port it dials belongs to wireless
+     * debugging, which the framework turns off while no Wi-Fi network is connected, so this route is as
+     * dependent on Wi-Fi as the request route - see [NetworkReach] and [startNeedsNetworkFirst].
      *
      * Wireless debugging is turned on for the attempt and off again afterwards, the same window the run
      * transport uses, so the device is not left with a shell port open for the sake of one command.

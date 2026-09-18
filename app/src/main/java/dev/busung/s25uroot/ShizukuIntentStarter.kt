@@ -36,10 +36,15 @@ internal enum class ShizukuStartRoute {
  *
  * The order is by how much the app can see for itself. **Root** starts Shizuku's own starter, so the
  * app watches the process it started. **Local adb** does the same thing in the shell the device's own
- * adbd hands out, which needs neither root nor a network to connect to it - the connection is
- * loopback. **The token** is a request to another app that can only be answered by waiting for a
- * binder, and on a build whose own start method needs wireless debugging it waits for something this
- * app cannot provide: a wifi connection.
+ * adbd hands out, reached over loopback, which needs no root. **The token** is a request to another app
+ * that can only be answered by waiting for a binder.
+ *
+ * Both of the no-root routes need one thing that root does not, and it is easy to miss because it is not
+ * part of either route's own logic: they go through wireless debugging, and wireless debugging cannot be
+ * on without a connected Wi-Fi network ([NetworkReach]). Reaching adbd over loopback is what that route
+ * needs instead of a *computer*; it does not remove the network requirement, because the port it dials is
+ * published by adbd's TLS listener, which the framework only starts for wireless debugging that it has
+ * been able to turn on.
  */
 internal fun shizukuStartRoute(
     rootShellAvailable: Boolean,
@@ -51,6 +56,45 @@ internal fun shizukuStartRoute(
     tokenConfigured -> ShizukuStartRoute.AuthenticatedIntent
     else -> ShizukuStartRoute.Unavailable
 }
+
+/**
+ * Whether a start attempt made right now would be one thrown away waiting for a network that is not
+ * there.
+ *
+ * Root is the only route that can work with no network: Shizuku's own starter runs in KernelSU's shell
+ * and is a local process from end to end. Everything else - this app's adb identity, Shizuku's own start
+ * request, and Shizuku starting itself at boot - goes through wireless debugging, and the framework keeps
+ * wireless debugging off while no Wi-Fi network is connected ([NetworkReach]). So an attempt made in
+ * that state is one of a bounded few spent on a question the device cannot answer.
+ *
+ * Note what this means for a device with no route at all: it is still a device that *could* be brought
+ * up by nothing on this side - Shizuku's own boot receiver, which needs wireless debugging, and therefore
+ * a network too. Which is why this asks about the network rather than about whether an attempt would be
+ * made.
+ *
+ * Pure, so the matrix can be checked without a device: it is the difference between waiting and a
+ * refusal that names the wrong reason, and neither of those states can be produced by hand.
+ */
+internal fun startNeedsNetworkFirst(
+    route: ShizukuStartRoute,
+    networkConnected: Boolean,
+): Boolean = !networkConnected && route != ShizukuStartRoute.NativeStarter
+
+/**
+ * How long a boot holds for a network once nothing can be tried without one.
+ *
+ * Measured separately from the window Shizuku itself is given ([AutoRootService]'s, and the boot
+ * service's own attempt count), because the two are not the same question: one is how long Shizuku has
+ * had a chance, the other is how long the device has been given to provide one. Only the first is spent
+ * while there is no chance, so a boot with Wi-Fi off does not burn its Shizuku window on attempts the
+ * framework cannot answer.
+ *
+ * Five minutes, and bounded, because the network this waits for is usually the user's own: a phone that
+ * boots with Wi-Fi off is a phone whose owner will turn it on, and the notification says what is being
+ * waited for the whole time. Waiting forever would hold a foreground service and a wake lock for as long
+ * as the phone was away from a network, which is not a boot install's business.
+ */
+internal const val NETWORK_WAIT_MILLIS = 5 * 60 * 1_000L
 
 /**
  * Whether a boot is worth starting Shizuku on at all.
