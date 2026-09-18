@@ -81,20 +81,63 @@ class SettingsSectionsTest {
     }
 
     @Test
-    fun `the page draws a header for every section`() {
-        val page = source("MainActivity.kt")
+    fun `every section is found by an icon of its own`() {
+        val icons = SettingsSection.entries.map { it.icon }
 
-        SettingsSection.entries.forEach { section ->
-            assertTrue(
-                "the ${section.name} section has no header, so nothing on the page opens it",
-                page.contains("SettingsSectionHeader(SettingsSection.${section.name},"),
+        assertEquals(
+            "two sections share an icon, and a glyph cannot be read slowly: the eye keeps landing on the " +
+                "wrong row of the index",
+            icons.size,
+            icons.distinct().size,
+        )
+    }
+
+    @Test
+    fun `the index is one card, so only its ends are rounded`() {
+        val first = SettingsSection.entries.first()
+        val last = SettingsSection.entries.last()
+
+        assertEquals(SettingsCardPosition.Top, first.indexPosition())
+        assertEquals(SettingsCardPosition.Bottom, last.indexPosition())
+        // Everything between them has to be square on both ends, which is what makes the eight rows read as
+        // one card rather than as eight: a single Middle row out of place leaves a rounded seam in the
+        // middle of it, and nothing on screen says which row that is.
+        SettingsSection.entries.drop(1).dropLast(1).forEach { section ->
+            assertEquals(
+                "${section.name} sits between two others and is drawn as a card of its own",
+                SettingsCardPosition.Middle,
+                section.indexPosition(),
             )
         }
+    }
+
+    @Test
+    fun `the page's own spacing is the seam between index rows`() {
+        val page = source("MainActivity.kt")
+
+        // The page's arrangement is what makes the index one card: at a group's gap the eight rows would be
+        // eight cards, which is the layout this replaced. Read from the settings list's own call rather than
+        // from anywhere in the file, since a group's inner spacing is the same number for its own reason.
+        val arrangement = page.substringAfter("listState = settingsList,")
+            .substringAfter("verticalArrangement = ")
+            .substringBefore(",")
+        assertEquals(
+            "the settings page leaves a gap between index rows, so the index is not one card",
+            "Arrangement.spacedBy(SETTINGS_CARD_SEAM)",
+            arrangement,
+        )
+    }
+
+    @Test
+    fun `the page draws a header for every section`() {
+        val called = headerCalls(source("MainActivity.kt"))
+
         assertEquals(
             "the page draws a header that is not a section, or draws one twice",
-            SettingsSection.entries.size,
-            page.split("SettingsSectionHeader(SettingsSection.").size - 1,
+            SettingsSection.entries.map { it.name }.toSet(),
+            called.toSet(),
         )
+        assertEquals("a section has no header, so nothing on the page opens it", called.size, called.distinct().size)
     }
 
     @Test
@@ -109,6 +152,18 @@ class SettingsSectionsTest {
             )
         }
     }
+
+    /**
+     * The sections the page draws an index row for, in the order they appear.
+     *
+     * Matched with the line wrapping left open, because the call wraps as soon as a row is given a value and
+     * a search for the unwrapped text is a test that quietly stops looking at four of the eight rows.
+     */
+    private fun headerCalls(page: String): List<String> =
+        Regex("SettingsSectionHeader\\(\\s*SettingsSection\\.(\\w+),")
+            .findAll(page)
+            .map { it.groupValues[1] }
+            .toList()
 
     private fun source(name: String): String {
         val file = candidateRoots()

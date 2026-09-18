@@ -47,6 +47,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -3840,7 +3841,11 @@ private fun SettingsPage(
         padding = padding,
         listState = settingsList,
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        // The seam between two rows of the same card, rather than the gap between two cards: the index is
+        // one card of eight flush rows, so what the page's own arrangement has to be is the seam. Every gap
+        // that used to come from here - the one under the title, and each group's own ends - is paid by the
+        // item that wants it, which is what keeps the index dense while an open section keeps its room.
+        verticalArrangement = Arrangement.spacedBy(SETTINGS_CARD_SEAM),
     ) {
         item {
             Column(modifier = Modifier.padding(top = 20.dp, bottom = 18.dp)) {
@@ -3851,12 +3856,21 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SettingsSectionHeader(SettingsSection.Appearance, openSections, toggleSection) }
-        if (SettingsSection.Appearance in openSections) item {
-            ThemeModeSelector(themeMode, onThemeModeChanged)
+        item {
+            SettingsSectionHeader(
+                SettingsSection.Appearance,
+                openSections,
+                toggleSection,
+                value = accentLabel(accentColor),
+            )
         }
         if (SettingsSection.Appearance in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SettingsSectionBody {
+                ThemeModeSelector(themeMode, onThemeModeChanged)
+            }
+        }
+        if (SettingsSection.Appearance in openSections) item {
+            SettingsSectionBody {
                 SettingsCard(
                     modifier = Modifier.onGloballyPositioned { coordinates ->
                         colorMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
@@ -3888,9 +3902,22 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Payloads, openSections, toggleSection) }
+        item {
+            SettingsSectionHeader(
+                SettingsSection.Payloads,
+                openSections,
+                toggleSection,
+                value = stringResource(
+                    if (payloadMode == PayloadMode.Offline) {
+                        R.string.settings_payload_mode_offline
+                    } else {
+                        R.string.settings_payload_mode_online
+                    },
+                ),
+            )
+        }
         if (SettingsSection.Payloads in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SettingsSectionBody {
                 SettingsCard(
                     modifier = Modifier.onGloballyPositioned { coordinates ->
                         payloadModeMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
@@ -3991,7 +4018,7 @@ private fun SettingsPage(
         // names this setting and hands its key over, and a key is what lets the page find the row without
         // an index that a new card above it would silently invalidate.
         if (SettingsSection.Run in openSections) item(key = SettingsTarget.PartitionReadOnly) {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SettingsSectionBody {
                 SettingsSwitchCard(
                     icon = Icons.Rounded.Memory,
                     title = stringResource(R.string.advanced_mode),
@@ -4100,9 +4127,16 @@ private fun SettingsPage(
                 )
             }
         }
-        item { SettingsSectionHeader(SettingsSection.Shizuku, openSections, toggleSection) }
+        item {
+            SettingsSectionHeader(
+                SettingsSection.Shizuku,
+                openSections,
+                toggleSection,
+                value = shizukuIndexValue(shizukuMode, shizukuAvailability),
+            )
+        }
         if (SettingsSection.Shizuku in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SettingsSectionBody {
                 SettingsSwitchCard(
                     // The transport a run is handed to, which is why it sits with the other two
                     // Shizuku decisions rather than under appearance.
@@ -4229,7 +4263,7 @@ private fun SettingsPage(
 
         item { SettingsSectionHeader(SettingsSection.WirelessAdb, openSections, toggleSection) }
         if (SettingsSection.WirelessAdb in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SettingsSectionBody {
                 // Read when the screen is built rather than on every recomposition: it is a file read
                 // plus a settings lookup, and what it describes changes only when something is done
                 // to it.
@@ -4311,9 +4345,16 @@ private fun SettingsPage(
             }
         }
 
-        item { SettingsSectionHeader(SettingsSection.Root, openSections, toggleSection) }
+        item {
+            SettingsSectionHeader(
+                SettingsSection.Root,
+                openSections,
+                toggleSection,
+                value = kernelsuFlavor.label,
+            )
+        }
         if (SettingsSection.Root in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SettingsSectionBody {
                 // The flavour is first because everything below it is about this flavour's module:
                 // which daemon a run stages, which manager opens afterwards, and which module root
                 // on boot puts back.
@@ -4534,22 +4575,24 @@ private fun SettingsPage(
 
         item { SettingsSectionHeader(SettingsSection.Recovery, openSections, toggleSection) }
         if (SettingsSection.Recovery in openSections) item {
-            RootRecoverySection(
-                // Root on boot is what would bring root back, so it is turned off before the reboot
-                // is asked for and this screen has to follow whatever was stored.
-                onBootRootModeChanged = onBootRootModeChanged,
-                // Every action here consumes the root a verified load installed, so with loading
-                // switched off they are not offered as things that will work.
-                kernelSuLoadingEnabled = loadKernelSu,
-                // The card a refusal points at is in this same list, so the jump is a scroll rather than
-                // a new window.
-                onOpenSetting = { target -> jumpTarget = target },
-            )
+            SettingsSectionBody {
+                RootRecoverySection(
+                    // Root on boot is what would bring root back, so it is turned off before the reboot
+                    // is asked for and this screen has to follow whatever was stored.
+                    onBootRootModeChanged = onBootRootModeChanged,
+                    // Every action here consumes the root a verified load installed, so with loading
+                    // switched off they are not offered as things that will work.
+                    kernelSuLoadingEnabled = loadKernelSu,
+                    // The card a refusal points at is in this same list, so the jump is a scroll rather
+                    // than a new window.
+                    onOpenSetting = { target -> jumpTarget = target },
+                )
+            }
         }
 
         item { SettingsSectionHeader(SettingsSection.System, openSections, toggleSection) }
         if (SettingsSection.System in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            SettingsSectionBody {
                 SettingsCard(
                     icon = Icons.Rounded.BatterySaver,
                     title = stringResource(R.string.settings_battery),
@@ -6656,46 +6699,122 @@ private fun SourceCoverageBlock(
     }
 }
 
+/**
+ * The Shizuku section's headline state, as the index row reports it.
+ *
+ * The preference first and the service second, because they answer different questions: a row reading
+ * "Running" beside an app that is set not to use Shizuku would be true of the phone and false of the app.
+ */
+@Composable
+private fun shizukuIndexValue(shizukuMode: Boolean, availability: ShizukuAvailability): String = when {
+    !shizukuMode -> stringResource(R.string.settings_index_shizuku_off)
+    availability == ShizukuAvailability.Ready -> stringResource(R.string.settings_index_shizuku_running)
+    availability == ShizukuAvailability.WithoutPermission ->
+        stringResource(R.string.settings_index_shizuku_needs_permission)
+    else -> stringResource(R.string.settings_index_shizuku_not_running)
+}
+
+/**
+ * One row of the settings index: the section's glyph, its name, its own state, and the way in.
+ *
+ * A card rather than a bare line of text, because this is the page's table of contents and it is read as a
+ * list: the eight rows sit flush against each other as one card - [indexPosition] cuts their corners for it
+ * - and each row is the same material as the cards it opens, at the same height, so a row that opens a
+ * section and a row that sets something are recognisably the same kind of thing.
+ *
+ * [value] is the section's headline state, which the caller supplies because it is the only place it exists:
+ * the index does not read settings, it reports them. An empty value is a section whose state is not one
+ * short word - a count or a number here would be a promise about a list nobody has asked to see yet.
+ */
 @Composable
 private fun SettingsSectionHeader(
     section: SettingsSection,
     openSections: Set<SettingsSection>,
     onToggle: (SettingsSection) -> Unit,
+    value: String = "",
 ) {
     val view = LocalView.current
     val open = section in openSections
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(MaterialTheme.shapes.small)
-            .clickable(
-                onClickLabel = stringResource(
+    val interactionSource = remember { MutableInteractionSource() }
+    Card(
+        onClick = {
+            clickHaptic(view)
+            onToggle(section)
+        },
+        modifier = Modifier.fillMaxWidth(),
+        shape = expressiveClickableCardShape(interactionSource, section.indexPosition()),
+        interactionSource = interactionSource,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                // Dense on purpose: eight of these are the page's first screen, and a row that grows taller
+                // to breathe turns the index into something that has to be scrolled before anything is
+                // found in it.
+                .heightIn(min = 56.dp)
+                .padding(start = 16.dp, end = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = section.icon,
+                // Decorative: the row's own text names the section, and the glyph is only how it is found
+                // faster. Six of these are also a card's icon further down the page.
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(22.dp),
+            )
+            Text(
+                text = stringResource(section.title),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (value.isNotBlank()) {
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.widthIn(max = SETTINGS_VALUE_MAX_WIDTH),
+                )
+            }
+            Icon(
+                imageVector = if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                // The chevron carries the label rather than the row: the row is a tapping target with a name
+                // and a state already, and what a reader cannot tell from those is which way the tap goes.
+                contentDescription = stringResource(
                     if (open) R.string.settings_section_collapse else R.string.settings_section_expand,
                 ),
-            ) {
-                clickHaptic(view)
-                onToggle(section)
-            }
-            .heightIn(min = 44.dp)
-            .padding(start = 18.dp, top = 6.dp, end = 6.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            text = stringResource(section.title),
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.primary,
-            // The count of what is inside is deliberately absent: a closed section is one line whatever it
-            // holds, and a number here would be a promise about a list nobody asked to see yet.
-            modifier = Modifier.weight(1f),
-        )
-        Icon(
-            imageVector = if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
-            // Decorative: the whole row is the control, and its label says what pressing it does.
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp),
-        )
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        }
     }
+}
+
+/**
+ * The cards of one section that is open, drawn as the group they are.
+ *
+ * Inset from the index row that opened it, which is the whole of what says these rows belong to that row: the
+ * section keeps the card it always was, and the row above it stays part of the index card rather than
+ * becoming the head of this one. The spacing at both ends is the gap the page used to leave between groups,
+ * paid here because the page's own arrangement is now the seam between index rows.
+ */
+@Composable
+private fun SettingsSectionBody(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier.padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(SETTINGS_CARD_SEAM),
+        content = content,
+    )
 }
 
 /**
@@ -6759,6 +6878,15 @@ private val SETTINGS_CARD_TEXT_INDENT = 40.dp
 
 /** How thick the outline a settings jump draws is. Thin enough to read as a pointer, not a control. */
 private val SETTINGS_HIGHLIGHT_WIDTH = 2.dp
+
+/**
+ * The seam between two rows of one card.
+ *
+ * Two places read it: the page's own arrangement, because the index is one card of eight flush rows, and the
+ * inset body of an open section, whose cards are one group. It is the same number the app's groups have always
+ * been built with - what changed is who pays for the gaps around them.
+ */
+private val SETTINGS_CARD_SEAM = 2.dp
 
 /**
  * How much of a failed Shizuku start is worth showing.
