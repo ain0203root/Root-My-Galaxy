@@ -4366,22 +4366,19 @@ private fun SettingsPage(
                             R.string.settings_battery_allow
                         },
                     ),
-                    position = SettingsCardPosition.GroupedSingle,
+                    // One group, like every other section of the page: the two cards here are separate
+                    // settings but they are read as one part of the app, and two single cards with a gap
+                    // between them made this the one section that looked like a different screen.
+                    position = SettingsCardPosition.Top,
                     onClick = onRequestBatteryExemption,
                 )
-            }
-        }
-
-        if (SettingsSection.System in openSections) item {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 SettingsCard(
                     icon = Icons.Rounded.Folder,
                     title = stringResource(R.string.residue_card_title),
                     description = stringResource(R.string.residue_card_summary),
                     value = residue?.summaryLine(context)
                         ?: stringResource(R.string.residue_reading),
-                    // The same shape the battery card above rests at: one card, alone in its section.
-                    position = SettingsCardPosition.GroupedSingle,
+                    position = SettingsCardPosition.Bottom,
                     onClick = {
                         clickHaptic(view)
                         showResidueDialog = true
