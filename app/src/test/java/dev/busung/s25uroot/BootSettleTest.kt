@@ -1,5 +1,6 @@
 package dev.busung.s25uroot
 
+import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,6 +59,21 @@ class BootSettleTest {
         assertEquals("0:01", BootSettle.formatRemaining(1L))
         assertEquals("0:00", BootSettle.formatRemaining(0L))
         assertEquals("0:00", BootSettle.formatRemaining(-5L))
+    }
+
+    @Test
+    fun `a countdown reads the same in a locale with its own digits`() {
+        // `%d` renders in the default locale's digits, so a device set to Arabic, Persian, Bengali or
+        // Devanagari would otherwise count down in its own numerals - and a reading that changes shape
+        // with a locale setting is the one thing a countdown must not do.
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("ar-EG"))
+            assertEquals("1:42", BootSettle.formatRemaining(101_500L))
+            assertEquals("2:00", BootSettle.formatRemaining(120_000L))
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 
     @Test

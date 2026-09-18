@@ -1,6 +1,7 @@
 package dev.busung.s25uroot
 
 import android.os.SystemClock
+import java.util.Locale
 import kotlin.math.abs
 
 /**
@@ -63,7 +64,12 @@ internal object BootSettle {
      */
     fun formatRemaining(millis: Long): String {
         val seconds = (millis.coerceAtLeast(0L) + 999L) / 1_000L
-        return "%d:%02d".format(seconds / 60, seconds % 60)
+        // The locale is pinned because `%d` is not: `Formatter` renders an integer in the default
+        // locale's own digits, so on a device set to Arabic, Persian, Bengali or Devanagari a countdown
+        // would read `١:٤٢`. A number counting down to a moment is a reading rather than prose, and the
+        // one thing it must not do is change shape with a locale setting - the same reason the log
+        // timestamps and the export filenames are pinned.
+        return String.format(Locale.ROOT, "%d:%02d", seconds / 60, seconds % 60)
     }
 
     /** The setting's own label for a value, as the chooser and the run plan show it. */
