@@ -1375,7 +1375,6 @@ private fun OverviewPage(
                     icon = Icons.Rounded.Info,
                     title = stringResource(R.string.about),
                     position = SettingsCardPosition.Bottom,
-                    chevron = true,
                     onClick = { showAbout = true },
                 )
             }
@@ -1561,9 +1560,10 @@ private fun UpdateCard(
 /**
  * A row on the home screen that does something, rather than one that reports a state.
  *
- * Two things separate it from the settings cards it otherwise sits with: there is no description, so the
- * icon, the name and whatever ends the row are the whole row, and what ends it is the only promise the
- * row makes - a chevron for a row that opens something, or the state itself for one that acts in place.
+ * What separates it from the settings cards it otherwise sits with is that there is no description: the
+ * icon, the name and the state are the whole row, so a row that has no state to report is just its name.
+ * That is deliberate - this app's settings cards carry chevrons because they open something, and a row
+ * whose tap does what its own label already says has nothing left to promise.
  *
  * [busy] dims the row and takes its tap, because a row that is already working has nothing to offer a
  * second tap, and a spinner where the icon was says which row is doing the work.
@@ -1573,11 +1573,9 @@ private fun HomeLinkRow(
     icon: ImageVector,
     title: String,
     position: SettingsCardPosition = SettingsCardPosition.Single,
-    /** What this row reports, where a chevron would otherwise be. Blank draws nothing. */
+    /** What this row reports, if anything. Blank draws nothing. */
     value: String = "",
     busy: Boolean = false,
-    /** True only for a row that opens something, which is the one thing a chevron should promise. */
-    chevron: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -1622,12 +1620,6 @@ private fun HomeLinkRow(
                     textAlign = TextAlign.End,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                )
-            } else if (chevron) {
-                Icon(
-                    Icons.Rounded.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
