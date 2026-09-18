@@ -46,51 +46,12 @@ fun historyResultFilters(
 }
 
 /**
- * The catalog a run is attributed to, as a filter key.
+ * The runs to draw: those whose result the chosen chip names.
  *
- * The id is preferred to the label because the label is written by whoever added the source and two
- * sources can be named the same thing. An empty key is not a missing value: it is the bucket for runs
- * that recorded no source at all - every run from a build before the history carried one, and the ones
- * that ran a payload already on the device.
- */
-fun historySourceKey(entry: InstallHistoryEntry): String =
-    entry.sourceId?.takeIf(String::isNotBlank)
-        ?: entry.sourceLabel?.takeIf(String::isNotBlank)
-        ?: ""
-
-/** One source chip: the key to filter on, and what to call it. An empty label is the unrecorded bucket. */
-data class HistorySourceOption(val key: String, val label: String)
-
-/**
- * The sources this history has runs from, busiest first.
- *
- * Ordered by how often a source was used rather than alphabetically, because the reason to reach for
- * this filter is usually the source being tested right now, and that is the one with the most runs.
- * Ties break on the label so the order cannot change between two readings of the same history.
- */
-fun historySourceOptions(entries: List<InstallHistoryEntry>): List<HistorySourceOption> = entries
-    .groupBy(::historySourceKey)
-    .map { (key, runs) ->
-        HistorySourceOption(
-            key = key,
-            label = runs.firstNotNullOfOrNull { entry ->
-                entry.sourceLabel?.takeIf(String::isNotBlank) ?: entry.sourceId?.takeIf(String::isNotBlank)
-            }.orEmpty(),
-        ) to runs.size
-    }
-    .sortedWith(compareByDescending<Pair<HistorySourceOption, Int>> { it.second }.thenBy { it.first.label })
-    .map { it.first }
-
-/**
- * The runs to draw: the result chip's kind, and the chosen source when one is chosen.
- *
- * `null` means any source. Empty is a real key here, so it selects the runs that named none rather than
- * being read as "no filter".
+ * The order is the history's own - newest first - because filtering is a question about which runs to
+ * look at, not about how to sort them.
  */
 fun filterHistory(
     entries: List<InstallHistoryEntry>,
     filter: HistoryFilter,
-    sourceKey: String?,
-): List<InstallHistoryEntry> = entries.filter { entry ->
-    filter.matches(entry.result) && (sourceKey == null || historySourceKey(entry) == sourceKey)
-}
+): List<InstallHistoryEntry> = entries.filter { filter.matches(it.result) }

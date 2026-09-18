@@ -2019,24 +2019,18 @@ private fun HistoryPage(
     // saveable for the same reason the export ids are: another activity can recreate this screen, and a
     // filter that quietly resets itself while the user is reading a filtered list is worse than none.
     var resultFilter by rememberSaveable { mutableStateOf(HistoryFilter.All) }
-    var sourceKey by rememberSaveable { mutableStateOf<String?>(null) }
     val resultChoices = historyResultFilters(history, resultFilter)
-    val sourceChoices = historySourceOptions(history)
-    val filtered = filterHistory(history, resultFilter, sourceKey)
-    val filtersActive = resultFilter != HistoryFilter.All || sourceKey != null
+    val filtered = filterHistory(history, resultFilter)
+    val filtersActive = resultFilter != HistoryFilter.All
     // Picking a filter drops the selection: the stand-down is the safe direction, since a selection the
     // new filter hides would otherwise sit there counting itself on a button nobody can see it under.
     val onResultFilter: (HistoryFilter) -> Unit = { choice ->
         resultFilter = choice
         selectionIds = emptySet()
     }
-    val onSourceFilter: (String?) -> Unit = { key ->
-        sourceKey = key
-        selectionIds = emptySet()
-    }
+    /** Back to the whole history. Used by the chip and by the card an emptied list shows. */
     val clearFilters: () -> Unit = {
         resultFilter = HistoryFilter.All
-        sourceKey = null
         selectionIds = emptySet()
     }
     val selectedEntry = filtered.firstOrNull { it.id == selectedHistoryId }
@@ -2097,9 +2091,6 @@ private fun HistoryPage(
                 resultFilter = resultFilter,
                 resultChoices = resultChoices,
                 onResultFilter = onResultFilter,
-                sourceKey = sourceKey,
-                sourceChoices = sourceChoices,
-                onSourceFilter = onSourceFilter,
                 onClearFilters = clearFilters,
                 selectionIds = selectionIds,
                 selectableIds = selectableIds,
@@ -2141,9 +2132,6 @@ private fun HistoryList(
     resultFilter: HistoryFilter,
     resultChoices: List<HistoryFilter>,
     onResultFilter: (HistoryFilter) -> Unit,
-    sourceKey: String?,
-    sourceChoices: List<HistorySourceOption>,
-    onSourceFilter: (String?) -> Unit,
     onClearFilters: () -> Unit,
     selectionIds: Set<String>,
     selectableIds: Set<String>,
@@ -2226,41 +2214,16 @@ private fun HistoryList(
             // only ever empty the list. Hidden entirely with nothing to filter.
             if (totalRuns > 0) {
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            resultChoices.forEach { choice ->
-                                HistoryFilterChip(
-                                    label = stringResource(historyFilterLabel(choice)),
-                                    selected = choice == resultFilter,
-                                    onClick = { onResultFilter(choice) },
-                                )
-                            }
-                        }
-                        // Only worth a row when there is a choice to make: with one source in the whole
-                        // history, every chip would say the same thing.
-                        if (sourceChoices.size > 1) {
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                HistoryFilterChip(
-                                    label = stringResource(R.string.history_filter_all_sources),
-                                    selected = sourceKey == null,
-                                    onClick = { onSourceFilter(null) },
-                                )
-                                sourceChoices.forEach { option ->
-                                    HistoryFilterChip(
-                                        label = option.label.ifEmpty {
-                                            stringResource(R.string.history_filter_no_source)
-                                        },
-                                        selected = sourceKey == option.key,
-                                        onClick = { onSourceFilter(option.key) },
-                                    )
-                                }
-                            }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        resultChoices.forEach { choice ->
+                            HistoryFilterChip(
+                                label = stringResource(historyFilterLabel(choice)),
+                                selected = choice == resultFilter,
+                                onClick = { onResultFilter(choice) },
+                            )
                         }
                     }
                 }
