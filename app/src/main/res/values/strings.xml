@@ -40,7 +40,6 @@
     <string name="residue_reading">Reading…</string>
     <string name="residue_clean">Nothing left</string>
     <string name="residue_blind">Not visible here</string>
-    <string name="residue_summary">%1$d files · %2$s · oldest %3$s</string>
     <string name="residue_dialog_title">Staged files</string>
     <string name="residue_dialog_help">The app cannot list /data/local/tmp - the directory allows a traversal, not a read - so this is the paths this app is known to write, stat\'d by name. Any app on the device can see the same files, which is how a detector finds them.</string>
     <string name="residue_dialog_checked">Checked %1$d paths; %2$d could not be read at all.</string>

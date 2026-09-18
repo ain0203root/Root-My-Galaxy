@@ -130,16 +130,17 @@ internal data class ResidueReport(
         get() = !directoryVisible ||
             (findings.isNotEmpty() && findings.all { it.reading is ResidueReading.Unreadable })
 
-    /** The one line the card and the app log both say, so the two cannot disagree about the reading. */
+    /**
+     * The one line the card and the app log both say, so the two cannot disagree about the reading.
+     *
+     * The size alone when there is something there. A settings card has room for a value, not for a
+     * report, and both of the facts that used to be appended to it are in the list behind it: which
+     * files they are, and how long each has been there.
+     */
     fun summaryLine(context: Context): String = when {
         blind -> context.getString(R.string.residue_blind)
         present.isEmpty() -> context.getString(R.string.residue_clean)
-        else -> context.getString(
-            R.string.residue_summary,
-            present.size,
-            StagedResidue.sizeLabel(totalBytes),
-            StagedResidue.ageLabelOf(oldestMillis),
-        )
+        else -> StagedResidue.sizeLabel(totalBytes)
     }
 
     /** The same facts with the names, which is what makes a line in the log actionable. */
