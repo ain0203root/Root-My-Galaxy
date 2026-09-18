@@ -58,6 +58,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -166,11 +167,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -940,6 +943,19 @@ private fun RootApp(
         )
     }
 
+    // The bar's own two states, both decided here because both are the shell's: whether it is away, and how
+    // far it travels to get there - which is its own height, known only once it has been laid out.
+    var navBarHidden by remember { mutableStateOf(false) }
+    var navBarHeight by remember { mutableStateOf(0.dp) }
+    val navBarShift by animateDpAsState(
+        targetValue = if (navBarHidden) navBarHeight else 0.dp,
+        label = "navBarShift",
+    )
+    // A page change brings it back: the pages keep their own scroll states and are rebuilt at the top when
+    // one is switched to, so a bar that stayed away would be away over a list that has nowhere to go.
+    LaunchedEffect(selectedPage) { navBarHidden = false }
+    val density = LocalDensity.current
+
     // The bar floats over the pages rather than being handed a strip of its own. A pill that reserved its
     // row left the bottom of every screen empty - the page stopped above it and the last card sat in the
     // middle of the screen with an empty band below - while the pill itself covered nothing that could not
@@ -949,7 +965,15 @@ private fun RootApp(
         Scaffold(
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
         ) { padding ->
-            AnimatedContent(targetState = selectedPage, label = "page") { page ->
+            AnimatedContent(
+                targetState = selectedPage,
+                label = "page",
+                // The pages only. The sheets and dialogs are drawn outside this one, and scrolling a list
+                // inside one of them is not a page moving under the bar.
+                modifier = Modifier.nestedScroll(
+                    remember { navBarScrollConnection { hidden -> navBarHidden = hidden } },
+                ),
+            ) { page ->
                 when (page) {
                     AppPage.Overview -> OverviewPage(
                         padding = padding,
@@ -1040,7 +1064,15 @@ private fun RootApp(
                 clickHaptic(view)
                 selectedPage = page
             },
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                // Measured rather than assumed: the bar carries the navigation inset, and this has no idea
+                // how tall that is. Its own height is also exactly how far it has to travel to be out of the
+                // way, so the pill ends below the screen edge rather than peeking at the bottom of it.
+                .onGloballyPositioned { coordinates ->
+                    navBarHeight = with(density) { coordinates.size.height.toDp() }
+                }
+                .offset(y = navBarShift),
         )
     }
 }
@@ -1070,6 +1102,11 @@ private fun AppVersionText(
  * The bottom navigation, as a bar that sits clear of the screen edges rather than as a strip across
  * the whole width.
  *
+ * The bar carries its own fade, and that is the fade the pages run into: the gradient is drawn on the box the
+ * pill sits in, so it covers the bar's band and slides out of the way with it. It is not a page's business
+ * and it is not conditional on a page having scrolled - a long page at its top still has rows under the pill,
+ * which is exactly the case a scrim that waited for a scroll would leave with a hard edge.
+ *
  * The page you are on is the only one that spells its name; the others are icons. Four labelled
  * items on a phone means four narrow columns of wrapped text, and this way the name that matters is
  * wide enough to read while the bar stays one calm piece under whatever the page is showing.
@@ -1096,6 +1133,14 @@ private fun AppNavBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
+            // Before the insets are added, so the fade reaches the bottom of the screen rather than stopping
+            // at the top of the gesture area - below the pill is page that the pill is floating over too.
+            .background(
+                Brush.verticalGradient(
+                    0f to Color.Transparent,
+                    1f to MaterialTheme.colorScheme.surfaceContainer,
+                ),
+            )
             .navigationBarsPadding()
             .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
@@ -2260,7 +2305,6 @@ private fun HistoryList(
     // Its own state rather than PageList's, because this screen already owns the space the button sits in:
     // the export and delete buttons are stacked there while a selection is live.
     val listState = rememberPageListState()
-    val scrolled by rememberScrolledState(listState)
     Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -2377,12 +2421,6 @@ private fun HistoryList(
                 }
             }
         }
-        // The same fade the shared wrapper draws, for the same reason: the runs run under the pill, and a
-        // row arriving at it at full contrast reads as the bar cutting the list off.
-        BottomScrim(
-            visible = scrolled,
-            modifier = Modifier.align(Alignment.BottomCenter),
-        )
         Column(
             // Lifted by the bar's height, because the bar is drawn over this page: the stack's own 20dp of
             // air, then the pill, or the export and delete buttons would sit behind it.
