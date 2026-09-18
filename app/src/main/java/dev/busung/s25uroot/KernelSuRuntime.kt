@@ -205,8 +205,11 @@ internal object KernelSuRuntime {
      * Returns null only when neither route could run the command, so the caller can refuse instead of
      * failing.
      */
-    fun rootShell(command: String): ShizukuController.ShellResult? =
-        shizukuRootShell(command) ?: SuShell.run(command)
+    fun rootShell(
+        command: String,
+        timeoutSeconds: Long = SuShell.COMMAND_TIMEOUT_SECONDS,
+    ): ShizukuController.ShellResult? =
+        shizukuRootShell(command) ?: SuShell.run(command, timeoutSeconds)
 
     /**
      * Whether KernelSU is loaded in this boot, by any reading that needs no shell to make.

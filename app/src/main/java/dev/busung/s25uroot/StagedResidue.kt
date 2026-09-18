@@ -3,6 +3,7 @@ package dev.busung.s25uroot
 import android.content.Context
 import android.system.ErrnoException
 import android.system.Os
+import android.system.OsConstants
 import androidx.annotation.StringRes
 import java.util.Locale
 
@@ -22,16 +23,26 @@ import java.util.Locale
  * less interesting question: what matters is what another app can see, and the only honest way to
  * answer that is to look the way one would.
  *
- * ## Why a catalog instead of a directory listing
+ * ## Why a catalog, and why a listing on top of it
  *
  * `/data/local/tmp` is `drwxrwx--x shell shell`. The `--x` for other is deliberate, and it is exactly
  * the permission this check turns on: an app may traverse the directory but not read it, so it can
  * stat a path it already knows and cannot list the directory to discover one. Asked on this app's own
  * device, `ls /data/local/tmp` answers `Permission denied` while `ls -l /data/local/tmp/ksu-helper`
  * answers with the file. So the check enumerates the paths this app writes, from the same constants
- * the staging code uses, and there is deliberately no attempt to list anything: a listing is not
- * something this app is entitled to, and a check that pretended otherwise would report an empty
- * directory on every device.
+ * the staging code uses - and that alone was the whole answer until it was not enough.
+ *
+ * What a catalog cannot do is see a name it does not already know: a payload's own `ksu_late_load.log`,
+ * a marker written by a script, a file left by anything else at all. On a device where several of
+ * those were sitting in the directory the card read "Nothing left", which is the same statement as a
+ * clean device and the opposite of the truth - the mistake [ResidueReading.Unreadable] exists to
+ * prevent, arrived at by a different route.
+ *
+ * So the reading has two halves. The names come from [StagedDirectory], which lists the directory
+ * *through a shell*: this app's own context may not read the directory, but the `shell` uid that owns
+ * it may, and this app already has that door open for the sweep. Anything the listing names that the
+ * catalog does not is carried as an extra, and an extra is enough to stop the card reading clean. When
+ * no shell answers there is no listing, and the card says the weaker sentence it has earned instead.
  *
  * ## What this deliberately does not cover
  *
@@ -97,6 +108,25 @@ internal sealed interface ResidueReading {
 internal data class ResidueFinding(val staged: StagedPath, val reading: ResidueReading)
 
 /**
+ * One entry in the directory that the catalog does not name.
+ *
+ * Its own type rather than a [StagedPath] with an "unknown" role, because nothing here is known beyond
+ * the name: who wrote it, what it is for and whether anything still wants it are all open questions,
+ * and answering them by assumption is how a list stops being a reading. What it does carry is the same
+ * stat the catalog gets, taken the same way, because "this app can see it" is the standard the whole
+ * check is held to.
+ */
+internal data class TempEntry(
+    val name: String,
+    val reading: ResidueReading,
+    /** A directory rather than a file, which the listing cannot say and the stat can. */
+    val isDirectory: Boolean = false,
+)
+
+/** What one stat says: the reading, and the one other thing a stat can say. */
+internal data class StagedStat(val reading: ResidueReading, val isDirectory: Boolean)
+
+/**
  * The whole reading: every catalogued path, plus whether the app could see into the directory at all.
  *
  * The directory reading is the control. Without it, a page of "unreadable" cannot be told from a SELinux
@@ -106,6 +136,22 @@ internal data class ResidueFinding(val staged: StagedPath, val reading: ResidueR
 internal data class ResidueReport(
     val findings: List<ResidueFinding>,
     val directoryVisible: Boolean,
+    /**
+     * Everything else in the directory, which the catalog does not name.
+     *
+     * Not folded into [findings], because the two are not the same claim: a finding is a path this app
+     * wrote and can account for, and one of these is a name that is simply there and is not this app's
+     * to explain. What they have in common is the only thing that matters to whoever is reading - a
+     * detector sees either of them.
+     */
+    val extras: List<TempEntry> = emptyList(),
+    /**
+     * Whether the directory itself was listed, which only a shell can do.
+     *
+     * False is the ordinary state of a device with no shell answering, and it changes the sentence the
+     * reading has earned: a clean answer taken by name is not the same statement as a clean directory.
+     */
+    val directoryListed: Boolean = false,
 ) {
 
     /** What is actually there, which is the list a detector would produce. */
@@ -128,7 +174,26 @@ internal data class ResidueReport(
      */
     val blind: Boolean
         get() = !directoryVisible ||
-            (findings.isNotEmpty() && findings.all { it.reading is ResidueReading.Unreadable })
+            (extras.isEmpty() &&
+                findings.isNotEmpty() &&
+                findings.all { it.reading is ResidueReading.Unreadable })
+
+    /**
+     * What this reading amounts to, decided without a `Context` so it can be tested.
+     *
+     * The order of these cases is the whole rule and the reason it is here rather than in the sentence
+     * below: anything else in the directory outranks a clean answer, and a clean answer by name is not
+     * the same case as a clean answer from a listing.
+     */
+    val verdict: ResidueVerdict
+        get() = when {
+            blind -> ResidueVerdict.Blind
+            present.isNotEmpty() && extras.isNotEmpty() -> ResidueVerdict.StagedAndOthers
+            present.isNotEmpty() -> ResidueVerdict.Staged
+            extras.isNotEmpty() -> ResidueVerdict.Others
+            directoryListed -> ResidueVerdict.Clean
+            else -> ResidueVerdict.CleanByName
+        }
 
     /**
      * The one line the card and the app log both say, so the two cannot disagree about the reading.
@@ -137,27 +202,98 @@ internal data class ResidueReport(
      * report, and both of the facts that used to be appended to it are in the list behind it: which
      * files they are, and how long each has been there.
      */
-    fun summaryLine(context: Context): String = when {
-        blind -> context.getString(R.string.residue_blind)
-        present.isEmpty() -> context.getString(R.string.residue_clean)
-        else -> StagedResidue.sizeLabel(totalBytes)
+    fun summaryLine(context: Context): String = when (verdict) {
+        ResidueVerdict.Blind -> context.getString(R.string.residue_blind)
+        ResidueVerdict.Clean -> context.getString(R.string.residue_clean)
+        ResidueVerdict.CleanByName -> context.getString(R.string.residue_clean_by_name)
+        ResidueVerdict.Staged -> StagedResidue.sizeLabel(totalBytes)
+        ResidueVerdict.Others -> othersLabel(context)
+        ResidueVerdict.StagedAndOthers -> context.getString(
+            R.string.residue_summary_and_others,
+            StagedResidue.sizeLabel(totalBytes),
+            othersLabel(context),
+        )
     }
 
+    /** How many entries are there that this app did not stage, as a card value. */
+    fun othersLabel(context: Context): String =
+        context.resources.getQuantityString(R.plurals.residue_others, extras.size, extras.size)
+
     /** The same facts with the names, which is what makes a line in the log actionable. */
-    fun logLine(context: Context): String = when {
-        blind -> context.getString(R.string.residue_log_blind, StagedResidue.DIRECTORY)
-        present.isEmpty() -> context.getString(
-            R.string.residue_log_clean,
+    fun logLine(context: Context): String = when (verdict) {
+        ResidueVerdict.Blind -> context.getString(R.string.residue_log_blind, StagedResidue.DIRECTORY)
+        ResidueVerdict.Clean -> context.getString(
+            R.string.residue_log_clean_listed,
             findings.size,
             StagedResidue.DIRECTORY,
         )
-        else -> context.getString(
+        ResidueVerdict.CleanByName -> context.getString(
+            R.string.residue_log_clean_by_name,
+            findings.size,
+            StagedResidue.DIRECTORY,
+        )
+        ResidueVerdict.Staged -> context.getString(
             R.string.residue_log_present,
             present.size,
             StagedResidue.sizeLabel(totalBytes),
             present.joinToString(", ") { it.staged.name },
         )
+        ResidueVerdict.Others -> context.getString(
+            R.string.residue_log_others,
+            extras.size,
+            extraNames(),
+        )
+        ResidueVerdict.StagedAndOthers -> context.getString(
+            R.string.residue_log_staged_and_others,
+            present.size,
+            StagedResidue.sizeLabel(totalBytes),
+            present.joinToString(", ") { it.staged.name },
+            extras.size,
+            extraNames(),
+        )
     }
+
+    /** The names a log line names, capped so a crowded directory cannot fill the file it is filed in. */
+    private fun extraNames(): String {
+        val named = extras.take(EXTRA_NAMES_LIMIT).joinToString(", ") { it.name }
+        return if (extras.size > EXTRA_NAMES_LIMIT) "$named, …" else named
+    }
+}
+
+/** How many of the extra names a log line carries before it says "and more". */
+private const val EXTRA_NAMES_LIMIT = 12
+
+/**
+ * What a reading comes to, in the six ways it can.
+ *
+ * An enum rather than one string per case, for the same reason [SweepVerdict] is one: which sentence a
+ * device has earned is the part worth testing, and a `Context` in the middle of it would be the part
+ * that cannot be. [ResidueReport.summaryLine] and [ResidueReport.logLine] are then two spellings of the
+ * same decision, and a case added here has to be spelled in both.
+ */
+internal enum class ResidueVerdict {
+    /** This app cannot see the directory at all, so nothing can be said about it. */
+    Blind,
+
+    /** The directory was listed and holds nothing: not this app's staging, and nothing else either. */
+    Clean,
+
+    /**
+     * Nothing was found by name, and the directory itself could not be listed.
+     *
+     * Its own case because its sentence has to be weaker: the check looked for the names this app
+     * writes, and a name it does not write could be sitting there unseen.
+     */
+    CleanByName,
+
+    /** This app's own staging, and nothing else. */
+    Staged,
+
+    /** Nothing of this app's, but the directory is not empty. */
+    Others,
+
+    /** Both, which is the case the two halves of this reading exist for. */
+    StagedAndOthers,
 }
 
 /**
@@ -224,20 +360,50 @@ internal object StagedResidue {
      * Blocking and unbuffered on purpose: it is a stat per path, so it is tens of microseconds of work
      * rather than a shell, and a caller that wants it off the main thread only has to say so.
      */
-    fun read(): ResidueReport = ResidueReport(
-        findings = catalog.map { staged -> ResidueFinding(staged, readingOf(staged.path)) },
-        directoryVisible = runCatching { Os.stat(DIRECTORY) }.isSuccess,
-    )
+    /**
+     * Reads the whole catalog, and the directory through a shell when one answers.
+     *
+     * Blocking in both halves, and the shell half is the one with a cost: a round trip to a shell that
+     * may have to be asked for a grant first. A caller that wants this off the main thread has to say
+     * so, and both callers do.
+     */
+    fun read(): ResidueReport {
+        val findings = catalog.map { staged -> ResidueFinding(staged, readingOf(staged.path)) }
+        val listed = StagedDirectory.list()
+        val catalogued = catalog.mapTo(HashSet()) { it.name }
+        return ResidueReport(
+            findings = findings,
+            directoryVisible = runCatching { Os.stat(DIRECTORY) }.isSuccess,
+            extras = listed.orEmpty().filterNot { it.name in catalogued },
+            directoryListed = listed != null,
+        )
+    }
 
     /** One path, as a reading. */
-    private fun readingOf(path: String): ResidueReading {
+    private fun readingOf(path: String): ResidueReading = statReading(path).reading
+
+    /**
+     * One stat, as a reading plus whether the path is a directory.
+     *
+     * Shared with [StagedDirectory], which stats the names a listing handed it the same way: a name
+     * that arrives by a different route should not get a different answer.
+     */
+    internal fun statReading(path: String): StagedStat {
         val attempt = runCatching { Os.stat(path) }
         val stat = attempt.getOrNull()
-            ?: return readingFor((attempt.exceptionOrNull() as? ErrnoException)?.errno ?: UNKNOWN_ERRNO)
-        return ResidueReading.Present(
-            sizeBytes = stat.st_size,
-            // Seconds on the device, milliseconds everywhere else in this app.
-            modifiedAtMillis = stat.st_mtime * 1_000L,
+            ?: return StagedStat(
+                reading = readingFor(
+                    (attempt.exceptionOrNull() as? ErrnoException)?.errno ?: UNKNOWN_ERRNO,
+                ),
+                isDirectory = false,
+            )
+        return StagedStat(
+            reading = ResidueReading.Present(
+                sizeBytes = stat.st_size,
+                // Seconds on the device, milliseconds everywhere else in this app.
+                modifiedAtMillis = stat.st_mtime * 1_000L,
+            ),
+            isDirectory = OsConstants.S_ISDIR(stat.st_mode),
         )
     }
 
@@ -293,4 +459,87 @@ internal object StagedResidue {
 
     /** What an exception that is not an [ErrnoException] is treated as, which is "no answer". */
     private const val UNKNOWN_ERRNO = Int.MIN_VALUE
+}
+
+/**
+ * The directory itself, listed through a shell - the half of the reading a catalog cannot do.
+ *
+ * This app may not read `/data/local/tmp`: the mode is `0771`, and the `x` without the `r` beside it is
+ * exactly what that costs it. A shell may, because the directory is owned by the `shell` uid, and this
+ * app already opens one for the sweep - KernelSU's `su`, or the `shell` server Shizuku provides. So the
+ * listing is asked for in those same two places, in the reverse order: reading needs no privilege and
+ * deleting does, so the unprivileged shell is asked first.
+ *
+ * One command, one round trip, and one marker in the output. The marker is what separates "the directory
+ * is empty" from "the shell never got as far as listing it": without it a refusal, a missing `sh` or an
+ * error would all read as a directory with nothing in it, which is the one failure this whole check
+ * exists to not make.
+ */
+internal object StagedDirectory {
+
+    /** What a name is printed under. A real name cannot mimic it: names arrive bare. */
+    internal const val NAME_PREFIX = "has "
+
+    /** The last line, which is the difference between an empty answer and no answer. */
+    internal const val LISTED_MARK = "listed"
+
+    /**
+     * The listing, as one command.
+     *
+     * A glob rather than `ls`, and both halves of the glob because a dot-name is exactly the shape a
+     * staging marker takes (`.ksud-stage`, `.rmg-reboot-accepted`). `[ -e ]` is what makes an unmatched
+     * glob mean nothing rather than a file called `*`. Built from [StagedResidue.DIRECTORY] so the
+     * directory is named once in this source tree.
+     */
+    internal fun command(): String {
+        val directory = StagedResidue.DIRECTORY
+        return "for e in $directory/* $directory/.[!.]*; do [ -e \"\$e\" ] || continue; " +
+            "printf '$NAME_PREFIX%s\\n' \"\${e##*/}\"; done; " +
+            "printf '$LISTED_MARK\\n'; exit 0"
+    }
+
+    /**
+     * The names in a listing's output, or null when the listing never ran.
+     *
+     * Everything that is not a marked name is passed over, which is what lets a shell's own complaint
+     * travel in the same stream without being read as a file.
+     */
+    internal fun namesIn(output: String): List<String>? {
+        val lines = output.lineSequence().map { it.trim() }.toList()
+        if (lines.none { it == LISTED_MARK }) return null
+        return lines.filter { it.startsWith(NAME_PREFIX) }
+            .map { it.removePrefix(NAME_PREFIX) }
+            .filter { it.isNotEmpty() }
+            .distinct()
+    }
+
+    /**
+     * The listing, or null when no shell answered.
+     *
+     * Every name it brings back is then stat'd here, in this app's own context, because that is the
+     * reading that matters: another app's view of this directory is this app's view of it. So a name
+     * this app cannot stat is still reported - as [ResidueReading.Unreadable] - rather than dropped.
+     */
+    fun list(): List<TempEntry>? {
+        val command = command()
+        val result = runCatching {
+            KernelSuRuntime.unprivilegedShell(command)
+                ?: KernelSuRuntime.rootShell(command, timeoutSeconds = LISTING_TIMEOUT_SECONDS)
+        }.getOrNull() ?: return null
+        val names = namesIn(result.output) ?: return null
+        return names.map { name ->
+            val stat = StagedResidue.statReading("${StagedResidue.DIRECTORY}/$name")
+            TempEntry(name = name, reading = stat.reading, isDirectory = stat.isDirectory)
+        }
+    }
+
+    /**
+     * How long a listing waits for a root shell.
+     *
+     * Deliberately shorter than a command is given in general: this one is asked for while a screen is
+     * opening, and the only thing that can make it wait is KernelSU showing the user its grant prompt. A
+     * listing that has not answered by then is reported as no listing, which the card has a sentence
+     * for - where a Settings screen that sat there for half a minute has no sentence at all.
+     */
+    private const val LISTING_TIMEOUT_SECONDS = 8L
 }

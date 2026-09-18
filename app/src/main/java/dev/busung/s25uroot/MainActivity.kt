@@ -4154,6 +4154,9 @@ private fun StagedResidueDialog(
     }
     val reading = report
     val present = reading?.present.orEmpty()
+    // The half a catalog cannot produce: names the app does not write, listed through a shell. Shown
+    // rather than counted, because what makes them worth knowing is which names they are.
+    val extras = reading?.extras.orEmpty()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.residue_dialog_title)) },
@@ -4181,8 +4184,17 @@ private fun StagedResidueDialog(
                         style = MaterialTheme.typography.bodyMedium,
                     )
 
-                    present.isEmpty() -> Text(
-                        stringResource(R.string.residue_clean_body, reading.findings.size),
+                    // Two clean sentences, because there are two clean readings: an empty directory,
+                    // and a directory that could not be listed and holds none of the known names.
+                    present.isEmpty() && extras.isEmpty() -> Text(
+                        stringResource(
+                            if (reading.directoryListed) {
+                                R.string.residue_clean_listed_body
+                            } else {
+                                R.string.residue_clean_by_name_body
+                            },
+                            reading.findings.size,
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                     )
 
@@ -4192,8 +4204,30 @@ private fun StagedResidueDialog(
                             .heightIn(max = RESIDUE_LIST_MAX),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        items(present, key = { it.staged.path }) { finding ->
-                            ResidueRow(finding)
+                        if (present.isNotEmpty()) {
+                            item(key = "staged") {
+                                ResidueSectionLabel(stringResource(R.string.residue_section_staged))
+                            }
+                            items(present, key = { it.staged.path }) { finding ->
+                                ResidueRow(finding)
+                            }
+                        }
+                        if (extras.isNotEmpty()) {
+                            item(key = "others") {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    ResidueSectionLabel(
+                                        stringResource(R.string.residue_section_others),
+                                    )
+                                    Text(
+                                        stringResource(R.string.residue_others_body),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            items(extras, key = { "extra:${it.name}" }) { entry ->
+                                TempEntryRow(entry)
+                            }
                         }
                     }
                 }
@@ -4210,22 +4244,29 @@ private fun StagedResidueDialog(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                    // Said where the names are, not in the help text at the top: what it changes is how
+                    // much this particular list is worth.
+                    if (!reading.directoryListed) {
+                        Text(
+                            text = stringResource(R.string.residue_unlisted_body),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         },
         confirmButton = {
             TextButton(
-                enabled = reading != null && present.isNotEmpty(),
+                enabled = reading != null && (present.isNotEmpty() || extras.isNotEmpty()),
                 onClick = {
                     clickHaptic(view)
-                    copyLogToClipboard(
-                        context,
-                        present.joinToString("\n") { finding ->
-                            val at = finding.reading as ResidueReading.Present
-                            "${finding.staged.name}\t${StagedResidue.sizeLabel(at.sizeBytes)}\t" +
-                                StagedResidue.ageLabelOf(at.modifiedAtMillis)
-                        },
-                    )
+                    val lines = present.map { finding ->
+                        val at = finding.reading as ResidueReading.Present
+                        "${finding.staged.name}\t${StagedResidue.sizeLabel(at.sizeBytes)}\t" +
+                            StagedResidue.ageLabelOf(at.modifiedAtMillis)
+                    } + extras.map { entry -> tempEntryLine(context, entry) }
+                    copyLogToClipboard(context, lines.joinToString("\n"))
                 },
             ) {
                 Text(stringResource(R.string.residue_copy))
@@ -4260,6 +4301,62 @@ private fun ResidueRow(finding: ResidueFinding) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/** A heading inside the residue list, which has two halves worth telling apart. */
+@Composable
+private fun ResidueSectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 6.dp),
+    )
+}
+
+/**
+ * One entry that this app did not stage: its name, then everything that can honestly be said about it.
+ *
+ * Which is less than a staged row says, and deliberately so: the role is unknown by definition, and a
+ * name whose stat was denied is reported as unreadable rather than left out of the list. What is worth
+ * knowing here is the name, because the name is the whole of what a detector matches on.
+ */
+@Composable
+private fun TempEntryRow(entry: TempEntry) {
+    val context = LocalContext.current
+    val at = entry.reading as? ResidueReading.Present
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = entry.name,
+            style = MaterialTheme.typography.bodyMedium,
+            fontFamily = FontFamily.Monospace,
+        )
+        Text(
+            text = stringResource(
+                R.string.residue_row_detail,
+                stringResource(R.string.residue_role_other),
+                tempEntrySizeLabel(context, entry),
+                StagedResidue.ageLabelOf(at?.modifiedAtMillis),
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The size line for an entry, which for a folder or a denied stat is not a number at all. */
+private fun tempEntrySizeLabel(context: Context, entry: TempEntry): String = when {
+    entry.reading !is ResidueReading.Present -> context.getString(R.string.residue_size_unreadable)
+    entry.isDirectory -> context.getString(R.string.residue_size_folder)
+    else -> StagedResidue.sizeLabel(entry.reading.sizeBytes)
+}
+
+/** One such entry as a line of the copied list, which is pasted next to a report rather than read. */
+private fun tempEntryLine(context: Context, entry: TempEntry): String {
+    val at = entry.reading as? ResidueReading.Present
+    return "${entry.name}\t${tempEntrySizeLabel(context, entry)}\t" +
+        StagedResidue.ageLabelOf(at?.modifiedAtMillis) + "\t" +
+        context.getString(R.string.residue_role_other)
 }
 
 @Composable

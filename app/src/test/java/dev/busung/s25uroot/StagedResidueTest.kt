@@ -3,6 +3,7 @@ package dev.busung.s25uroot
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -114,6 +115,106 @@ class StagedResidueTest {
         assertEquals(1_500L, report.totalBytes)
         assertEquals(1, report.present.size)
     }
+
+    @Test
+    fun `an entry this app did not stage is never a clean reading`() {
+        // The reading this whole half exists for: the directory holds something, none of it is this
+        // app's, and the card has to say so rather than "Nothing left".
+        val others = listed(
+            extras = listOf(TempEntry("uipref.xml", ResidueReading.Present(1_200L, 0L))),
+        )
+        assertEquals(ResidueVerdict.Others, others.verdict)
+        assertTrue(others.present.isEmpty())
+        assertEquals(1, others.extras.size)
+
+        // Both halves at once, which is the ordinary state after a run that has not been swept.
+        val both = ResidueReport(
+            findings = listOf(
+                ResidueFinding(StagedResidue.catalog.first(), ResidueReading.Present(21_464L, 0L)),
+            ),
+            directoryVisible = true,
+            extras = listOf(TempEntry("uipref.xml", ResidueReading.Present(1_200L, 0L))),
+            directoryListed = true,
+        )
+        assertEquals(ResidueVerdict.StagedAndOthers, both.verdict)
+    }
+
+    @Test
+    fun `a directory that could not be listed is a weaker clean than an empty one`() {
+        // "Nothing left" is a claim about the directory; a check taken by name may only claim the
+        // names it asked about. One device answers the first and the other the second.
+        val weaker = byName(emptyList())
+        assertEquals(ResidueVerdict.CleanByName, weaker.verdict)
+        assertFalse(weaker.directoryListed)
+
+        assertEquals(ResidueVerdict.Clean, listed(extras = emptyList()).verdict)
+    }
+
+    @Test
+    fun `an extra is enough to keep a reading that could not read the catalog from being blind`() {
+        // Blind means "this app can answer nothing". A listing that saw names did answer - and one of
+        // those names being visible is worth more than every catalogued path being denied.
+        val deniedButListed = ResidueReport(
+            findings = StagedResidue.catalog.map { ResidueFinding(it, ResidueReading.Unreadable) },
+            directoryVisible = true,
+            extras = listOf(TempEntry("ksu_late_load.log", ResidueReading.Unreadable)),
+            directoryListed = true,
+        )
+        assertFalse(deniedButListed.blind)
+        assertEquals(ResidueVerdict.Others, deniedButListed.verdict)
+
+        // With nothing listed and nothing readable it is still blind, which is the case that must not
+        // be mistaken for a device with nothing on it.
+        assertTrue(blindReading().blind)
+    }
+
+    @Test
+    fun `the listing is read from the shell's own marked names`() {
+        // The marker is what separates an empty directory from a shell that never got as far as listing
+        // it: without it, a refusal would read as a directory with nothing in it.
+        assertEquals(
+            listOf("ksu-helper", ".ksud-stage"),
+            StagedDirectory.namesIn("has ksu-helper\nhas .ksud-stage\nlisted\n"),
+        )
+        assertEquals(
+            emptyList<String>(),
+            StagedDirectory.namesIn("listed\n"),
+        )
+        // A shell's own complaint travels in the same stream and is not a name.
+        assertNull(StagedDirectory.namesIn("ls: /data/local/tmp: Permission denied\n"))
+    }
+
+    @Test
+    fun `the listing command names the directory once and prints under a prefix`() {
+        val command = StagedDirectory.command()
+        assertTrue(command.contains("${StagedResidue.DIRECTORY}/*"))
+        // Dot-names are staging markers here, so they have to be in the glob.
+        assertTrue(command.contains("${StagedResidue.DIRECTORY}/.[!.]*"))
+        assertTrue(command.contains(StagedDirectory.NAME_PREFIX))
+        assertTrue(command.contains(StagedDirectory.LISTED_MARK))
+    }
+
+    /** A reading of a device nothing could be found on by name, because the shell never answered. */
+    private fun byName(extras: List<TempEntry>) = ResidueReport(
+        findings = StagedResidue.catalog.map { ResidueFinding(it, ResidueReading.Gone) },
+        directoryVisible = true,
+        extras = extras,
+        directoryListed = false,
+    )
+
+    /** The same device with every catalogued path denied as well, which is the blind reading. */
+    private fun blindReading() = ResidueReport(
+        findings = StagedResidue.catalog.map { ResidueFinding(it, ResidueReading.Unreadable) },
+        directoryVisible = true,
+    )
+
+    /** A reading of a device where the directory was listed, with nothing of this app's in it. */
+    private fun listed(extras: List<TempEntry>) = ResidueReport(
+        findings = StagedResidue.catalog.map { ResidueFinding(it, ResidueReading.Gone) },
+        directoryVisible = true,
+        extras = extras,
+        directoryListed = true,
+    )
 
     @Test
     fun `a size reads the way a file manager would print it`() {

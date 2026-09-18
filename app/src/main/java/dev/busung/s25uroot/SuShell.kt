@@ -90,8 +90,14 @@ internal object SuShell {
      */
     private const val PROBE_TIMEOUT_SECONDS = 8L
 
-    /** The actions here are short by construction; a longer wait is a shell that is not coming back. */
-    private const val COMMAND_TIMEOUT_SECONDS = 30L
+    /**
+     * The actions here are short by construction; a longer wait is a shell that is not coming back.
+     *
+     * Internal rather than private because a caller with a shorter patience for one particular command
+     * - a listing asked for while a screen is opening - passes its own, and wanting the default is how
+     * it says so.
+     */
+    internal const val COMMAND_TIMEOUT_SECONDS = 30L
     private const val READER_GRACE_MILLIS = 500L
 }
 
