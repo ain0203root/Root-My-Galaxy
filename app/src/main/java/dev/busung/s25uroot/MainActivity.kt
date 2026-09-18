@@ -10,7 +10,6 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
-import android.view.HapticFeedbackConstants
 import android.view.View
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -1048,16 +1047,6 @@ private fun AppVersionText(
     )
 }
 
-private fun clickHaptic(view: View) {
-    view.performHapticFeedback(
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            HapticFeedbackConstants.CONFIRM
-        } else {
-            HapticFeedbackConstants.LONG_PRESS
-        },
-    )
-}
-
 /**
  * The bottom navigation, as a bar that sits clear of the screen edges rather than as a strip across
  * the whole width.
@@ -1238,8 +1227,9 @@ private fun OverviewPage(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
+    PageList(
+        padding = padding,
+        listState = rememberPageListState(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
@@ -2144,9 +2134,13 @@ private fun HistoryList(
 ) {
     val view = LocalView.current
     val selecting = selectionIds.isNotEmpty()
+    // Its own state rather than PageList's, because this screen already owns the space the button sits in:
+    // the export and delete buttons are stacked there while a selection is live.
+    val listState = rememberPageListState()
     Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(
                 start = 20.dp,
                 top = 20.dp,
@@ -2257,34 +2251,40 @@ private fun HistoryList(
                 }
             }
         }
-        AnimatedVisibility(
-            visible = selecting,
+        Column(
             modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
-            enter = fadeIn() + scaleIn(initialScale = 0.85f),
-            exit = fadeOut() + scaleOut(targetScale = 0.85f),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            BackToTopFab(listState)
+            AnimatedVisibility(
+                visible = selecting,
+                enter = fadeIn() + scaleIn(initialScale = 0.85f),
+                exit = fadeOut() + scaleOut(targetScale = 0.85f),
             ) {
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        clickHaptic(view)
-                        onExportSelected()
-                    },
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                    icon = { Icon(Icons.Rounded.Save, contentDescription = null) },
-                    text = { Text(stringResource(R.string.history_export_selected, selectionIds.size)) },
-                )
-                ExtendedFloatingActionButton(
-                    onClick = {
-                        clickHaptic(view)
-                        onDeleteSelected()
-                    },
-                    icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
-                    text = { Text(stringResource(R.string.history_delete_selected, selectionIds.size)) },
-                )
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            clickHaptic(view)
+                            onExportSelected()
+                        },
+                        containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                        icon = { Icon(Icons.Rounded.Save, contentDescription = null) },
+                        text = { Text(stringResource(R.string.history_export_selected, selectionIds.size)) },
+                    )
+                    ExtendedFloatingActionButton(
+                        onClick = {
+                            clickHaptic(view)
+                            onDeleteSelected()
+                        },
+                        icon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                        text = { Text(stringResource(R.string.history_delete_selected, selectionIds.size)) },
+                    )
+                }
             }
         }
     }
@@ -2478,8 +2478,9 @@ private fun HistoryDetail(
     ) { result ->
         result.data?.data?.let { uri -> HistoryLogExporter.saveLog(context, uri, entry) }
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
+    PageList(
+        padding = padding,
+        listState = rememberPageListState(),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -2730,9 +2731,10 @@ private fun LogsPage(padding: PaddingValues) {
         )
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
-        contentPadding = PaddingValues(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 96.dp),
+    PageList(
+        padding = padding,
+        listState = rememberPageListState(),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
@@ -3577,9 +3579,9 @@ private fun SettingsPage(
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().padding(padding),
-        state = settingsList,
+    PageList(
+        padding = padding,
+        listState = settingsList,
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {

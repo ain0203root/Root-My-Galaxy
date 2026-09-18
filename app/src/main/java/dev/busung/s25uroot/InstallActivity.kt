@@ -7,7 +7,6 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -202,16 +201,6 @@ internal val installerSteps = listOf(
     InstallerStep(R.string.step_exploit_title, R.string.step_exploit_detail, Icons.Rounded.Memory),
     InstallerStep(R.string.step_ksu_title, R.string.step_ksu_detail, Icons.Rounded.Check),
 )
-
-private fun clickHaptic(view: View) {
-    view.performHapticFeedback(
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            HapticFeedbackConstants.CONFIRM
-        } else {
-            HapticFeedbackConstants.LONG_PRESS
-        },
-    )
-}
 
 @Composable
 private fun InstallScreen(
