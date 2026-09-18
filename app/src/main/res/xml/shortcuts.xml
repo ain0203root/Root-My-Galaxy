@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What a long press on the app icon offers.
+
+    One shortcut, and it opens the restart sheet rather than asking for a target of its own. The reason is the
+    sheet's gating: which of the six this phone will do at this moment depends on whether root or a Shizuku
+    shell answers right now, and that is a probe rather than a constant. A shortcut that hard-coded "reboot to
+    recovery" would be a button that fails silently on a phone with neither, where the sheet says which of the
+    two is missing and how to get it.
+
+    Android's own power menu already restarts the phone, which is why there is no second shortcut for a plain
+    reboot: what this adds is everything the sheet offers that the system's menu does not.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="restart_options"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_restart"
+        android:shortcutShortLabel="@string/shortcut_restart_short"
+        android:shortcutLongLabel="@string/reboot_sheet_title">
+        <intent
+            android:action="dev.busung.s25uroot.action.RESTART_OPTIONS"
+            android:targetPackage="dev.busung.s25uroot"
+            android:targetClass="dev.busung.s25uroot.MainActivity" />
+    </shortcut>
+</shortcuts>

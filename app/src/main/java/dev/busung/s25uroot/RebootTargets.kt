@@ -109,6 +109,15 @@ internal enum class RebootRefusal {
     NothingToAskWith,
 }
 
+/**
+ * The action the launcher's restart shortcut sends.
+ *
+ * The literal is written twice - here and in `res/xml/shortcuts.xml`, which is where the launcher reads it -
+ * and nothing in the build joins the two, so a test compares them: a shortcut whose action nothing handles is
+ * a long press that opens the app and does nothing else, which is the kind of breakage no compile catches.
+ */
+internal const val ACTION_RESTART_OPTIONS = "dev.busung.s25uroot.action.RESTART_OPTIONS"
+
 /** The refusal for [target] on this tier, or null when the row is offered. */
 internal fun rebootRefusalFor(tier: ShellTier, target: RebootTarget): RebootRefusal? = when {
     tier.canAskFor(target) -> null

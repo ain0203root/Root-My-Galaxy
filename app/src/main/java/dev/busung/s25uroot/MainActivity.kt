@@ -239,6 +239,15 @@ class MainActivity : ComponentActivity() {
     private var settingsTarget by mutableStateOf<String?>(null)
 
     /**
+     * Whether this launch is the launcher's restart shortcut rather than a tap on the icon.
+     *
+     * Read here for the same reason the target above is: it arrives with an intent, and an intent outlives the
+     * composition it landed in. Only the sheet is opened from it - the shortcut asks which way out, it does not
+     * pick one - so a long press cannot reboot a phone into Download mode by accident.
+     */
+    private var openRestart by mutableStateOf(false)
+
+    /**
      * The payload an armed retry would run, read from the attempt that armed it.
      *
      * On screen because a retry runs the attempt that failed rather than whatever the app would pick on
@@ -357,6 +366,7 @@ class MainActivity : ComponentActivity() {
         partitionReadOnly = AppPreferences.partitionReadOnlyMode(this)
         payloadMode = AppPreferences.payloadMode(this)
         settingsTarget = SettingsTarget.named(intent?.getStringExtra(SettingsTarget.EXTRA))
+        openRestart = intent?.action == ACTION_RESTART_OPTIONS
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
             RootMyGalaxyTheme(accentColor = accentColor, themeMode = themeMode) {
@@ -472,6 +482,8 @@ class MainActivity : ComponentActivity() {
                     openInstaller = ::openInstaller,
                     settingsTarget = settingsTarget,
                     onSettingsTargetHandled = { settingsTarget = null },
+                    openRestart = openRestart,
+                    onOpenRestartHandled = { openRestart = false },
                 )
             }
         }
@@ -489,6 +501,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         settingsTarget = SettingsTarget.named(intent.getStringExtra(SettingsTarget.EXTRA))
+        // The shortcut's own second case: the app is already in the back stack, so the sheet is opened in the
+        // window that exists rather than in a second one.
+        openRestart = intent.action == ACTION_RESTART_OPTIONS
     }
 
     private fun openInstaller(selectionId: String? = null) {
@@ -648,6 +663,9 @@ private fun RootApp(
     /** A settings card another screen asked this one to open on, or null. */
     settingsTarget: String?,
     onSettingsTargetHandled: () -> Unit,
+    /** The launcher's restart shortcut was used, so the sheet belongs on screen. */
+    openRestart: Boolean,
+    onOpenRestartHandled: () -> Unit,
 ) {
     val installState by installViewModel.state.collectAsStateWithLifecycle()
     val history by installViewModel.history.collectAsStateWithLifecycle()
@@ -661,6 +679,14 @@ private fun RootApp(
     var showInstallConfirmation by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
     var showRebootSheet by remember { mutableStateOf(false) }
+    // Opened from the intent rather than initialised from it, so the same path serves a cold start and an
+    // app already in the back stack: the flag arrives either way, is acted on, and is cleared.
+    LaunchedEffect(openRestart) {
+        if (openRestart) {
+            showRebootSheet = true
+            onOpenRestartHandled()
+        }
+    }
     var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
     var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     val device = remember { DeviceSnapshot.current() }
