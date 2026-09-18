@@ -3847,15 +3847,20 @@ private fun SettingsPage(
     PageList(
         padding = padding,
         listState = settingsList,
-        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 20.dp),
-        // The seam between two rows of the same card, rather than the gap between two cards: the index is
-        // one card of eight flush rows, so what the page's own arrangement has to be is the seam. Every gap
-        // that used to come from here - the one under the title, and each group's own ends - is paid by the
-        // item that wants it, which is what keeps the index dense while an open section keeps its room.
+        // No top room: a sticky heading is placed at the top of the padded area, so padding there is a band
+        // above the pinned card that the rows below it scroll through on their way past. The title's own top
+        // padding carries the space instead, where it scrolls away with the title.
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
+        // The seam between two rows of the same card, rather than the gap between two cards: consecutive
+        // headings are one card of flush rows, so what the page's own arrangement has to be is the seam. Every
+        // gap that used to come from here is paid by the item that wants it, which is what keeps the index
+        // dense while an open section keeps its room.
         verticalArrangement = Arrangement.spacedBy(SETTINGS_CARD_SEAM),
     ) {
         item {
-            Column(modifier = Modifier.padding(top = 20.dp, bottom = 18.dp)) {
+            // The page's top space is the title's own, and the list is given none - see [SETTINGS_TOP_SPACE],
+            // which is the one number here that is about the sticky heading rather than about spacing.
+            Column(modifier = Modifier.padding(top = SETTINGS_TOP_SPACE, bottom = 18.dp)) {
                 Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineLarge)
                 AppVersionText(
                     style = MaterialTheme.typography.bodyLarge,
@@ -6694,7 +6699,18 @@ private fun LazyListScope.settingsSectionHeading(
     onToggle: (SettingsSection) -> Unit,
 ) {
     if (section in openSections) {
-        stickyHeader { SettingsSectionHeader(section, openSections, indexRows, onToggle) }
+        stickyHeader {
+            // The pinned heading has to be opaque *around* itself and not only on itself. It is drawn over the
+            // rows of its own section, which are its own width, so without this they show through its rounded
+            // top corners - the one part of a card that cannot cover what is behind it.
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
+            ) {
+                SettingsSectionHeader(section, openSections, indexRows, onToggle)
+            }
+        }
     } else {
         item { SettingsSectionHeader(section, openSections, indexRows, onToggle) }
     }
@@ -6736,9 +6752,11 @@ private fun SettingsSectionHeader(
         },
         modifier = Modifier
             .fillMaxWidth()
-            // The gap belongs to the first row of a card, and the seam to the rows inside one - the same
-            // division the page's own arrangement makes, one level up.
-            .padding(top = if (row.startsBlock) SETTINGS_BLOCK_GAP else 0.dp),
+            // The gap belongs to the row above the card, and the seam to the rows inside one - which is why
+            // this is a bottom padding and not a top one: a heading that is stuck to the top of the list has
+            // nothing above it to have paid, and a gap it paid for itself would be page above the pinned
+            // card every time it pinned.
+            .padding(bottom = if (row.endsBlock) SETTINGS_BLOCK_GAP else 0.dp),
         shape = expressiveClickableCardShape(interactionSource, row.position),
         interactionSource = interactionSource,
         colors = CardDefaults.cardColors(
@@ -6793,14 +6811,18 @@ private fun SettingsSectionHeader(
  * the pair read as one accordion - a heading card, then the cards - where an inset would say the same thing
  * with a step in the card's silhouette.
  *
- * The gap above is deliberately **smaller** than the one above a heading. Both are between rounded cards and
- * nothing else distinguishes them, so at equal gaps the page would read as a column of unrelated cards: the
- * near pair is the heading and what it opened, and the far pair is the start of the next section.
+ * The gap above is deliberately **smaller** than the one below. Both are between rounded cards and nothing
+ * else distinguishes them, so at equal gaps the page would read as a column of unrelated cards: the near pair
+ * is the heading and what it opened, and the far pair is the start of the next section.
+ *
+ * Both gaps are paid here rather than by the rows they separate, because this item scrolls away with its own
+ * content: the gap below it is gone by the time the heading after it pins, which is what lets that heading sit
+ * flush against the top of the screen.
  */
 @Composable
 private fun SettingsSectionBody(content: @Composable ColumnScope.() -> Unit) {
     Column(
-        modifier = Modifier.padding(top = SETTINGS_BODY_GAP),
+        modifier = Modifier.padding(top = SETTINGS_BODY_GAP, bottom = SETTINGS_BLOCK_GAP),
         verticalArrangement = Arrangement.spacedBy(SETTINGS_CARD_SEAM),
         content = content,
     )
@@ -6884,6 +6906,17 @@ private val SETTINGS_CARD_SEAM = 2.dp
  * arrangement is the seam, so a gap is paid by whichever row starts a card.
  */
 private val SETTINGS_BLOCK_GAP = 12.dp
+
+/**
+ * The space above the page's title, which is the settings page's whole top margin.
+ *
+ * It lives on the title rather than in the list's content padding because of the sticky heading: a sticky
+ * heading is placed at the top of the list's *padded* area, so a top content padding is a band the rows below
+ * the pinned card scroll through on their way past it - content appearing above a heading that is supposed to
+ * be at the top. On the title, the same space scrolls away with the title and a pinned heading meets the top
+ * of the screen with nothing above it but the page.
+ */
+private val SETTINGS_TOP_SPACE = 40.dp
 
 /**
  * The gap between a heading and the content it opened, which is shorter than [SETTINGS_BLOCK_GAP] on purpose.

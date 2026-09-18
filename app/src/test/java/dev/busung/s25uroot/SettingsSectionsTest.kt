@@ -129,13 +129,31 @@ class SettingsSectionsTest {
                 rows.getValue(section).position,
             )
         }
-        // And the whole card is the first block on the page, so nothing above it is owed a gap: the title
-        // already ends in one.
-        assertEquals(
-            "the first heading pays a gap the page has already paid",
-            listOf(false),
-            rows.values.map { it.startsBlock }.distinct(),
+        // And it is the only card on the page, so no row owes a trailing gap: the last one would be paying
+        // for space below the end of the list.
+        assertFalse(
+            "a row pays a gap that has nothing after it to separate",
+            rows.values.any { it.endsBlock },
         )
+    }
+
+    @Test
+    fun `a closed run ending before an open section pays the gap below itself`() {
+        // The case that has no body to pay it: a heading, then an open section, with nothing in between that
+        // scrolls away - so the run's last row owes the gap or the two cards sit a seam apart.
+        val rows = SettingsSection.indexRows(open = setOf(SettingsSection.Root))
+        val beforeRoot = SettingsSection.entries.takeWhile { it != SettingsSection.Root }
+
+        assertTrue(
+            "the run before ${SettingsSection.Root.name} owes nothing below it, so its last row and the open " +
+                "heading are 2dp apart",
+            rows.getValue(beforeRoot.last()).endsBlock,
+        )
+        // The run after it is the last thing on the page, so its own last row owes nothing: the gap above it
+        // was paid by the open section's content, which is the only row that could have.
+        val afterRoot = SettingsSection.entries.dropWhile { it != SettingsSection.Root }.drop(1)
+        assertTrue(afterRoot.isNotEmpty())
+        assertFalse(rows.getValue(afterRoot.last()).endsBlock)
     }
 
     @Test
@@ -153,10 +171,11 @@ class SettingsSectionsTest {
         assertEquals(SettingsCardPosition.Bottom, rows.getValue(before.last()).position)
         assertEquals(SettingsCardPosition.Top, rows.getValue(after.first()).position)
         assertEquals(SettingsCardPosition.Bottom, rows.getValue(after.last()).position)
-        assertTrue(rows.getValue(after.first()).startsBlock)
-        assertTrue(rows.getValue(SettingsSection.Run).startsBlock)
         // Rows inside a run stay flush, which is the dense card the collapsed page is supposed to be.
-        assertFalse(rows.getValue(before.last()).startsBlock)
+        assertFalse(rows.getValue(before.dropLast(1).last()).endsBlock)
+        // The row that ends the run before the open section pays the gap, because that section's own body is
+        // on the other side of it and cannot.
+        assertTrue(rows.getValue(before.last()).endsBlock)
     }
 
     @Test
@@ -242,6 +261,27 @@ class SettingsSectionsTest {
             "more than one row of the page pins itself, so a row with nothing under it can claim a section",
             1,
             page.split("stickyHeader {").size - 1,
+        )
+        // And it paints the page behind itself: a sticky heading is drawn over its own section's rows, which
+        // are its own width, so its rounded corners are the one place they would show through.
+        assertTrue(
+            "the pinned heading is transparent around its own corners, so its rows scroll through them",
+            page.substringAfter("stickyHeader {").take(900).contains("background(MaterialTheme"),
+        )
+    }
+
+    @Test
+    fun `the settings list is given no room above it, so a pinned heading can meet the top`() {
+        val page = source("MainActivity.kt")
+
+        assertTrue(
+            "the settings list is padded at the top, and a sticky heading sticks below that padding - which " +
+                "is a band the rows below it scroll through above the pinned card",
+            page.contains("PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp)"),
+        )
+        assertTrue(
+            "the space that used to be the list's padding is not on the title, so the page lost its top margin",
+            page.contains("padding(top = SETTINGS_TOP_SPACE, bottom = 18.dp)"),
         )
     }
 

@@ -81,38 +81,41 @@ internal enum class SettingsSection(
          * this rule rather than to eight places that each half-remember it.
          */
         fun indexRows(open: Set<SettingsSection>): Map<SettingsSection, SettingsIndexRow> {
-            val rows = mutableMapOf<SettingsSection, SettingsIndexRow>()
-            val run = mutableListOf<SettingsSection>()
-
-            fun closeRun() {
-                run.forEachIndexed { index, section ->
-                    rows[section] = SettingsIndexRow(
-                        position = when {
-                            run.size == 1 -> SettingsCardPosition.GroupedSingle
-                            index == 0 -> SettingsCardPosition.Top
-                            index == run.lastIndex -> SettingsCardPosition.Bottom
-                            else -> SettingsCardPosition.Middle
-                        },
-                        // Only the first row of a block pays the gap, and the very first block of the page
-                        // pays nothing: the title above it already ends in one.
-                        startsBlock = index == 0 && rows.isNotEmpty(),
-                    )
-                }
-                run.clear()
-            }
-
+            // The page as its cards: consecutive closed sections share one, and each open section is one.
+            val blocks = mutableListOf<List<SettingsSection>>()
+            var run = mutableListOf<SettingsSection>()
             entries.forEach { section ->
                 if (section in open) {
-                    closeRun()
-                    rows[section] = SettingsIndexRow(
-                        position = SettingsCardPosition.GroupedSingle,
-                        startsBlock = rows.isNotEmpty(),
-                    )
+                    if (run.isNotEmpty()) {
+                        blocks += run
+                        run = mutableListOf()
+                    }
+                    blocks += listOf(section)
                 } else {
                     run += section
                 }
             }
-            closeRun()
+            if (run.isNotEmpty()) blocks += run
+
+            val rows = mutableMapOf<SettingsSection, SettingsIndexRow>()
+            blocks.forEachIndexed { blockIndex, block ->
+                block.forEachIndexed { index, section ->
+                    rows[section] = SettingsIndexRow(
+                        position = when {
+                            block.size == 1 -> SettingsCardPosition.GroupedSingle
+                            index == 0 -> SettingsCardPosition.Top
+                            index == block.lastIndex -> SettingsCardPosition.Bottom
+                            else -> SettingsCardPosition.Middle
+                        },
+                        // The first block of the page owes nothing: the title above it ends in a gap of its
+                        // own. The last one owes nothing either - the page's bottom clearance is below it -
+                        // and an open section's gap below is paid by the content that follows its heading.
+                        endsBlock = index == block.lastIndex &&
+                            blockIndex != blocks.lastIndex &&
+                            block.first() !in open,
+                    )
+                }
+            }
             return rows
         }
 
@@ -141,7 +144,14 @@ internal enum class SettingsSection(
 internal data class SettingsIndexRow(
     /** The corners the heading's card rests at. */
     val position: SettingsCardPosition,
-    /** True when the page owes this heading the gap that separates one card from the one above it. */
-    val startsBlock: Boolean,
+    /**
+     * True when the gap below this heading belongs to it, because nothing after it can pay one.
+     *
+     * Gaps are paid by the row *above* them, which is what lets the row below start flush. It matters most
+     * for a pinned heading: a sticky heading is placed at the very top of the list, so a gap it paid for
+     * itself would be a band of page above it every time it stuck, and a heading that only pays downwards
+     * meets the top of the screen exactly.
+     */
+    val endsBlock: Boolean,
 )
 
