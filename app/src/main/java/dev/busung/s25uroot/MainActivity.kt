@@ -6173,6 +6173,16 @@ internal fun settingsCardRestingShape(position: SettingsCardPosition): RoundedCo
  */
 private val SETTINGS_VALUE_MAX_WIDTH = 140.dp
 
+/**
+ * Where a card's own header starts its text, which is where any row below it has to start too.
+ *
+ * A card's title and description begin past its icon - 28 dp of icon and the 12 dp gap beside it - so a
+ * row that began at the card's own padding instead would sit further left than everything above it, and
+ * read as belonging to the card's edge rather than to the text it continues. Measured from the two
+ * numbers the header is built from, so changing either one carries here as well.
+ */
+private val SETTINGS_CARD_TEXT_INDENT = 40.dp
+
 /** How thick the outline a settings jump draws is. Thin enough to read as a pointer, not a control. */
 private val SETTINGS_HIGHLIGHT_WIDTH = 2.dp
 
@@ -6454,7 +6464,9 @@ private fun SettingsReadingsCard(
             readings.forEach { reading ->
                 Spacer(Modifier.height(10.dp))
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = SETTINGS_CARD_TEXT_INDENT),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {

@@ -654,8 +654,8 @@
     <string name="settings_manager_version">Manager version</string>
     <string name="settings_manager_version_summary">The version this app offers. A manager already on the phone is opened instead.</string>
     <string name="settings_versions">Running versions</string>
-    <string name="settings_versions_summary">What is installed next to the KernelSU this boot is running.</string>
-    <string name="settings_versions_summary_mismatch">Different releases. Any manager still talks to this KernelSU, so nothing here is refusing a run.</string>
+    <string name="settings_versions_summary">Installed beside the running KernelSU</string>
+    <string name="settings_versions_summary_mismatch">Different releases; a manager still talks to this KernelSU either way</string>
     <string name="settings_versions_manager">Installed manager</string>
     <string name="settings_versions_kernel">Running KernelSU</string>
     <string name="settings_versions_absent">Not installed</string>
