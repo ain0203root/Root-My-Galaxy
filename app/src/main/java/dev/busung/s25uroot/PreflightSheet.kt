@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 
 /**
  * What a run would find, checked before it is started.
@@ -55,9 +57,12 @@ import androidx.compose.ui.unit.dp
 internal fun PreflightSheet(onDismiss: () -> Unit) {
     val context = LocalContext.current
     val view = LocalView.current
+    val scope = rememberCoroutineScope()
     var report by remember { mutableStateOf<PreflightReport?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var checking by remember { mutableStateOf(true) }
+    var copying by remember { mutableStateOf(false) }
+    var copyError by remember { mutableStateOf<String?>(null) }
     // Bumped by "Check again". A counter rather than a boolean, so asking twice in a row is two runs rather
     // than one - the second answer is the one that reflects what changed on the phone.
     var attempt by remember { mutableStateOf(0) }
@@ -98,13 +103,25 @@ internal fun PreflightSheet(onDismiss: () -> Unit) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                // The block is what someone pastes into a thread when they ask why it did not work, and the
-                // sheet is where that is decided rather than guessed at.
+                // The whole report with this check inside it, rather than the check alone: this sheet is the
+                // last thing looked at before a run, which makes it the moment a report is actually wanted -
+                // and a report is the phone's identity, the versions and the log tail as well as these lines.
                 IconButton(
-                    enabled = report != null,
+                    enabled = report != null && !copying,
                     onClick = {
                         clickHaptic(view)
-                        report?.let { copyLogToClipboard(context, preflightText(context, it)) }
+                        val shown = report ?: return@IconButton
+                        copying = true
+                        scope.launch {
+                            val gathered = runCatching {
+                                collectDiagnosticReport(context, preflightText(context, shown))
+                            }
+                            copying = false
+                            gathered.onSuccess { copyReportToClipboard(context, it) }
+                                .onFailure { failure ->
+                                    copyError = failure.message ?: failure.javaClass.simpleName
+                                }
+                        }
                     },
                 ) {
                     Icon(
@@ -173,6 +190,15 @@ internal fun PreflightSheet(onDismiss: () -> Unit) {
                 }, modifier = Modifier.weight(1f)) {
                     Text(stringResource(R.string.action_close))
                 }
+            }
+            // The copy is the only thing here that reaches outside the app, so its failure is the only one
+            // that would otherwise pass in silence.
+            copyError?.let { message ->
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
             }
         }
     }

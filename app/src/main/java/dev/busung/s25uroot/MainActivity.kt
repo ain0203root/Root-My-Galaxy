@@ -94,6 +94,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Difference
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
@@ -1443,6 +1444,10 @@ private fun OverviewPage(
     // Reachable from here as well as from Settings: the version and the links are what a reader wants
     // after a run, which is the one thing this screen is about.
     var showAbout by remember { mutableStateOf(false) }
+    // A report is two dozen readings and a log file, so the row says it is working rather than looking
+    // like a tap that did nothing.
+    var copyingReport by remember { mutableStateOf(false) }
+    var reportError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(installState.phase, resumeTick) {
         // Off the main thread: the KernelSU reading may start `su`, and finding the manager apps walks
         // the package list - neither is worth a frozen frame.
@@ -1621,6 +1626,27 @@ private fun OverviewPage(
                     position = SettingsCardPosition.Top,
                     onClick = onOpenPreflight,
                 )
+                // The block someone pastes when they ask why it did not work. Gathered rather than typed
+                // out, because the two things a report is worth having for - the app's build and the
+                // phone's identity - are exactly the two nobody remembers to include.
+                HomeLinkRow(
+                    icon = Icons.Rounded.Description,
+                    title = stringResource(R.string.report_row_title),
+                    position = SettingsCardPosition.Middle,
+                    busy = copyingReport,
+                    onClick = {
+                        copyingReport = true
+                        scope.launch {
+                            val report = runCatching { collectDiagnosticReport(context) }
+                            copyingReport = false
+                            report.onSuccess { copyReportToClipboard(context, it) }
+                                .onFailure { failure ->
+                                    reportError = failure.message
+                                        ?: failure.javaClass.simpleName
+                                }
+                        }
+                    },
+                )
                 HomeLinkRow(
                     icon = Icons.Rounded.SystemUpdate,
                     title = stringResource(R.string.updater_check),
@@ -1646,6 +1672,27 @@ private fun OverviewPage(
     }
     if (showAbout) {
         AboutDialog(onDismiss = { showAbout = false })
+    }
+    // A report that could not be gathered says so rather than copying half of one: the two are different
+    // claims, and a report missing its log tail reads as a phone that logged nothing.
+    reportError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { reportError = null },
+            icon = { Icon(Icons.Rounded.Warning, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.34f)
+                Text(stringResource(R.string.report_row_title))
+            },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    reportError = null
+                }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
     }
 }
 
