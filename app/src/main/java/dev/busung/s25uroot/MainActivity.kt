@@ -1176,6 +1176,7 @@ private fun RootApp(
                         snackbarHostState = snackbarHostState,
                         onDeleteEntries = installViewModel::deleteHistoryEntries,
                         onRestoreEntries = installViewModel::restoreHistoryEntries,
+                        onOpenHome = { selectedPage = AppPage.Overview },
                     )
                     AppPage.Logs -> LogsPage(padding)
                     AppPage.Settings -> SettingsPage(
@@ -2522,6 +2523,7 @@ private fun HistoryPage(
     snackbarHostState: SnackbarHostState,
     onDeleteEntries: (Set<String>) -> Unit,
     onRestoreEntries: (List<InstallHistoryEntry>) -> Unit,
+    onOpenHome: () -> Unit,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -2629,6 +2631,7 @@ private fun HistoryPage(
                 resultChoices = resultChoices,
                 onResultFilter = onResultFilter,
                 onClearFilters = clearFilters,
+                onOpenHome = onOpenHome,
                 selectionIds = selectionIds,
                 selectableIds = selectableIds,
                 onToggleSelection = { id ->
@@ -2670,6 +2673,7 @@ private fun HistoryList(
     resultChoices: List<HistoryFilter>,
     onResultFilter: (HistoryFilter) -> Unit,
     onClearFilters: () -> Unit,
+    onOpenHome: () -> Unit,
     selectionIds: Set<String>,
     selectableIds: Set<String>,
     onToggleSelection: (String) -> Unit,
@@ -2776,7 +2780,7 @@ private fun HistoryList(
                     if (filtersActive && totalRuns > 0) {
                         EmptyHistoryFilterCard(onClearFilters)
                     } else {
-                        EmptyHistoryCard()
+                        EmptyHistoryCard(onOpenHome)
                     }
                 }
             } else {
@@ -2909,8 +2913,16 @@ private fun EmptyHistoryFilterCard(onClearFilters: () -> Unit) {
     }
 }
 
+/**
+ * An empty history says what would fill it and offers the way there.
+ *
+ * The list is empty for one reason only - nothing has run yet - so a card that only described the page
+ * left the one thing it should say unsaid. Home is where a run is started, and the button is that:
+ * the same place the navigation bar goes, reached from the page that has nothing on it.
+ */
 @Composable
-private fun EmptyHistoryCard() {
+private fun EmptyHistoryCard(onOpenHome: () -> Unit) {
+    val view = LocalView.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -2924,13 +2936,19 @@ private fun EmptyHistoryCard() {
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Icon(Icons.Rounded.History, contentDescription = null, modifier = Modifier.size(32.dp))
-            Column {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.history_empty_title), style = MaterialTheme.typography.titleMedium)
                 Text(
                     stringResource(R.string.history_empty_description),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                FilledTonalButton(onClick = {
+                    clickHaptic(view)
+                    onOpenHome()
+                }) {
+                    Text(stringResource(R.string.history_empty_action))
+                }
             }
         }
     }
@@ -3406,7 +3424,19 @@ private fun LogsPage(padding: PaddingValues) {
             }
         }
         if (shown.isEmpty()) {
-            item { EmptyLogsCard(filtered = entries.isNotEmpty()) }
+            item {
+                EmptyLogsCard(
+                    filtered = entries.isNotEmpty(),
+                    // The same one tap the history's filtered card has, and the same reason: the body
+                    // names the three controls that emptied the list, and a list of three things to go
+                    // and undo by hand is a worse answer than a button that undoes all of them.
+                    onClearFilters = {
+                        minLevel = AppLogLevel.Debug
+                        selectedTags = emptyList()
+                        query = ""
+                    },
+                )
+            }
         } else {
             // Newest first: the line someone is looking for is almost always the last thing that
             // happened, and a log that opens at the top of a scroll is a log nobody reads to the end.
@@ -3511,7 +3541,8 @@ private fun logLevelColor(level: AppLogLevel): Color = when (level) {
 }
 
 @Composable
-private fun EmptyLogsCard(filtered: Boolean) {
+private fun EmptyLogsCard(filtered: Boolean, onClearFilters: () -> Unit) {
+    val view = LocalView.current
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -3536,6 +3567,16 @@ private fun EmptyLogsCard(filtered: Boolean) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            // Only when there is a filter to clear: an unfiltered empty log has nothing to undo, and the
+            // body above says what will fill it instead.
+            if (filtered) {
+                FilledTonalButton(onClick = {
+                    clickHaptic(view)
+                    onClearFilters()
+                }) {
+                    Text(stringResource(R.string.logs_filter_clear))
+                }
+            }
         }
     }
 }

@@ -273,7 +273,8 @@
     <string name="logs_search">Filter by text</string>
     <string name="logs_count_window">Newest %1$d, %2$d older not shown</string>
     <string name="logs_empty_title">Nothing logged yet</string>
-    <string name="logs_empty_body">Runs, boot installs, catalog fetches and manager downloads all write here. A run\'s payload output is in History.</string>
+    <string name="logs_empty_body">Lines appear as soon as the app does something: starting Shizuku, fetching the payload catalogue, downloading a manager, or running an install. A run\'s own payload output is in History.</string>
+    <string name="logs_filter_clear">Clear filters</string>
     <string name="logs_empty_filtered_title">Nothing matches</string>
     <string name="logs_empty_filtered_body">Lower the level filter, clear the tag selection, or clear the text to see the rest of the log.</string>
     <plurals name="logs_count">
@@ -281,7 +282,8 @@
         <item quantity="other">%1$d lines</item>
     </plurals>
     <string name="history_empty_title">No runs yet</string>
-    <string name="history_empty_description">Installation results and logs will appear here.</string>
+    <string name="history_empty_description">The first install writes its result and its log here. Home is where a run is started.</string>
+    <string name="history_empty_action">Go to Home</string>
     <string name="history_running">Running</string>
     <string name="history_succeeded">Succeeded</string>
     <string name="history_root_only">Root only</string>
