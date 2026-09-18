@@ -610,7 +610,6 @@
     <string name="settings_manager_versions_default">Default</string>
     <string name="settings_manager_version_hint">Version to install, for example 3.3.0</string>
     <string name="settings_manager_version_looking">Looking for %1$s %2$s…</string>
-    <string name="settings_manager_version_found">%1$s %2$s found; opening the download</string>
     <string name="settings_manager_version_missing">No APK found in %1$s %2$s</string>
     <string name="settings_manager_version_reset">Use the default again (%1$s)</string>
     <string name="run_flavor_conflict">%1$s is already loaded in this boot, so %2$s cannot load. Restart the phone, then run this payload.</string>
