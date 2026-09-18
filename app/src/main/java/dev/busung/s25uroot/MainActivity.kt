@@ -2260,6 +2260,7 @@ private fun HistoryList(
     // Its own state rather than PageList's, because this screen already owns the space the button sits in:
     // the export and delete buttons are stacked there while a selection is live.
     val listState = rememberPageListState()
+    val scrolled by rememberScrolledState(listState)
     Box(modifier = Modifier.fillMaxSize().padding(padding)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -2376,6 +2377,12 @@ private fun HistoryList(
                 }
             }
         }
+        // The same fade the shared wrapper draws, for the same reason: the runs run under the pill, and a
+        // row arriving at it at full contrast reads as the bar cutting the list off.
+        BottomScrim(
+            visible = scrolled,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
         Column(
             // Lifted by the bar's height, because the bar is drawn over this page: the stack's own 20dp of
             // air, then the pill, or the export and delete buttons would sit behind it.

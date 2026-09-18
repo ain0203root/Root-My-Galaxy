@@ -65,6 +65,34 @@ class FloatingNavBarTest {
     }
 
     @Test
+    fun `the pages that run under the pill fade what is under it`() {
+        val owners = sourceFiles()
+            .filter { it.readText().contains("BottomScrim") }
+            .map(File::getName)
+            .sorted()
+
+        assertEquals(
+            "the scrim is drawn somewhere other than the shared wrapper and the history list, which are " +
+                "the two places a list runs under the bar",
+            listOf("MainActivity.kt", "ScrollToTop.kt"),
+            owners,
+        )
+        assertTrue(
+            "the scrim fades over some height other than the bar's, so a row would still arrive at the pill",
+            source("ScrollToTop.kt").contains(".height(NAV_BAR_HEIGHT)"),
+        )
+    }
+
+    @Test
+    fun `the scrim and the button agree on what a moved list is`() {
+        // One definition, because the two have to agree and the failures of a disagreement are opposite:
+        // a scrim over a list at its top, or a button that is missing when the list has run off the screen.
+        val shared = source("ScrollToTop.kt")
+
+        assertEquals(1, shared.split("firstVisibleItemIndex > 0").size - 1)
+    }
+
+    @Test
     fun `the history list, which draws its own, counts the bar twice`() {
         val main = source("MainActivity.kt")
 

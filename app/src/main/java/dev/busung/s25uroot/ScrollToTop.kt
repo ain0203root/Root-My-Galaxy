@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -26,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +38,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -65,6 +71,7 @@ internal fun PageList(
     content: LazyListScope.() -> Unit,
 ) {
     val layoutDirection = LocalLayoutDirection.current
+    val scrolled by rememberScrolledState(listState)
     Box(modifier = modifier.fillMaxSize().padding(padding)) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -78,10 +85,71 @@ internal fun PageList(
             verticalArrangement = verticalArrangement,
             content = content,
         )
+        // Under the bar rather than over it: the bar is drawn by the app shell, which this page knows
+        // nothing about, so the page's job is only to stop the row it is reading from arriving at the pill
+        // at full contrast.
+        BottomScrim(
+            visible = scrolled,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
         BackToTopFab(
             listState = listState,
             modifier = Modifier.align(Alignment.BottomEnd).pageBottomInset(),
         )
+    }
+}
+
+/**
+ * The fade that keeps the pill legible where a page runs under it.
+ *
+ * Without it the bar's own row is the only thing between a scrolling row and the pill, and the two are 10dp
+ * apart: a card sliding under it arrives at its full colour and stops against a hard edge. This is the page
+ * fading into its own background over the bar's height, so what goes under the pill is already nearly the
+ * colour of what surrounds it.
+ *
+ * Drawn only while the page has actually moved, which is the same rule the button above it uses. A page at
+ * its top has its first row sitting well clear of the bar by its own bottom padding, so a permanent scrim
+ * would be shading the end of a list that never reaches it - a strip of tint over nothing.
+ *
+ * A gradient rather than a blur. A blur of a scrolling list means rendering it into an offscreen layer and
+ * re-blurring it every frame, for a fade the eye reads the same way here - the content under the bar is dark
+ * on dark, and what a blur would preserve is detail that this app's last rows do not carry.
+ *
+ * Public to the module because the history list draws its own box rather than going through [PageList], and a
+ * page that runs under the pill has to look the same whether or not it shares the wrapper.
+ */
+@Composable
+internal fun BottomScrim(visible: Boolean, modifier: Modifier = Modifier) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(),
+        exit = fadeOut(),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(NAV_BAR_HEIGHT)
+                .background(
+                    Brush.verticalGradient(
+                        0f to Color.Transparent,
+                        1f to MaterialTheme.colorScheme.surfaceContainer,
+                    ),
+                ),
+        )
+    }
+}
+
+/**
+ * Whether a list has moved, which is the one rule the scrim and the button both key off.
+ *
+ * Held here rather than written twice: the two have to agree, and the failure of a mismatch is a scrim over
+ * a list at its top or a button that is not there when it is needed.
+ */
+@Composable
+internal fun rememberScrolledState(listState: LazyListState): State<Boolean> = remember(listState) {
+    derivedStateOf {
+        listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
     }
 }
 
@@ -145,11 +213,7 @@ internal fun PageColumn(
  */
 @Composable
 internal fun BackToTopFab(listState: LazyListState, modifier: Modifier = Modifier) {
-    val scrolled by remember(listState) {
-        derivedStateOf {
-            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
-        }
-    }
+    val scrolled by rememberScrolledState(listState)
     BackToTopButton(visible = scrolled, modifier = modifier) {
         listState.animateScrollToItem(0)
     }
