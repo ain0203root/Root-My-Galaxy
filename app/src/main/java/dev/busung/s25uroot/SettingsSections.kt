@@ -16,12 +16,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
  * The settings page, as the parts it is read by.
  *
  * The page is long enough that finding one switch in it meant scrolling past everything else, and most
- * visits are for one thing. So each part is a section that opens on its own and stays as it was left.
+ * visits are for one thing. So each part is a section that can be collapsed to a single row - the card of
+ * eight at the top - and stays as it was left.
  *
- * A closed section is one row of the page's index - the card of eight rows at the top - and the index is
- * read as much as it is used, so a row says what it holds rather than only what it is called: [icon] is the
- * glyph it is found by at a glance, and the value beside it is the section's own state, handed in where the
- * section is drawn because only that row knows it.
+ * Every section is **open** unless it is collapsed, and the preference stores the collapsed ones: nothing
+ * stored then means the whole page open, which is where a settings page belongs, and the one arrangement the
+ * page cannot be caught in is the one where eight rows stand for switches nobody can see. [icon] is the
+ * glyph a row is found by at a glance, which is what makes the closed page readable at all.
  *
  * [targets] is what makes a closed section safe for the cards other screens point at. A jump is a scroll to
  * a row's key, and a closed section has no rows at all - so the section that holds a card is the first
@@ -51,6 +52,17 @@ internal enum class SettingsSection(
     System(R.string.settings_section_system, Icons.Rounded.Settings);
 
     companion object {
+        /**
+         * The sections a page shows, given the ones it has collapsed.
+         *
+         * The closed set is what is stored because it is the shorter list and because of what an empty one
+         * has to mean: with the open set stored, "nothing stored" and "everything closed by hand" are the
+         * same value, so the page could not tell a fresh install from a deliberate collapse - and the fresh
+         * install would have shown the collapsed page. Inverting the storage gives the default for free and
+         * keeps the other state storable.
+         */
+        fun open(closed: Set<SettingsSection>): Set<SettingsSection> = entries.filterNot { it in closed }.toSet()
+
         /**
          * The section a jump is aimed at, or null when no section claims that key.
          *

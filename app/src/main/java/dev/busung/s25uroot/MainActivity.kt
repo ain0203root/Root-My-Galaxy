@@ -3778,16 +3778,18 @@ private fun SettingsPage(
     // section. One state for both, because to the list they are the same jump.
     var jumpTarget by remember { mutableStateOf<String?>(null) }
     var cardHighlighted by remember { mutableStateOf(false) }
-    // Which sections are open, read from the store this page writes to. Seeded from it rather than kept
-    // beside it: leaving the tab and coming back rebuilds this composable, and what the sections were is
-    // the one thing about the page that has to survive that.
-    var openSections by remember { mutableStateOf(AppPreferences.openSettingsSections(context)) }
+    // Which sections the user has collapsed, read from the store this page writes to. Seeded from it rather
+    // than kept beside it: leaving the tab and coming back rebuilds this composable, and what the sections
+    // were is the one thing about the page that has to survive that. The collapsed set is the one stored, so
+    // an empty preference is the whole page open - which is what a section list has to start as.
+    var closedSections by remember { mutableStateOf(AppPreferences.closedSettingsSections(context)) }
+    val openSections = SettingsSection.open(closedSections)
     /** Opens or closes one section, and stores it so the page comes back the way it was left. */
     val setSectionOpen: (SettingsSection, Boolean) -> Unit = { section, open ->
-        val next = if (open) openSections + section else openSections - section
-        if (next != openSections) {
-            openSections = next
-            AppPreferences.setOpenSettingsSections(context, next)
+        val next = if (open) closedSections - section else closedSections + section
+        if (next != closedSections) {
+            closedSections = next
+            AppPreferences.setClosedSettingsSections(context, next)
         }
     }
     val toggleSection: (SettingsSection) -> Unit = { section ->
@@ -3805,7 +3807,7 @@ private fun SettingsPage(
         // has no rows at all - so its section is opened first. Opening it is not a side effect of the jump
         // either: the card was asked for, and a card inside a closed section is a card that cannot be shown.
         SettingsSection.holding(wanted)?.let { holder ->
-            if (holder !in openSections) {
+            if (holder in closedSections) {
                 val rowsBefore = settingsList.layoutInfo.totalItemsCount
                 setSectionOpen(holder, true)
                 // Waiting for the rows rather than for a frame: the search asks the list what it has, and a
@@ -3856,14 +3858,7 @@ private fun SettingsPage(
                 )
             }
         }
-        item {
-            SettingsSectionHeader(
-                SettingsSection.Appearance,
-                openSections,
-                toggleSection,
-                value = accentLabel(accentColor),
-            )
-        }
+        item { SettingsSectionHeader(SettingsSection.Appearance, openSections, toggleSection) }
         if (SettingsSection.Appearance in openSections) item {
             SettingsSectionBody {
                 ThemeModeSelector(themeMode, onThemeModeChanged)
@@ -3902,20 +3897,7 @@ private fun SettingsPage(
             }
         }
 
-        item {
-            SettingsSectionHeader(
-                SettingsSection.Payloads,
-                openSections,
-                toggleSection,
-                value = stringResource(
-                    if (payloadMode == PayloadMode.Offline) {
-                        R.string.settings_payload_mode_offline
-                    } else {
-                        R.string.settings_payload_mode_online
-                    },
-                ),
-            )
-        }
+        item { SettingsSectionHeader(SettingsSection.Payloads, openSections, toggleSection) }
         if (SettingsSection.Payloads in openSections) item {
             SettingsSectionBody {
                 SettingsCard(
@@ -4127,14 +4109,7 @@ private fun SettingsPage(
                 )
             }
         }
-        item {
-            SettingsSectionHeader(
-                SettingsSection.Shizuku,
-                openSections,
-                toggleSection,
-                value = shizukuIndexValue(shizukuMode, shizukuAvailability),
-            )
-        }
+        item { SettingsSectionHeader(SettingsSection.Shizuku, openSections, toggleSection) }
         if (SettingsSection.Shizuku in openSections) item {
             SettingsSectionBody {
                 SettingsSwitchCard(
@@ -4345,14 +4320,7 @@ private fun SettingsPage(
             }
         }
 
-        item {
-            SettingsSectionHeader(
-                SettingsSection.Root,
-                openSections,
-                toggleSection,
-                value = kernelsuFlavor.label,
-            )
-        }
+        item { SettingsSectionHeader(SettingsSection.Root, openSections, toggleSection) }
         if (SettingsSection.Root in openSections) item {
             SettingsSectionBody {
                 // The flavour is first because everything below it is about this flavour's module:
@@ -6700,38 +6668,23 @@ private fun SourceCoverageBlock(
 }
 
 /**
- * The Shizuku section's headline state, as the index row reports it.
- *
- * The preference first and the service second, because they answer different questions: a row reading
- * "Running" beside an app that is set not to use Shizuku would be true of the phone and false of the app.
- */
-@Composable
-private fun shizukuIndexValue(shizukuMode: Boolean, availability: ShizukuAvailability): String = when {
-    !shizukuMode -> stringResource(R.string.settings_index_shizuku_off)
-    availability == ShizukuAvailability.Ready -> stringResource(R.string.settings_index_shizuku_running)
-    availability == ShizukuAvailability.WithoutPermission ->
-        stringResource(R.string.settings_index_shizuku_needs_permission)
-    else -> stringResource(R.string.settings_index_shizuku_not_running)
-}
-
-/**
- * One row of the settings index: the section's glyph, its name, its own state, and the way in.
+ * One row of the settings index: the section's glyph, its name, and the way in.
  *
  * A card rather than a bare line of text, because this is the page's table of contents and it is read as a
  * list: the eight rows sit flush against each other as one card - [indexPosition] cuts their corners for it
  * - and each row is the same material as the cards it opens, at the same height, so a row that opens a
  * section and a row that sets something are recognisably the same kind of thing.
  *
- * [value] is the section's headline state, which the caller supplies because it is the only place it exists:
- * the index does not read settings, it reports them. An empty value is a section whose state is not one
- * short word - a count or a number here would be a promise about a list nobody has asked to see yet.
+ * The row says what the section is called and nothing else. Its state was here for a while - the accent, the
+ * payload mode, the manager's flavour - and it was the wrong job for the row: half the sections have no single
+ * word for what they hold, so the index read as though some sections were in a state and others were not,
+ * while the cards below state themselves properly and in full.
  */
 @Composable
 private fun SettingsSectionHeader(
     section: SettingsSection,
     openSections: Set<SettingsSection>,
     onToggle: (SettingsSection) -> Unit,
-    value: String = "",
 ) {
     val view = LocalView.current
     val open = section in openSections
@@ -6775,17 +6728,6 @@ private fun SettingsSectionHeader(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            if (value.isNotBlank()) {
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.widthIn(max = SETTINGS_VALUE_MAX_WIDTH),
-                )
-            }
             Icon(
                 imageVector = if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
                 // The chevron carries the label rather than the row: the row is a tapping target with a name

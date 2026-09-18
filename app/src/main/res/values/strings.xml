@@ -37,11 +37,6 @@
     <string name="settings_section_system">System</string>
     <string name="settings_section_expand">Expand section</string>
     <string name="settings_section_collapse">Collapse section</string>
-    <!-- The words the index row beside "Shizuku" reports: the app's preference, then the service. -->
-    <string name="settings_index_shizuku_off">Off</string>
-    <string name="settings_index_shizuku_running">Running</string>
-    <string name="settings_index_shizuku_needs_permission">Needs permission</string>
-    <string name="settings_index_shizuku_not_running">Not running</string>
     <string name="residue_card_title">Left on the device</string>
     <string name="residue_card_summary">Files this app staged in the shared temp directory</string>
     <string name="residue_reading">Reading…</string>

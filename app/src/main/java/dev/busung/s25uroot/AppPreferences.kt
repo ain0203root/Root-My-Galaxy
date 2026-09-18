@@ -66,22 +66,27 @@ object AppPreferences {
     private const val LEGACY_PAYLOAD_REPOSITORY = "payload_repository"
     private const val LEGACY_PAYLOAD_BRANCH = "payload_branch"
     private const val CONSUMED_INSTALL_REQUEST = "consumed_install_request"
-    private const val OPEN_SETTINGS_SECTIONS = "open_settings_sections"
+    // Named for the collapsed set rather than the open one: this replaced a key that stored which sections
+    // were open, and the two are opposite readings of the same names, so the old one is left unread rather
+    // than migrated - a page that comes up with everything open is the page this change is for.
+    private const val CLOSED_SETTINGS_SECTIONS = "closed_settings_sections"
 
     /**
-     * The settings sections left open, by name.
+     * The settings sections the user has collapsed, by name.
      *
      * Stored rather than kept on the page because the page is rebuilt every time the tab is left and
-     * returned to, and a section that closed itself on the way back would be worse than a page that never
-     * opened one. Nothing open is the state a fresh install starts in: the page is a list of headings, and
-     * the heading someone needs is one tap.
+     * returned to, and a section that reopened itself on the way back would undo what was asked for.
+     *
+     * The collapsed set and not the open one, because an empty preference has to mean the page is whole:
+     * every section shows what it holds unless it was closed, so nothing stored is the full page and
+     * collapsing all eight is still a state that can be stored and come back.
      */
-    internal fun openSettingsSections(context: Context): Set<SettingsSection> =
-        SettingsSection.named(prefs(context).getStringSet(OPEN_SETTINGS_SECTIONS, emptySet()).orEmpty().toSet())
+    internal fun closedSettingsSections(context: Context): Set<SettingsSection> =
+        SettingsSection.named(prefs(context).getStringSet(CLOSED_SETTINGS_SECTIONS, emptySet()).orEmpty().toSet())
 
-    internal fun setOpenSettingsSections(context: Context, sections: Set<SettingsSection>) {
+    internal fun setClosedSettingsSections(context: Context, sections: Set<SettingsSection>) {
         prefs(context).edit()
-            .putStringSet(OPEN_SETTINGS_SECTIONS, sections.map { it.name }.toSet())
+            .putStringSet(CLOSED_SETTINGS_SECTIONS, sections.map { it.name }.toSet())
             .apply()
     }
 

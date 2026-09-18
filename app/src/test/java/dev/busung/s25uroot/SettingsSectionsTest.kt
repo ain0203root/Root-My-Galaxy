@@ -76,8 +76,28 @@ class SettingsSectionsTest {
     }
 
     @Test
-    fun `a page with nothing stored opens no section`() {
-        assertEquals(emptySet<SettingsSection>(), SettingsSection.named(emptySet()))
+    fun `a page with nothing collapsed shows every section`() {
+        // The whole page is the default, and it is the default because the collapsed set is what is stored:
+        // nothing stored is nothing collapsed. It is asserted against the enum rather than against a number,
+        // so a section added later is open on a fresh install without this test being told about it.
+        assertEquals(
+            SettingsSection.entries.toSet(),
+            SettingsSection.open(emptySet()),
+        )
+    }
+
+    @Test
+    fun `every section can be collapsed, and stay that way`() {
+        // The other end of the same rule: collapsing all eight is a state, not the absence of one. Stored as
+        // the open set this could not be told apart from the fresh install, which is why the two are
+        // opposite sets rather than the same one read twice.
+        assertEquals(emptySet<SettingsSection>(), SettingsSection.open(SettingsSection.entries.toSet()))
+
+        val collapsedNames = setOf(SettingsSection.Run.name, SettingsSection.Root.name)
+        assertEquals(
+            SettingsSection.entries.toSet() - SettingsSection.named(collapsedNames),
+            SettingsSection.open(SettingsSection.named(collapsedNames)),
+        )
     }
 
     @Test
