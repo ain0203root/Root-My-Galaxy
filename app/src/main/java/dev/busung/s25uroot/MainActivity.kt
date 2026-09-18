@@ -87,6 +87,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Difference
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.ExpandLess
@@ -3833,8 +3834,10 @@ private fun SettingsPage(
                     }
                 }
                 val managerVersion = installedManager?.versionName
-                val managerState = remember(managerVersion, runningKernelSu) {
-                    managerVersionState(managerVersion, runningKernelSu?.daemon)
+                // The pair, from the two readings the comparison itself uses, so what this card prints
+                // and what it claims cannot come apart.
+                val versionPair = remember(managerVersion, runningKernelSu) {
+                    versionPairDisplay(managerVersion, runningKernelSu?.daemon)
                 }
                 SettingsCard(
                     icon = Icons.Rounded.VerifiedUser,
@@ -3852,33 +3855,58 @@ private fun SettingsPage(
                     // the row below this one, and the two were the same number in the same place
                     // until a manager from another line could be installed without the app noticing.
                     value = managerVersion ?: offeredManagerVersion,
-                    // The pair, said out loud. A mismatch is the one thing this screen could never see:
-                    // any manager talks to the loaded module over KernelSU's socket, so a manager from
-                    // one line against a kernel from another installs and runs exactly like a matching
-                    // one. Tapping the row still opens whatever manager is installed.
-                    notice = runningKernelSu?.daemon?.let { kernelVersion ->
-                        when (managerState) {
-                            ManagerVersionState.Differing -> stringResource(
-                                R.string.settings_manager_mismatch,
-                                managerVersion.orEmpty(),
-                                kernelsuFlavor.label,
-                                kernelVersion,
-                            )
-                            ManagerVersionState.Matching -> stringResource(
-                                R.string.settings_manager_running,
-                                kernelsuFlavor.label,
-                                kernelVersion,
-                            )
-                            // Nothing was read, so there is nothing to say about the manager: the
-                            // absence of a reading is not a finding.
-                            ManagerVersionState.Unknown -> null
+                    position = SettingsCardPosition.Middle,
+                    // Opens whatever manager is on the phone, of whatever version; the download is
+                    // only offered when there is none. Nothing here rejects a version the user
+                    // installed themselves, which is the point of not pinning this.
+                    onClick = {
+                        clickHaptic(view)
+                        KernelSuManager.open(context, kernelsuFlavor) { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         }
                     },
-                    // The fix, under the line that names the problem: the one version that is certainly
+                )
+                // The pair as two readings rather than as a sentence. A mismatch is the one thing this
+                // screen could never see: any manager talks to the loaded module over KernelSU's
+                // socket, so a manager from one line against a kernel from another installs and runs
+                // exactly like a matching one. Both numbers are printed for that reason - and the
+                // reading that could not be made is printed as the absence it is, instead of leaving a
+                // row that looks like a comparison nobody made.
+                SettingsReadingsCard(
+                    icon = Icons.Rounded.Difference,
+                    title = stringResource(R.string.settings_versions),
+                    description = stringResource(
+                        if (versionPair.mismatched) {
+                            R.string.settings_versions_summary_mismatch
+                        } else {
+                            R.string.settings_versions_summary
+                        },
+                    ),
+                    readings = listOf(
+                        SettingsReading(
+                            label = stringResource(R.string.settings_versions_manager),
+                            value = versionPair.manager
+                                ?: stringResource(R.string.settings_versions_absent),
+                            // The mark goes on the manager, which is the reading the action below
+                            // replaces: the running KernelSU is the one of the two that is not a
+                            // choice, and a mark on both would say nothing about which one to act on.
+                            mark = if (versionPair.mismatched) {
+                                stringResource(R.string.settings_versions_mismatch_mark)
+                            } else {
+                                null
+                            },
+                        ),
+                        SettingsReading(
+                            label = stringResource(R.string.settings_versions_kernel),
+                            value = versionPair.kernel
+                                ?: stringResource(R.string.settings_versions_unread),
+                        ),
+                    ),
+                    // The fix, under the reading that is marked: the one version that is certainly
                     // right is the one the kernel is already running. It also becomes the offered
                     // version, because "install this" is a statement about which one is wanted - so
                     // the app's own default stops disagreeing with the phone the moment it is asked.
-                    noticeAction = managerMismatchTarget(managerState, runningKernelSu?.daemon)?.let { target ->
+                    action = managerMismatchTarget(versionPair.state, runningKernelSu?.daemon)?.let { target ->
                         NoticeAction(
                             label = stringResource(R.string.settings_manager_install_running, target),
                             onClick = {
@@ -3895,15 +3923,6 @@ private fun SettingsPage(
                         )
                     },
                     position = SettingsCardPosition.Middle,
-                    // Opens whatever manager is on the phone, of whatever version; the download is
-                    // only offered when there is none. Nothing here rejects a version the user
-                    // installed themselves, which is the point of not pinning this.
-                    onClick = {
-                        clickHaptic(view)
-                        KernelSuManager.open(context, kernelsuFlavor) { message ->
-                            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
-                        }
-                    },
                 )
                 SettingsCard(
                     icon = Icons.Rounded.SystemUpdate,
@@ -5989,6 +6008,125 @@ private fun SettingsSwitchCard(
             // `onCheckedChange = null` already, so the switch is a reading of the card rather than a
             // second control; a disabled card simply stops the whole row taking a tap.
             Switch(checked = checked, enabled = enabled, onCheckedChange = null)
+        }
+    }
+}
+
+/**
+ * One line of a [SettingsReadingsCard]: what was read, what it said, and any mark it carries.
+ *
+ * [mark] is a word rather than a colour, and it is deliberately not the whole message: a mark that was
+ * only a colour would say nothing to a reader who cannot see the difference, and a mark that was a
+ * sentence would be the notice this card exists to replace.
+ */
+internal data class SettingsReading(
+    val label: String,
+    val value: String,
+    val mark: String? = null,
+)
+
+/**
+ * A card that reports readings instead of offering a setting: what it says it read, and one line each.
+ *
+ * Non-clickable, and that is the whole reason it is not a [SettingsCard]: a row that takes a tap is a
+ * control, and a card whose content is three answers from the device has nothing to do when it is
+ * tapped. Giving it a tap anyway would teach the reader that these rows are buttons, which is exactly
+ * the lesson the fix button below them has to unteach.
+ *
+ * Values are laid out one per line with their labels, rather than as the trailing band a [SettingsCard]
+ * puts its single value in: two versions in one band read as one sentence about one thing, and the
+ * point of this card is that they are two answers that may or may not agree.
+ */
+@Composable
+private fun SettingsReadingsCard(
+    icon: ImageVector,
+    title: String,
+    description: String,
+    readings: List<SettingsReading>,
+    position: SettingsCardPosition = SettingsCardPosition.Single,
+    /**
+     * The fix for what the readings just said, offered under them.
+     *
+     * Unlike a [SettingsCard]'s, it does not wait for a notice: the readings above *are* the notice here,
+     * and a card that restated them in a sentence before offering the button would be the same facts
+     * twice in one card.
+     */
+    action: NoticeAction? = null,
+) {
+    val view = LocalView.current
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = settingsCardRestingShape(position),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            readings.forEach { reading ->
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        reading.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        reading.value,
+                        style = MaterialTheme.typography.labelLarge,
+                        // A marked value is the one the action below replaces, so it is the one that
+                        // takes the warning colour; an unmarked one stays in the band every other
+                        // value on this screen sits in.
+                        color = if (reading.mark != null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        textAlign = TextAlign.End,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    reading.mark?.let { mark ->
+                        Text(
+                            mark,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+            action?.let { offered ->
+                Spacer(Modifier.height(4.dp))
+                TextButton(
+                    onClick = {
+                        clickHaptic(view)
+                        offered.onClick()
+                    },
+                    modifier = Modifier.align(Alignment.CenterHorizontally),
+                ) {
+                    Text(offered.label)
+                }
+            }
         }
     }
 }

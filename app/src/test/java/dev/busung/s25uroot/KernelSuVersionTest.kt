@@ -125,6 +125,72 @@ class KernelSuVersionTest {
         assertEquals(ManagerVersionState.Unknown, managerVersionState("unknown", "3.3.0"))
     }
 
+    // --- the pair as a screen shows it -----------------------------------------------------------------
+
+    /**
+     * The two numbers printed are the two numbers that were compared.
+     *
+     * The case this exists for is the suffix: a daemon reports `3.3.0-ksun` and a manager reports
+     * `3.3.0`, and showing both raw would put two different strings on screen under a line calling them
+     * a match. A reader would believe the strings and distrust the line.
+     */
+    @Test
+    fun `a suffix is shown as the release it is, not as itself`() {
+        val pair = versionPairDisplay("3.3.0", "3.3.0-ksun")
+
+        assertEquals("3.3.0", pair.manager)
+        assertEquals("3.3.0", pair.kernel)
+        assertEquals(ManagerVersionState.Matching, pair.state)
+        assertEquals(false, pair.mismatched)
+    }
+
+    @Test
+    fun `a leading v does not survive into what is shown`() {
+        val pair = versionPairDisplay("v3.3.0", "3.3.0")
+
+        assertEquals("3.3.0", pair.manager)
+        assertEquals(false, pair.mismatched)
+    }
+
+    @Test
+    fun `a real mismatch is the pair that carries the mark`() {
+        val pair = versionPairDisplay("3.2.5", "3.3.0")
+
+        assertEquals("3.2.5", pair.manager)
+        assertEquals("3.3.0", pair.kernel)
+        assertEquals(true, pair.mismatched)
+    }
+
+    /**
+     * A reading with no release in it is shown as itself and claims nothing.
+     *
+     * `unknown` is what the package manager answers when it would not say, and hiding it would leave a
+     * row that looks like a comparison nobody made. It is not a version, so it is not compared - which
+     * is what keeps an unreadable manager from becoming a mismatch nobody has.
+     */
+    @Test
+    fun `an unreadable reading is shown and not compared`() {
+        val pair = versionPairDisplay("unknown", "3.3.0")
+
+        assertEquals("unknown", pair.manager)
+        assertEquals(ManagerVersionState.Unknown, pair.state)
+        assertEquals(false, pair.mismatched)
+    }
+
+    /** Nothing installed and nothing read are different absences, and neither is a version. */
+    @Test
+    fun `an absent reading stays absent so the screen can name it`() {
+        val pair = versionPairDisplay(null, null)
+
+        assertNull(pair.manager)
+        assertNull(pair.kernel)
+        assertEquals(false, pair.mismatched)
+
+        val blank = versionPairDisplay("   ", "")
+        assertNull(blank.manager)
+        assertNull(blank.kernel)
+    }
+
     // --- the fix offered with the warning -------------------------------------------------------------
 
     /**

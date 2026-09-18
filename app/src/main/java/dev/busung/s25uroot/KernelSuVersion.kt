@@ -114,6 +114,48 @@ internal fun managerVersionState(managerVersion: String?, kernelVersion: String?
 }
 
 /**
+ * The pair a versions card prints: the two readings, and whether they line up.
+ *
+ * Both values are in the *release* form, which is the form [managerVersionState] compares - and that is
+ * the point rather than a detail. A daemon built with a suffix reports `3.3.0-ksun`, and printing the
+ * raw readings beside a manager's `3.3.0` would put two visibly different strings on screen under a
+ * line that calls them a match. A reader would believe the strings and distrust the line, which is the
+ * one thing a comparison screen must not do.
+ *
+ * Where a reading carries no release at all there is nothing to take, so the raw reading is shown: an
+ * answer of `unknown` from the package manager is worth seeing as itself, and the state is
+ * [ManagerVersionState.Unknown] either way. Null is kept as null so the screen can name the absence -
+ * "not installed" and "not read" are different, and neither is a version.
+ */
+internal data class VersionPairDisplay(
+    val manager: String?,
+    val kernel: String?,
+    /**
+     * What the comparison made of these two.
+     *
+     * Carried rather than asked for separately at the call site, because a card that shows a pair and a
+     * mark has to take both from one decision: two calls could disagree on the suffix case above, and
+     * the screen would print `3.3.0` beside `3.3.0` and call it a mismatch.
+     */
+    val state: ManagerVersionState,
+) {
+    /** Whether the mark belongs on this pair. */
+    val mismatched: Boolean get() = state == ManagerVersionState.Differing
+}
+
+/** The two readings as the screen should show them, with the state they produced. */
+internal fun versionPairDisplay(managerVersion: String?, kernelVersion: String?): VersionPairDisplay =
+    VersionPairDisplay(
+        manager = versionToShow(managerVersion),
+        kernel = versionToShow(kernelVersion),
+        state = managerVersionState(managerVersion, kernelVersion),
+    )
+
+/** A reading's release, or the reading itself when it carries no release to take. */
+private fun versionToShow(version: String?): String? =
+    version?.trim()?.takeIf(String::isNotBlank)?.let { releaseOf(it) ?: it }
+
+/**
  * The version the warning's own action should install, or null when there is nothing to act on.
  *
  * Only a mismatch, and only when the version to install is a version rather than an empty reading: an
