@@ -82,18 +82,40 @@ internal fun nextScrollSearchStep(visibleLastIndex: Int?, totalItems: Int): Int?
 }
 
 /**
+ * Where a card that was jumped to has to sit, given how tall the heading pinned over it is.
+ *
+ * A negative offset, and that sign is the whole point. A sticky heading is drawn *over* the top of the list
+ * rather than as a row of it, so a jump that puts the card at the top of the viewport puts it behind the
+ * heading - the card that was asked for ends up the one thing on screen nobody can read. Compose measures
+ * this offset the other way round, where positive scrolls the item further up, so the sign is also the part
+ * that is easy to get wrong: a positive offset here would bury the card twice over instead of uncovering it.
+ *
+ * Zero when the heading has not been measured: that is a jump to the top of the list, which is where this
+ * feature started, rather than a jump into a hole.
+ */
+internal fun jumpLandingOffset(pinnedHeadingHeight: Int): Int = -(pinnedHeadingHeight.coerceAtLeast(0))
+
+/**
  * Brings the card keyed [key] into view, one screenful at a time, and stops if the list does not have it.
+ *
+ * [pinnedHeadingHeight] is the room the card needs above it. It is passed in rather than assumed because the
+ * heading is a row of this page whose height is a fact about the theme and the type scale, and this file has
+ * no way to measure either.
  *
  * Silent about failure on purpose: what the caller does afterwards - outline the card - is worth doing
  * whether or not the scroll moved, and a jump that could not find its row is a bug in a key, not
  * something the person holding the phone can act on.
  */
-internal suspend fun jumpToSettingCard(list: LazyListState, key: String) {
+internal suspend fun jumpToSettingCard(
+    list: LazyListState,
+    key: String,
+    pinnedHeadingHeight: Int,
+) {
     repeat(JUMP_SEARCH_LIMIT) {
         val info = list.layoutInfo
         val onScreen = info.visibleItemsInfo.firstOrNull { item -> item.key == key }
         if (onScreen != null) {
-            list.animateScrollToItem(onScreen.index)
+            list.animateScrollToItem(onScreen.index, jumpLandingOffset(pinnedHeadingHeight))
             return
         }
         val step = nextScrollSearchStep(

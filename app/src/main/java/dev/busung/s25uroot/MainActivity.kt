@@ -4092,6 +4092,11 @@ private fun SettingsPage(
     // section. One state for both, because to the list they are the same jump.
     var jumpTarget by remember { mutableStateOf<String?>(null) }
     var cardHighlighted by remember { mutableStateOf(false) }
+    // How tall a pinned heading is, measured as one is laid out rather than assumed from the theme: a jump
+    // has to leave that much room above the card it lands on, or the card arrives behind the heading the
+    // jump itself pinned - the one place on the page where a card cannot be read. Read here and passed into
+    // the jump, because the page cannot know the type scale, and the heading cannot know who is asking.
+    var pinnedHeadingHeight by remember { mutableStateOf(0) }
     // Which sections the user has collapsed, read from the store this page writes to. Seeded from it rather
     // than kept beside it: leaving the tab and coming back rebuilds this composable, and what the sections
     // were is the one thing about the page that has to survive that. The collapsed set is the one stored, so
@@ -4136,7 +4141,7 @@ private fun SettingsPage(
                 }
             }
         }
-        jumpToSettingCard(settingsList, wanted)
+        jumpToSettingCard(settingsList, wanted, pinnedHeadingHeight)
         cardHighlighted = true
         delay(SETTINGS_HIGHLIGHT_MILLIS)
         cardHighlighted = false
@@ -4180,7 +4185,13 @@ private fun SettingsPage(
                 )
             }
         }
-        settingsSectionHeading(SettingsSection.Appearance, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.Appearance,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
         if (SettingsSection.Appearance in openSections) item {
             SettingsSectionBody {
                 ThemeModeSelector(themeMode, onThemeModeChanged)
@@ -4219,7 +4230,13 @@ private fun SettingsPage(
             }
         }
 
-        settingsSectionHeading(SettingsSection.Payloads, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.Payloads,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
         if (SettingsSection.Payloads in openSections) item {
             SettingsSectionBody {
                 SettingsCard(
@@ -4316,7 +4333,13 @@ private fun SettingsPage(
             }
         }
 
-        settingsSectionHeading(SettingsSection.Run, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.Run,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
 
         // Keyed by the card something else in the app may ask for: the run screen's read-only failure
         // names this setting and hands its key over, and a key is what lets the page find the row without
@@ -4431,7 +4454,13 @@ private fun SettingsPage(
                 )
             }
         }
-        settingsSectionHeading(SettingsSection.Shizuku, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.Shizuku,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
         if (SettingsSection.Shizuku in openSections) item {
             SettingsSectionBody {
                 SettingsSwitchCard(
@@ -4558,7 +4587,13 @@ private fun SettingsPage(
             }
         }
 
-        settingsSectionHeading(SettingsSection.WirelessAdb, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.WirelessAdb,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
         if (SettingsSection.WirelessAdb in openSections) item {
             SettingsSectionBody {
                 // Read when the screen is built rather than on every recomposition: it is a file read
@@ -4642,7 +4677,13 @@ private fun SettingsPage(
             }
         }
 
-        settingsSectionHeading(SettingsSection.Root, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.Root,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
         if (SettingsSection.Root in openSections) item {
             SettingsSectionBody {
                 // The flavour is first because everything below it is about this flavour's module:
@@ -4863,7 +4904,13 @@ private fun SettingsPage(
             }
         }
 
-        settingsSectionHeading(SettingsSection.Recovery, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.Recovery,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
         if (SettingsSection.Recovery in openSections) item {
             SettingsSectionBody {
                 RootRecoverySection(
@@ -4880,7 +4927,13 @@ private fun SettingsPage(
             }
         }
 
-        settingsSectionHeading(SettingsSection.System, openSections, indexRows, toggleSection)
+        settingsSectionHeading(
+            SettingsSection.System,
+            openSections,
+            indexRows,
+            toggleSection,
+            onPinnedHeight = { pinnedHeadingHeight = it },
+        )
         if (SettingsSection.System in openSections) item {
             SettingsSectionBody {
                 SettingsCard(
@@ -7060,6 +7113,10 @@ private fun SourceCoverageBlock(
  * pins whatever is at the top of the list, and the index card's rows have no content under them at all - so a
  * closed heading would be held over the rows of the section *below* it, claiming authorship of somebody
  * else's content, which is the opposite of what the pin is for.
+ *
+ * [onPinnedHeight] reports this heading's height as it is laid out. Who needs it is the jump: a card scrolled
+ * to the top of the viewport arrives *behind* a heading that is pinned there, so the height is what says how
+ * much room the jump has to leave above it.
  */
 @OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.settingsSectionHeading(
@@ -7067,6 +7124,7 @@ private fun LazyListScope.settingsSectionHeading(
     openSections: Set<SettingsSection>,
     indexRows: Map<SettingsSection, SettingsIndexRow>,
     onToggle: (SettingsSection) -> Unit,
+    onPinnedHeight: (Int) -> Unit,
 ) {
     if (section in openSections) {
         stickyHeader {
@@ -7076,7 +7134,8 @@ private fun LazyListScope.settingsSectionHeading(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceContainer),
+                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                    .onGloballyPositioned { coordinates -> onPinnedHeight(coordinates.size.height) },
             ) {
                 SettingsSectionHeader(section, openSections, indexRows, onToggle)
             }

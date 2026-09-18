@@ -240,7 +240,11 @@ class SettingsSectionsTest {
     @Test
     fun `an open section's heading pins itself and a closed one does not`() {
         val page = source("MainActivity.kt")
-        val heading = page.substringAfter("private fun LazyListScope.settingsSectionHeading").take(900)
+        // The function's own body, read to its end rather than through a window tuned to its length: the
+        // heading's documentation is part of the function, and a window that has to be widened every time a
+        // sentence is added to it is a test that fails for the wrong reason.
+        val heading = page.substringAfter("private fun LazyListScope.settingsSectionHeading")
+            .substringBefore("\n}\n")
 
         assertTrue(
             "an open section's heading scrolls away, so a section longer than a screen stops saying whose " +
