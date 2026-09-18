@@ -77,6 +77,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -215,6 +217,12 @@ private fun InstallScreen(
     onOpenSetting: (String) -> Unit,
 ) {
     val logScrollState = rememberScrollState()
+    // The page's own scroll, held out here so the button over it can drive the same state.
+    val pageScrollState = rememberScrollState()
+    // Where this screen's buttons start, in window coordinates. The back-to-top button floats over the page,
+    // and the page ends in the controls that stop and close a run - so it stands down while any of them is
+    // on screen rather than sitting over the right end of the one control a hung run depends on.
+    var controlsTop by remember { mutableStateOf(Float.POSITIVE_INFINITY) }
     val view = LocalView.current
     var showRetryChoice by remember { mutableStateOf(false) }
     // Whether a reboot was *asked for*, which is all the app can know: null while nothing has been
@@ -247,13 +255,12 @@ private fun InstallScreen(
     // already taken the height the log was supposed to live in. A log that can vanish is worse than a
     // page that has to be scrolled - and the log is the only continuous account of a run.
     Scaffold { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 20.dp)
-                .verticalScroll(rememberScrollState()),
+        PageColumn(
+            padding = padding,
+            scrollState = pageScrollState,
+            modifier = Modifier.padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
+            controlsTop = controlsTop,
         ) {
             Column(
                 modifier = Modifier.padding(top = 28.dp, bottom = 4.dp),
@@ -299,110 +306,120 @@ private fun InstallScreen(
             // floor and not a rule and the user is the one who knows whether this boot has settled.
             // Stopping is offered for the whole run, since it is the only way out of one that has hung:
             // back is disabled for the length of a run and nothing else can be pressed.
-            if (installState.phase == InstallPhase.Settling || installState.busy) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    if (installState.phase == InstallPhase.Settling) {
-                        FilledTonalButton(
-                            onClick = {
-                                clickHaptic(view)
-                                onSkipBootSettle()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(stringResource(R.string.action_run_now))
-                        }
-                    }
-                    if (installState.busy) {
-                        FilledTonalButton(
-                            onClick = {
-                                clickHaptic(view)
-                                onStop()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(stringResource(R.string.action_stop_run))
-                        }
-                    }
-                }
-            }
-
-            if (!installState.busy) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // The step after a successful load, and the reason it is here rather than only in
-                    // Settings: KernelSU has just been loaded into the running kernel, and the modules
-                    // that go with it are mounted but not yet in a Zygote. A userspace restart is what
-                    // puts them there, and asking for it from the screen that just finished is the
-                    // moment the user is thinking about it.
-                    if (installState.phase == InstallPhase.Installed) {
-                        RecoveryActionButton(
-                            tool = RecoveryTool.SoftReboot,
-                            label = stringResource(R.string.install_load_modules),
-                            modifier = Modifier.fillMaxWidth(),
-                            onOpenSetting = onOpenSetting,
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+            // The two groups below are one block rather than two items, so that where they begin can be
+            // measured in one place - and because they are one thing: what can be done about the run as it
+            // stands. The wrapping column's spacing is the page's own, so the layout is what it was.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { coordinates -> controlsTop = coordinates.positionInWindow().y },
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                if (installState.phase == InstallPhase.Settling || installState.busy) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        when (installState.phase) {
-                            InstallPhase.Failed, InstallPhase.Stopped -> {
-                                val waiting = waitRemaining
-                                if (waiting != null) {
-                                    WaitingRetryCard(
-                                        secondsLeft = waiting,
-                                        modifier = Modifier.weight(1f),
-                                        onRetryNow = {
-                                            clickHaptic(view)
-                                            waitRemaining = null
-                                            onRetry()
-                                        },
-                                        onStopWaiting = {
-                                            clickHaptic(view)
-                                            waitRemaining = null
-                                        },
-                                    )
-                                } else {
-                                    FilledTonalButton(
-                                        onClick = {
-                                            clickHaptic(view)
-                                            onClose()
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Text(stringResource(R.string.action_close))
-                                    }
-                                    Button(
-                                        onClick = {
-                                            clickHaptic(view)
-                                            showRetryChoice = true
-                                        },
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Text(stringResource(R.string.action_retry))
-                                    }
-                                }
-                            }
-                            InstallPhase.Installed, InstallPhase.RootOnly -> Button(
+                        if (installState.phase == InstallPhase.Settling) {
+                            FilledTonalButton(
                                 onClick = {
                                     clickHaptic(view)
-                                    onClose()
+                                    onSkipBootSettle()
                                 },
                                 modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Text(stringResource(R.string.action_done))
+                                Text(stringResource(R.string.action_run_now))
                             }
-                            else -> Unit
+                        }
+                        if (installState.busy) {
+                            FilledTonalButton(
+                                onClick = {
+                                    clickHaptic(view)
+                                    onStop()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(stringResource(R.string.action_stop_run))
+                            }
+                        }
+                    }
+                }
+
+                if (!installState.busy) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        // The step after a successful load, and the reason it is here rather than only in
+                        // Settings: KernelSU has just been loaded into the running kernel, and the modules
+                        // that go with it are mounted but not yet in a Zygote. A userspace restart is what
+                        // puts them there, and asking for it from the screen that just finished is the
+                        // moment the user is thinking about it.
+                        if (installState.phase == InstallPhase.Installed) {
+                            RecoveryActionButton(
+                                tool = RecoveryTool.SoftReboot,
+                                label = stringResource(R.string.install_load_modules),
+                                modifier = Modifier.fillMaxWidth(),
+                                onOpenSetting = onOpenSetting,
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            when (installState.phase) {
+                                InstallPhase.Failed, InstallPhase.Stopped -> {
+                                    val waiting = waitRemaining
+                                    if (waiting != null) {
+                                        WaitingRetryCard(
+                                            secondsLeft = waiting,
+                                            modifier = Modifier.weight(1f),
+                                            onRetryNow = {
+                                                clickHaptic(view)
+                                                waitRemaining = null
+                                                onRetry()
+                                            },
+                                            onStopWaiting = {
+                                                clickHaptic(view)
+                                                waitRemaining = null
+                                            },
+                                        )
+                                    } else {
+                                        FilledTonalButton(
+                                            onClick = {
+                                                clickHaptic(view)
+                                                onClose()
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text(stringResource(R.string.action_close))
+                                        }
+                                        Button(
+                                            onClick = {
+                                                clickHaptic(view)
+                                                showRetryChoice = true
+                                            },
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Text(stringResource(R.string.action_retry))
+                                        }
+                                    }
+                                }
+                                InstallPhase.Installed, InstallPhase.RootOnly -> Button(
+                                    onClick = {
+                                        clickHaptic(view)
+                                        onClose()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(stringResource(R.string.action_done))
+                                }
+                                else -> Unit
+                            }
                         }
                     }
                 }

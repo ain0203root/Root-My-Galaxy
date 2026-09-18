@@ -5,13 +5,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -24,10 +28,14 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -80,6 +88,51 @@ internal fun PageList(
 internal fun rememberPageListState(): LazyListState = rememberLazyListState()
 
 /**
+ * A screen that scrolls as a column, with the button that returns it to the top.
+ *
+ * The same job [PageList] does for a list, for a screen whose content is not one - and the reason the button
+ * is drawn here rather than at the call site: it has to be a sibling of the scrolling column, not a child of
+ * it, so that it stays put while the column moves under it.
+ */
+@Composable
+internal fun PageColumn(
+    padding: PaddingValues,
+    scrollState: ScrollState,
+    modifier: Modifier = Modifier,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
+    /**
+     * Where anything on this screen the button must never sit over starts, in window coordinates - or the
+     * default when the screen has nothing like that.
+     *
+     * Only a screen whose end is its own controls needs this. From this point down is something the user may
+     * be about to press, and the run screen's Stop button is the one that cannot afford to be covered, so
+     * while any of it is visible the button is not drawn at all. The comparison is against the bottom of the
+     * scrolling area rather than the window, because that is the edge the button is measured from.
+     */
+    controlsTop: Float = Float.POSITIVE_INFINITY,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    var viewportBottom by remember { mutableStateOf(0f) }
+    Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    viewportBottom = coordinates.positionInWindow().y + coordinates.size.height
+                }
+                .verticalScroll(scrollState),
+            verticalArrangement = verticalArrangement,
+            content = content,
+        )
+        BackToTopFab(
+            scrollState = scrollState,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+            standDown = controlsTop < viewportBottom,
+        )
+    }
+}
+
+/**
  * The button that takes a long list back to its start.
  *
  * It draws itself only once the list has actually moved. One that is always there covers the row it sits
@@ -97,6 +150,24 @@ internal fun BackToTopFab(listState: LazyListState, modifier: Modifier = Modifie
     }
     BackToTopButton(visible = scrolled, modifier = modifier) {
         listState.animateScrollToItem(0)
+    }
+}
+
+/**
+ * The same button for a screen that scrolls a column rather than a list.
+ *
+ * [standDown] is the screen's own answer about whether the button would be in the way; [PageColumn] is where
+ * that comes from.
+ */
+@Composable
+internal fun BackToTopFab(
+    scrollState: ScrollState,
+    modifier: Modifier = Modifier,
+    standDown: Boolean = false,
+) {
+    val scrolled by remember(scrollState) { derivedStateOf { scrollState.value > 0 } }
+    BackToTopButton(visible = scrolled && !standDown, modifier = modifier) {
+        scrollState.animateScrollTo(0)
     }
 }
 
