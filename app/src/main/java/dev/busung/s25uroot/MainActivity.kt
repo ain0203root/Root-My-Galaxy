@@ -2128,6 +2128,7 @@ private val RESIDUE_LIST_MAX = 300.dp
 
 @Composable
 private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Unit) {
+    val verdict = verdictColors(runVerdict(installState.phase, installState.busy))
     val context = LocalContext.current
     val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -2158,9 +2159,11 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
         modifier = Modifier.fillMaxWidth().animateContentSize(),
         shape = expressiveClickableCardShape(interactionSource),
         interactionSource = interactionSource,
+        // The run's own verdict, not the accent: this card said "fine" about a failed run, on the screen a
+        // phone opens on.
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            containerColor = verdict.container,
+            contentColor = verdict.content,
         ),
     ) {
         Row(
@@ -3169,31 +3172,21 @@ private fun historyResultLabel(result: InstallRunResult): String = stringResourc
     },
 )
 
-private fun historyResultIcon(result: InstallRunResult): ImageVector = when (result) {
-    InstallRunResult.Running -> Icons.Rounded.Schedule
-    InstallRunResult.Succeeded -> Icons.Rounded.CheckCircle
-    InstallRunResult.RootOnly -> Icons.Rounded.LockOpen
-    InstallRunResult.Failed -> Icons.Rounded.Error
-    InstallRunResult.Stopped -> Icons.Rounded.Block
-}
+private fun historyResultIcon(result: InstallRunResult): ImageVector = verdictIcon(runVerdict(result))
+
+/**
+ * A stored run's colours, from the one verdict palette every surface shares.
+ *
+ * The two wrappers are kept because the history rows are drawn from a result and not from a phase, and the
+ * mapping between the two is exactly the thing that used to exist in four places.
+ */
+@Composable
+private fun historyResultContainerColor(result: InstallRunResult): Color =
+    verdictColors(runVerdict(result)).container
 
 @Composable
-private fun historyResultContainerColor(result: InstallRunResult): Color = when (result) {
-    InstallRunResult.Running -> MaterialTheme.colorScheme.tertiaryContainer
-    InstallRunResult.Succeeded -> MaterialTheme.colorScheme.primaryContainer
-    InstallRunResult.RootOnly -> MaterialTheme.colorScheme.secondaryContainer
-    InstallRunResult.Failed -> MaterialTheme.colorScheme.errorContainer
-    InstallRunResult.Stopped -> MaterialTheme.colorScheme.surfaceContainerHighest
-}
-
-@Composable
-private fun historyResultContentColor(result: InstallRunResult): Color = when (result) {
-    InstallRunResult.Running -> MaterialTheme.colorScheme.onTertiaryContainer
-    InstallRunResult.Succeeded -> MaterialTheme.colorScheme.onPrimaryContainer
-    InstallRunResult.RootOnly -> MaterialTheme.colorScheme.onSecondaryContainer
-    InstallRunResult.Failed -> MaterialTheme.colorScheme.onErrorContainer
-    InstallRunResult.Stopped -> MaterialTheme.colorScheme.onSurfaceVariant
-}
+private fun historyResultContentColor(result: InstallRunResult): Color =
+    verdictColors(runVerdict(result)).content
 
 @Composable
 private fun formatHistoryTime(timestamp: Long): String {

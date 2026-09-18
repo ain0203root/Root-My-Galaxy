@@ -49,12 +49,36 @@ internal object RunNotification {
         runCatching {
             NotificationManagerCompat.from(context).notify(
                 NOTIFICATION_ID,
-                builder(context, message).apply {
+                builder(context, message, RunVerdict.Running, withActions = true).apply {
                     setProgress(100, (progress.coerceIn(0f, 1f) * 100).toInt(), false)
                 }.build(),
             )
         }.onFailure { error ->
             warnOnce(context, "the run notification could not be posted", error)
+        }
+    }
+
+    /**
+     * Leaves the outcome in the shade instead of taking the notification away.
+     *
+     * A run is usually spent with the phone in a pocket, and the screen it was started from is not what
+     * anyone is looking at when it ends. So a run that did not simply succeed stays: it wears its verdict's
+     * own colour and word, it is no longer ongoing, and it goes when it is tapped. A success still clears -
+     * the card on Home is the account of that, and a notification saying "done" about the thing you just did
+     * is noise.
+     */
+    fun finish(context: Context, message: String, verdict: RunVerdict) {
+        ensureChannel(context)
+        runCatching {
+            NotificationManagerCompat.from(context).notify(
+                NOTIFICATION_ID,
+                builder(context, message, verdict, withActions = false).apply {
+                    setOngoing(false)
+                    setAutoCancel(true)
+                }.build(),
+            )
+        }.onFailure { error ->
+            warnOnce(context, "the run's result could not be posted", error)
         }
     }
 
@@ -69,7 +93,7 @@ internal object RunNotification {
         runCatching {
             NotificationManagerCompat.from(context).notify(
                 NOTIFICATION_ID,
-                builder(context, message).build(),
+                builder(context, message, RunVerdict.Running, withActions = true).build(),
             )
         }.onFailure { error ->
             warnOnce(context, "the run notification could not be updated", error)
@@ -93,10 +117,25 @@ internal object RunNotification {
         if (RunInFlight.holder(context) == null) clear(context)
     }
 
-    private fun builder(context: Context, message: String) = NotificationCompat
+    /**
+     * The notification, in the one shape both of its lives need.
+     *
+     * [withActions] is false only for an outcome, where there is nothing left to stop or to watch: a pair of
+     * buttons that act on a run that has ended is worse than no buttons, and the Stop one would be the last
+     * thing anyone tapped.
+     */
+    private fun builder(
+        context: Context,
+        message: String,
+        verdict: RunVerdict,
+        withActions: Boolean,
+    ) = NotificationCompat
         .Builder(context, CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.stat_sys_download)
-        .setContentTitle(context.getString(R.string.run_notification_title))
+        // The verdict's own colour and glyph, so the shade says the same thing the card does - words
+        // included, since a colour is not available to everyone reading a notification.
+        .setColor(VerdictTint.of(verdict))
+        .setSmallIcon(verdictSmallIcon(verdict))
+        .setContentTitle(context.getString(verdict.label))
         .setContentText(message)
         .setStyle(NotificationCompat.BigTextStyle().bigText(message))
         .setContentIntent(runScreenPendingIntent(context))
@@ -104,16 +143,19 @@ internal object RunNotification {
         .setOngoing(true)
         .setAutoCancel(false)
         .setPriority(NotificationCompat.PRIORITY_LOW)
-        .addAction(
-            0,
-            context.getString(R.string.action_stop_run),
-            actionPendingIntent(context, RunActionReceiver.ACTION_STOP, requestCode = 1),
-        )
-        .addAction(
-            0,
-            context.getString(R.string.logs_copy),
-            actionPendingIntent(context, RunActionReceiver.ACTION_COPY_LOG, requestCode = 2),
-        )
+        .apply {
+            if (!withActions) return@apply
+            addAction(
+                0,
+                context.getString(R.string.action_stop_run),
+                actionPendingIntent(context, RunActionReceiver.ACTION_STOP, requestCode = 1),
+            )
+            addAction(
+                0,
+                context.getString(R.string.logs_copy),
+                actionPendingIntent(context, RunActionReceiver.ACTION_COPY_LOG, requestCode = 2),
+            )
+        }
 
     /** Back to the screen that is running it, which is where a decision about a run belongs. */
     private fun runScreenPendingIntent(context: Context) = PendingIntent.getActivity(
@@ -155,6 +197,21 @@ internal object RunNotification {
         AppLog.warn(AppLogTags.RUN, "$message: ${error.javaClass.simpleName}")
         // Deliberately silent about it on screen: a run is not failing here, and the notification is a
         // convenience rather than a part of the install.
+    }
+
+    /**
+     * The system glyph for a verdict.
+     *
+     * The framework's own drawables rather than this app's, because a notification icon is drawn as a
+     * silhouette on a background the app does not control - and because the shapes read as the outcomes: a
+     * download while it works, a finished one, and the warning triangle for everything that ended without a
+     * loaded KernelSU.
+     */
+    private fun verdictSmallIcon(verdict: RunVerdict): Int = when (verdict) {
+        RunVerdict.Succeeded -> android.R.drawable.stat_sys_download_done
+        RunVerdict.Running -> android.R.drawable.stat_sys_download
+        RunVerdict.Idle, RunVerdict.RootOnly, RunVerdict.Failed, RunVerdict.Stopped ->
+            android.R.drawable.stat_notify_error
     }
 
     @Volatile

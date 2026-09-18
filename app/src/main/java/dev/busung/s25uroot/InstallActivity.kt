@@ -661,6 +661,9 @@ private fun InstallerStatusCard(
     /** Where the notice's own button goes: to the switch that refused the write. */
     onOpenReadOnlySetting: () -> Unit,
 ) {
+    // The same verdict colours Home's card, the history rows and the notification use: a root-only run
+    // used to read as a plain success here and as something else in the list.
+    val verdict = verdictColors(runVerdict(installState.phase, installState.busy))
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -668,15 +671,8 @@ private fun InstallerStatusCard(
             .animateContentSize(),
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = when (installState.phase) {
-                InstallPhase.Failed -> MaterialTheme.colorScheme.errorContainer
-                else -> MaterialTheme.colorScheme.primaryContainer
-            },
-            contentColor = if (installState.phase == InstallPhase.Failed) {
-                MaterialTheme.colorScheme.onErrorContainer
-            } else {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            },
+            containerColor = verdict.container,
+            contentColor = verdict.content,
         ),
     ) {
         Column(

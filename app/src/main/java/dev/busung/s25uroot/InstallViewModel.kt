@@ -1063,9 +1063,24 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // about to restart the userspace has already swept for the same reason, and it says so.
                 RunInFlight.end(app)
                 if (!stagingSwept) sweepStaging(app)
-                // The run is over, so what the shade said about it is a claim about nothing. An unattended
-                // run leaves its own notification alone: the gate owns that one.
-                if (!runIsUnattended) RunNotification.clear(app)
+                // The run is over. A success clears the notification, because Home's card is the account of
+                // it and a shade line saying "done" about the thing you just did is noise - but anything else
+                // stays, wearing its verdict: a run that failed while the phone was in a pocket is exactly
+                // the one whose outcome nobody saw. An unattended run leaves its own notification alone:
+                // the gate owns that one.
+                if (!runIsUnattended) {
+                    val outcome = runVerdict(mutableState.value.phase, busy = false)
+                    if (outcome == RunVerdict.Succeeded) {
+                        RunNotification.clear(app)
+                    } else {
+                        RunNotification.finish(
+                            context = app,
+                            message = mutableState.value.failure?.reason
+                                ?: mutableState.value.message,
+                            verdict = outcome,
+                        )
+                    }
+                }
             }
         }
     }
