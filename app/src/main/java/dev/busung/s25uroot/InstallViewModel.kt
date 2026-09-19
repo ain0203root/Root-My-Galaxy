@@ -637,6 +637,31 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             AppLog.debug(RUN_LOG_TAG, "Run not started: this screen is already on a run")
             return
         }
+        // A run is one attempt at the exploit, and this app can be on two at once. The guards above are
+        // about *this* screen and this view model, and the app is not one thing: the boot gate installs from
+        // its own process, and a second screen brings a second view model in this one. Both are the same
+        // failure - two exploits racing one kernel, with the second one's staging swept or overwritten under
+        // it - so both are refused here, before anything is written, claimed, staged or stopped.
+        runInFlightElsewhere()?.let { other ->
+            AppLog.warn(
+                RUN_LOG_TAG,
+                "Run not started: a run is already in flight (pid ${other.pid}, entry ${other.entryId})",
+            )
+            // Reported as a failure rather than as silence, because nothing else on the screen would say
+            // why the tap did nothing - and as a failure *without* a history entry: no attempt was made, so
+            // there is nothing to record, and the next run's history is not this one's.
+            mutableState.value = InstallUiState(
+                phase = InstallPhase.Failed,
+                message = app.getString(R.string.status_run_in_flight),
+                probeOutput = mutableState.value.probeOutput,
+                failure = RunFailure.of(
+                    stage = RunStage.Transport,
+                    reason = app.getString(R.string.install_run_in_flight),
+                ),
+            )
+            appendLog(app.getString(R.string.log_run_in_flight))
+            return
+        }
         // Taken before the question below rather than after it, because the question is itself a state
         // of this screen and this screen has a writer in flight: the lookup that runs when the screen
         // opens publishes "not installed, ready to install" whenever its fetch returns, and cancelling
@@ -1850,6 +1875,25 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         activeHistoryEntry = entry
         activeRunId = entry.id
         publishHistory(entry)
+    }
+
+    /**
+     * A run in flight that is not this view model's own, or null.
+     *
+     * The record is written per *process*, and a process can hold more than one view model - the screens
+     * each keep their own - so a pid on its own cannot say whether the run belongs to this one. The entry id
+     * can: a run names the history entry it is writing, and this view model knows which entry it started.
+     *
+     * The difference matters in one direction only. Reading another process's run as this one's own would
+     * let the second attempt through, which is the bug; reading this process's own run as another's would
+     * refuse a run that should have started, and that is what the entry id is for.
+     */
+    private fun runInFlightElsewhere(): RunHolder? {
+        val holder = RunInFlight.holder(app) ?: return null
+        val mine = holder.pid == android.os.Process.myPid() &&
+            holder.entryId != null &&
+            holder.entryId == activeRunId
+        return holder.takeUnless { mine }
     }
 
     /**

@@ -36,17 +36,17 @@ class StringCopyTest {
 
     @Test
     fun `the file is read as whole elements rather than lines`() {
-        // The guard below is only as good as this parse: a value split over two lines would be checked as
-        // two fragments, and the mistake would sit exactly on the seam it creates.
+        // The guard below is only as good as this parse, and the mistakes it is about hide exactly at the
+        // seam a partial read creates: a value split over two lines, or an element with an attribute after
+        // its name, would be checked as a fragment or not at all - and the file would look clean.
+        //
+        // Compared against the file rather than against a number, deliberately. A count written down here
+        // would fail every time a string is added, and the obvious repair is to bump the number, which
+        // teaches everyone that this assertion is noise.
         assertEquals(
             "the elements parsed are not the elements in the file, so part of this file's copy is unchecked",
-            740,
-            values.size,
-        )
-        assertEquals(
-            "an element with an attribute after the name is not being read",
-            740,
             Regex("<string name=").findAll(strings).count(),
+            values.size,
         )
     }
 

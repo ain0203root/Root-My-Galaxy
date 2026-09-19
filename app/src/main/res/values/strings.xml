@@ -104,6 +104,14 @@
     <string name="settings_payload_mode_summary_online">Downloads new payload. Network connection is required</string>
     <string name="settings_payload_mode_summary_offline">Use Cached Payload. No network connection is required.</string>
     <string name="action_stop_run">Stop</string>
+    <!--
+        A run that was not started because the device is already on one. The three lines are the card, the
+        reason on it and the log: nothing was attempted, so there is no stage to report and no log to keep,
+        and the reason has to carry the whole of what to do about it.
+    -->
+    <string name="status_run_in_flight">Another run is in flight</string>
+    <string name="install_run_in_flight">This device is already running an install, so this one was not started. Wait for that run to finish, or restart the phone to take over from it.</string>
+    <string name="log_run_in_flight">[!] Not started: another run already has this device.</string>
     <string name="status_run_stopped">Stopped</string>
     <string name="phase_stopped">The run stopped at the stage shown above. Stopping does not undo changes that have already been made to the device.</string>
     <string name="log_run_stopped">[*] Stopped during the %1$s stage. Anything already started on the device will keep running. The next run will check whether it is still active.</string>
@@ -154,6 +162,7 @@
     <string name="offline_cache_empty">Not available.</string>
     <string name="offline_cached_artifact_invalid">The cached %1$s does not match</string>
     <string name="autoroot_stabilizing">Waiting for the device to settle</string>
+    <string name="autoroot_run_in_flight">Stood down: another run was already in flight, so this boot was left to it.</string>
     <string name="autoroot_starting">Starting installation</string>
     <string name="autoroot_prior_install_required">Root on boot requires cached payload.</string>
     <string name="autoroot_failed">Installation failed: %1$s</string>

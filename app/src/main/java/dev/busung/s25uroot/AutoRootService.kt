@@ -154,6 +154,14 @@ class AutoRootService : Service() {
                 stopWithoutResult()
                 return
             }
+            // Silent, like the refusals above it, and for the same reason: the run this boot is yielding to
+            // is on screen with a notification of its own, and a boot notification about an install that did
+            // not start is one more thing in the shade saying the same thing.
+            AutoRootDecision.SkipRunInFlight -> {
+                AppLog.warn(AppLogTags.BOOT, "Root on boot stood down: a run was already in flight")
+                stopWithoutResult()
+                return
+            }
             AutoRootDecision.NeedsPriorInstall -> {
                 AppLog.warn(AppLogTags.BOOT, "Root on boot needs one online install first")
                 finish(getString(R.string.autoroot_prior_install_required))
@@ -186,6 +194,16 @@ class AutoRootService : Service() {
                 if (RootStatusProbe.isActive()) {
                     AutoRootSupport.markVerifiedForBoot(this@AutoRootService, bootToken)
                     AppLog.info(AppLogTags.BOOT, "Root on boot skipped after the wait: KernelSU is active")
+                    return@withTimeout
+                }
+                // Asked again, because the walk to the phone takes minutes and a run can be started from the
+                // app during it: the decision above answered for the boot, and this answers for the device as
+                // it is now. It is reported rather than silent, because by here the attempt has been claimed -
+                // so this is a boot that got no automatic install, and the notification is the only account
+                // of why. The run it yields to is the user's own and has its own notification.
+                if (RunInFlight.holder(this@AutoRootService) != null) {
+                    AppLog.warn(AppLogTags.BOOT, "Root on boot stood down after the wait: a run was in flight")
+                    finish(getString(R.string.autoroot_run_in_flight))
                     return@withTimeout
                 }
                 // Shizuku first, and before the run rather than inside it: this is the one caller that

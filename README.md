@@ -366,6 +366,29 @@ publish, and a run takes one on the caller's thread — so by the time a lookup'
 that has since started has already made its claim stale. The write becomes a no-op instead of a second
 opinion.
 
+## One run at a time
+
+A run is one attempt at the exploit, and the app is not one thing: the boot gate installs from
+`:autoroot_gate`, a run started from a screen is in the UI process, and that process can hold two screens
+with a view model each. Every guard the app had against a second attempt - the screen's own job, the gate's
+one-attempt-per-boot claim - was a guard about its *own* process, so a run could be started beside a run,
+which is two payloads racing one kernel and one of them being swept or overwritten while it works.
+
+So a run writes down that it is running, in a form this app's other processes can read, and a start is
+refused when that record names a run that is not this screen's own. The record carries three things: the
+boot id, the pid, and the **start time** from `/proc/<pid>/stat`. The start time is not decoration - a pid is
+handed out again once its process is gone, and this record outlives its process by design, so on a long boot
+the number alone would name a stranger and refuse a legitimate run. It also carries the history entry its
+owner is writing, which is what lets a reader - the sweep, the notification, this guard - tell *which* run
+is in flight rather than only that somebody is.
+
+The refusal is reported as a failure with no history entry behind it: nothing was attempted, so there is
+nothing to record and the next run's history is not this one's. What the card offers is the app's ordinary
+three answers, and all three mean something here: waiting until that run finishes, retrying straight away
+if it has, or restarting, which takes the device over from it. The boot gate asks the same question twice -
+once in its decision, which stands the automatic attempt down without spending it, and once after its settle
+wait, since the walk to the phone takes minutes and a run can be started during it.
+
 ## What a run does once KernelSU is verified
 
 Two readings of "is root live" are kept apart, because either alone is wrong on this hardware. The

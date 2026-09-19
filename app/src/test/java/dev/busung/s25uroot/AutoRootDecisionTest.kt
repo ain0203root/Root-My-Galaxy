@@ -12,6 +12,7 @@ class AutoRootDecisionTest {
         enabled: Boolean = true,
         kernelSuLoadEnabled: Boolean = true,
         kernelSuActive: Boolean = false,
+        runInFlight: Boolean = false,
         hasVerifiedInstall: Boolean = true,
         verifiedBootToken: String? = LAST_BOOT,
         attemptedBootToken: String? = null,
@@ -20,6 +21,7 @@ class AutoRootDecisionTest {
         enabled = enabled,
         kernelSuLoadEnabled = kernelSuLoadEnabled,
         kernelSuActive = kernelSuActive,
+        runInFlight = runInFlight,
         hasVerifiedInstall = hasVerifiedInstall,
         verifiedBootToken = verifiedBootToken,
         attemptedBootToken = attemptedBootToken,
@@ -54,6 +56,37 @@ class AutoRootDecisionTest {
     @Test
     fun `a boot whose attempt is spent does not get a second one`() {
         assertEquals(AutoRootDecision.SkipAttempted, decide(attemptedBootToken = THIS_BOOT))
+    }
+
+    @Test
+    fun `a boot that finds a run in flight stands down`() {
+        // The user is installing by hand while the gate wakes up: the run is the attempt this boot is
+        // getting, and starting a second exploit beside it is two payloads racing one kernel.
+        assertEquals(AutoRootDecision.SkipRunInFlight, decide(runInFlight = true))
+    }
+
+    @Test
+    fun `a run in flight is not the question about the cache`() {
+        // Before this, a device with no verified install was told to run one online installation first -
+        // while the user was watching one, which reads as the app not looking at the phone.
+        assertEquals(
+            AutoRootDecision.SkipRunInFlight,
+            decide(runInFlight = true, hasVerifiedInstall = false),
+        )
+    }
+
+    @Test
+    fun `a run in flight does not outrank a boot that is already rooted`() {
+        // KernelSU answering is the better answer, and it is also what marks this boot verified: a run
+        // that has just loaded the module must not leave the gate waiting to be told about it.
+        assertEquals(
+            AutoRootDecision.SkipAlreadyRooted,
+            decide(runInFlight = true, kernelSuActive = true),
+        )
+        assertEquals(
+            AutoRootDecision.SkipAlreadyVerified,
+            decide(runInFlight = true, verifiedBootToken = THIS_BOOT),
+        )
     }
 
     @Test

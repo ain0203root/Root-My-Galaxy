@@ -33,24 +33,49 @@ internal data class RunHolder(
      * left behind by a run that was killed, and can follow that run without being in its process.
      */
     val entryId: String? = null,
+    /**
+     * When that process started, so the pid is not asked to name it on its own.
+     *
+     * A pid is handed out again once its process is gone, and this record outlives its process by design -
+     * it is read by other processes, and a run killed with its process never clears it. "Pid 8123 is alive"
+     * is therefore not "the run that wrote this is alive": on a long boot the number comes round again and
+     * the record describes a stranger. The start time is what a pid cannot be.
+     */
+    val startTicks: String? = null,
 ) {
 
     /**
      * Whether this record still describes a run in flight.
      *
-     * [alive] is passed in rather than read here so the rule is a rule about two facts and can be
-     * tested without a device: a holder from *this* boot whose process is still there is a run, and
-     * anything else is a record left behind.
+     * Every input is passed in rather than read here so the rule is a rule about facts and can be tested
+     * without a device or a `/proc`.
+     *
+     * Only a *positive* mismatch refuses. A start time that could not be read on either side is one this
+     * rule cannot answer for, and treating that as a mismatch would strand a device with a run on it -
+     * which is the same reason the module check elsewhere in this app refuses only on a positive finding.
      */
-    fun holds(bootToken: String?, alive: Boolean): Boolean = this.bootToken == bootToken && alive
+    fun holds(bootToken: String?, alive: Boolean, startTicks: String? = null): Boolean =
+        this.bootToken == bootToken &&
+            alive &&
+            (this.startTicks == null || startTicks == null || this.startTicks == startTicks)
 
     companion object {
         /** Parses a stored record, refusing anything that is not one. */
-        fun of(bootToken: String?, pid: String?, entryId: String? = null): RunHolder? {
+        fun of(
+            bootToken: String?,
+            pid: String?,
+            entryId: String? = null,
+            startTicks: String? = null,
+        ): RunHolder? {
             val token = bootToken?.trim()?.takeIf(String::isNotBlank) ?: return null
             val parsed = pid?.trim()?.toIntOrNull() ?: return null
             if (parsed <= 0) return null
-            return RunHolder(token, parsed, entryId?.trim()?.takeIf(String::isNotBlank))
+            return RunHolder(
+                bootToken = token,
+                pid = parsed,
+                entryId = entryId?.trim()?.takeIf(String::isNotBlank),
+                startTicks = startTicks?.trim()?.takeIf(String::isNotBlank),
+            )
         }
     }
 }
@@ -61,6 +86,7 @@ internal object RunInFlight {
     private const val TOKEN = "boot_token"
     private const val PID = "pid"
     private const val ENTRY = "entry_id"
+    private const val START_TICKS = "start_ticks"
 
     /**
      * Records that this process is about to run, and returns whether it recorded anything.
@@ -78,6 +104,7 @@ internal object RunInFlight {
             // Null removes the key, which is what a caller with no entry to name wants: a stale id left
             // from an earlier run would point a reader at a record this run is not writing.
             .putString(ENTRY, entryId?.trim()?.takeIf(String::isNotBlank))
+            .putString(START_TICKS, startTicksOf(android.os.Process.myPid()))
             .commit()
     }
 
@@ -91,7 +118,7 @@ internal object RunInFlight {
         val preferences = preferences(context)
         val holder = holder(context, preferences) ?: return
         if (holder.pid != android.os.Process.myPid()) return
-        preferences.edit().remove(TOKEN).remove(PID).remove(ENTRY).commit()
+        preferences.edit().remove(TOKEN).remove(PID).remove(ENTRY).remove(START_TICKS).commit()
     }
 
     /** The run this device has in flight, or null when there is none. */
@@ -102,9 +129,32 @@ internal object RunInFlight {
             bootToken = preferences.getString(TOKEN, null),
             pid = preferences.getString(PID, null),
             entryId = preferences.getString(ENTRY, null),
+            startTicks = preferences.getString(START_TICKS, null),
         ) ?: return null
-        return holder.takeIf { it.holds(currentBootToken(), processAlive(it.pid)) }
+        return holder.takeIf {
+            it.holds(
+                bootToken = currentBootToken(),
+                alive = processAlive(it.pid),
+                startTicks = startTicksOf(it.pid),
+            )
+        }
     }
+
+    /**
+     * When [pid] started, from the kernel's own table.
+     *
+     * The 22nd field of `/proc/<pid>/stat`, counted after the process name - which is the second field,
+     * wrapped in parentheses, and may itself contain anything at all, spaces included. Everything after
+     * the last `)` is therefore the fields from the third on.
+     *
+     * Null when it cannot be read, which the rule above treats as "cannot tell" rather than as a mismatch.
+     */
+    private fun startTicksOf(pid: Int): String? = runCatching {
+        java.io.File("/proc/$pid/stat").readText()
+            .substringAfterLast(") ")
+            .split(" ")
+            .getOrNull(19)
+    }.getOrNull()?.trim()?.takeIf(String::isNotBlank)
 
     /**
      * Whether a process is still there.

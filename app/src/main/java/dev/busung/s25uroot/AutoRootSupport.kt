@@ -26,6 +26,15 @@ internal enum class AutoRootDecision {
     SkipAlreadyRooted,
     SkipAlreadyVerified,
     SkipAttempted,
+
+    /**
+     * Another run already has the device, so this boot's automatic attempt would be a second one.
+     *
+     * Its own reason rather than [SkipAttempted]: nothing about this boot has been spent, and a boot that
+     * stood down because the user was already installing is not a boot whose attempt is gone - the run in
+     * flight is the attempt, made by hand, and its result is the one that matters.
+     */
+    SkipRunInFlight,
     NeedsPriorInstall,
 }
 
@@ -67,6 +76,7 @@ internal fun autoRootDecision(
     enabled: Boolean,
     kernelSuLoadEnabled: Boolean,
     kernelSuActive: Boolean,
+    runInFlight: Boolean,
     hasVerifiedInstall: Boolean,
     verifiedBootToken: String?,
     attemptedBootToken: String?,
@@ -79,6 +89,10 @@ internal fun autoRootDecision(
     kernelSuActive -> AutoRootDecision.SkipAlreadyRooted
     verifiedBootToken == bootToken -> AutoRootDecision.SkipAlreadyVerified
     attemptedBootToken == bootToken -> AutoRootDecision.SkipAttempted
+    // Before the cache is asked about, because a run in flight is the answer to that question: the device
+    // has something runnable behind it - it is being run right now - and telling someone to run one online
+    // installation while they are watching one is the kind of line that reads as the app not looking.
+    runInFlight -> AutoRootDecision.SkipRunInFlight
     !hasVerifiedInstall -> AutoRootDecision.NeedsPriorInstall
     else -> AutoRootDecision.Run
 }
@@ -194,6 +208,10 @@ internal object AutoRootSupport {
             enabled = AppPreferences.bootRootMode(context) || retryArmed,
             kernelSuLoadEnabled = AppPreferences.loadKernelSu(context),
             kernelSuActive = kernelSuActive,
+            // Read here rather than passed in, because it is the one input that is not a preference: the
+            // record is whatever the processes on this device have written down, this one included - and
+            // this one has not started anything yet, since the gate is what is asking.
+            runInFlight = RunInFlight.holder(context) != null,
             // An install behind it, or an attempt to repeat. Requiring the first for a retry is how a
             // device testing a payload that has never completed a run was told to "run one online
             // installation first" about a retry it had asked for by hand - while the payload it was
