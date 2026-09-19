@@ -51,6 +51,19 @@ internal fun managerNameWorthShowing(installed: InstalledManager, flavor: Kernel
     !installed.label.trim().equals(flavor.label, ignoreCase = true)
 
 /**
+ * The Manager row's value band: the version on the phone, and an empty band when there is none.
+ *
+ * Empty rather than the version the app would install, which is the row below this one and not a fact about
+ * this device. Filling it with the offered version made the row claim a number the phone did not have - and
+ * with the description naming the same version to install, say it twice, which is what a reader notices
+ * first about a row like this.
+ *
+ * A manager whose own package would not answer for its version reads the same way, and that is deliberate:
+ * the row says what is known, and "installed, version unknown" is not the same fact as "3.3.0 is installed".
+ */
+internal fun managerRowValue(installed: InstalledManager?): String = installed?.versionName.orEmpty()
+
+/**
  * Which project an installed manager belongs to, from the two things it carries.
  *
  * The package name is authoritative when it is one either project publishes. When it is not, the

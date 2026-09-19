@@ -1,5 +1,6 @@
 package dev.busung.s25uroot
 
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -105,6 +106,45 @@ class KernelSuManagerTest {
     }
 
     @Test
+    fun `the Manager row shows a version only when the phone has one`() {
+        fun manager(version: String?) = InstalledManager(
+            packageName = "me.weishu.kernelsu",
+            label = "KernelSU",
+            versionName = version,
+            flavor = KernelSuFlavor.KernelSu,
+            spoofed = false,
+        )
+
+        assertEquals("3.3.0", managerRowValue(manager("3.3.0")))
+        assertEquals(
+            "nothing installed is no version to show, and not the one the app would install",
+            "",
+            managerRowValue(null),
+        )
+        assertEquals(
+            "a package that will not answer is not a version the phone has",
+            "",
+            managerRowValue(manager(null)),
+        )
+    }
+
+    @Test
+    fun `the Manager row's value is never the version the app would install`() {
+        // The defect this pins: the band fell back to the offered version, so a phone with no manager had
+        // its next-row number printed on this row - and printed twice, in the value and in the description.
+        val row = source("src/main/java/dev/busung/s25uroot/MainActivity.kt")
+
+        assertTrue(
+            "the value band no longer comes from the one reading that says what the phone has",
+            row.contains("value = managerRowValue(installedManager)"),
+        )
+        assertFalse(
+            "the offered version is on the row again as a fallback for a version this phone does not have",
+            row.contains("managerVersion ?: offeredManagerVersion"),
+        )
+    }
+
+    @Test
     fun `the offered release is the flavour's own default until one is named`() {
         assertEquals(
             "KernelSU_Next_v3.3.0_33214-release.apk",
@@ -116,4 +156,10 @@ class KernelSuManagerTest {
             KernelSuFlavor.KernelSuNext.defaultManagerRelease.url,
         )
     }
+
+    private fun source(relativeToApp: String): String = listOf(
+        File(relativeToApp),
+        File("app/$relativeToApp"),
+    ).firstOrNull(File::isFile)?.readText()
+        ?: throw AssertionError("$relativeToApp was not found from ${File(".").absolutePath}")
 }

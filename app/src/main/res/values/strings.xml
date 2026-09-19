@@ -706,6 +706,7 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="settings_manager_summary">Install %1$s</string>
     <string name="settings_manager_summary_installed">Current version installed</string>
     <string name="settings_manager_summary_named">%1$s is installed</string>
+    <string name="settings_manager_summary_unreadable">Installed; version could not be read</string>
     <string name="settings_manager_version">Manager version control</string>
     <string name="settings_manager_version_summary">Choose the manager version to install</string>
     <string name="settings_versions">Running</string>

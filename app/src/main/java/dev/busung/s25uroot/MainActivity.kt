@@ -4760,12 +4760,20 @@ private fun SettingsPage(
                             stringResource(R.string.settings_manager_summary, offeredManagerVersion)
                         managerNameWorthShowing(installedManager, kernelsuFlavor) ->
                             stringResource(R.string.settings_manager_summary_named, installedManager.label)
+                        // The value band is empty here, so the description cannot be one that promises a
+                        // number is on the row - which is the state a package that would not answer for
+                        // its own version leaves: installed, and unreadable about it.
+                        managerVersion == null ->
+                            stringResource(R.string.settings_manager_summary_unreadable)
                         else -> stringResource(R.string.settings_manager_summary_installed)
                     },
                     // What is on the phone, not what the app would install: the offered version is
                     // the row below this one, and the two were the same number in the same place
                     // until a manager from another line could be installed without the app noticing.
-                    value = managerVersion ?: offeredManagerVersion,
+                    // Nothing installed is nothing to show - filling the band with the offered version
+                    // put a number on this row that the phone did not have, and put it there twice with
+                    // the description above it.
+                    value = managerRowValue(installedManager),
                     position = SettingsCardPosition.Middle,
                     // Opens whatever manager is on the phone, of whatever version; the download is
                     // only offered when there is none. Nothing here rejects a version the user
