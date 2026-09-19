@@ -678,14 +678,6 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="readiness_ksu_not_loaded">Not Active</string>
     <string name="readiness_ksu_unreadable">Unknown</string>
     <string name="readiness_shizuku_not_running">Not running</string>
-    <!-- Home's "before a run" card: the gates a run has not passed, and what each one asks for. -->
-    <string name="run_gates_title">Before a run</string>
-    <string name="run_gates_ready">Nothing is in the way</string>
-    <string name="run_gate_battery">Battery</string>
-    <string name="run_gate_battery_restricted">Restricted</string>
-    <string name="run_gate_fix_allow">Allow</string>
-    <string name="run_gate_fix_start">Start</string>
-    <string name="run_gate_fix_root_now">Root now</string>
     <string name="settings_shizuku_state_running">Running</string>
     <string name="settings_shizuku_state_needs_permission">Needs permission</string>
     <string name="settings_shizuku_boot">Shizuku on boot</string>

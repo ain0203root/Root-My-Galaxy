@@ -1146,12 +1146,6 @@ private fun RootApp(
                             rebootNotice = null
                             showRebootSheet = true
                         },
-                        shizukuMode = shizukuMode,
-                        batteryUnrestricted = batteryUnrestricted,
-                        shizukuStarting = shizukuStarting,
-                        startShizuku = startShizuku,
-                        requestShizukuPermission = requestShizukuPermission,
-                        onRequestBatteryExemption = onRequestBatteryExemption,
                         onInstall = {
                             selectedProfile = null
                             if (advancedMode) {
@@ -1413,17 +1407,9 @@ private fun OverviewPage(
     onInstall: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenReboot: () -> Unit,
-    /** Whether the app is set to use Shizuku, which decides if its gate belongs on the card at all. */
-    shizukuMode: Boolean,
-    batteryUnrestricted: Boolean,
-    shizukuStarting: Boolean,
-    startShizuku: () -> Unit,
-    requestShizukuPermission: suspend () -> Boolean,
-    onRequestBatteryExemption: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
-    val scope = rememberCoroutineScope()
     // Read live, because these change without this screen doing anything: Shizuku hands out its binder
     // after it starts, a grant can be made or revoked in the Shizuku app, KernelSU is loaded per boot,
     // and a manager app can be installed or removed - and the one thing that changes all of them at
@@ -1580,33 +1566,6 @@ private fun OverviewPage(
                     onCancel = onCancelArmedRetry,
                 )
             }
-        }
-        // Above the readiness card, and above everything else that is only information: this one is what the
-        // run needs, and it is the only card on this screen whose rows carry a button.
-        item {
-            RunGatesCard(
-                gates = pendingRunGates(
-                    kernelSu = readiness.kernelSu,
-                    shizukuMode = shizukuMode,
-                    shizuku = readiness.shizuku,
-                    batteryUnrestricted = batteryUnrestricted,
-                ),
-                busy = shizukuStarting,
-                onOpenSettings = onOpenSettings,
-                onFix = { fix ->
-                    when (fix) {
-                        // Read again afterwards rather than assumed: a grant can be refused, and the
-                        // binder arrives a moment after a start the starter already reported as fine.
-                        RunGateFix.AllowShizuku -> scope.launch {
-                            requestShizukuPermission()
-                            readiness = readiness.copy(shizuku = ShizukuController.availability())
-                        }
-                        RunGateFix.StartShizuku -> startShizuku()
-                        RunGateFix.AllowBattery -> onRequestBatteryExemption()
-                        RunGateFix.RootNow -> onInstall()
-                    }
-                },
-            )
         }
         item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
@@ -2201,118 +2160,6 @@ private fun InstallStatusCard(installState: InstallUiState, onInstall: () -> Uni
  * device's history - a phone that was rooted yesterday reads as not loaded, which is the reason root on
  * boot exists.
  */
-/**
- * What a run still has to pass, each row carrying the one thing that fixes it.
- *
- * The readiness card below reports the device; this card is about the next run, and it lists only what is
- * outstanding - a checklist that also lists what is already fine has to be read to its end to find the line
- * that matters. An empty list is therefore the good news, and it is said rather than left blank, because a
- * card that disappears when everything works is a card nobody learns to trust.
- *
- * A gate with no fix is still shown: "KernelSU could not be read" is worth knowing before a run even though
- * nothing on this screen can act on it, and the row is one tap from Settings where the fuller picture is.
- */
-@Composable
-private fun RunGatesCard(
-    gates: List<RunGate>,
-    busy: Boolean,
-    onFix: (RunGateFix) -> Unit,
-    onOpenSettings: () -> Unit,
-) {
-    val view = LocalView.current
-    Card(
-        modifier = Modifier.fillMaxWidth().animateContentSize(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-        ) {
-            Text(stringResource(R.string.run_gates_title), style = MaterialTheme.typography.titleMedium)
-            if (gates.isEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(MaterialTheme.shapes.medium)
-                        .clickable {
-                            clickHaptic(view)
-                            onOpenSettings()
-                        },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(13.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.CheckCircle,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.run_gates_ready),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            gates.forEach { gate ->
-                RunGateRow(gate = gate, busy = busy, onFix = onFix, onOpenSettings = onOpenSettings)
-            }
-        }
-    }
-}
-
-/**
- * One gate: what it is, where it stands, and the button that fixes it.
- *
- * The state is the loud part rather than the name, since the name is the same on every phone and the state is
- * the reason this card is on screen at all. The row itself still opens Settings, because a row that only
- * carries a button is a row with nothing to read.
- */
-@Composable
-private fun RunGateRow(
-    gate: RunGate,
-    busy: Boolean,
-    onFix: (RunGateFix) -> Unit,
-    onOpenSettings: () -> Unit,
-) {
-    val view = LocalView.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable {
-                clickHaptic(view)
-                onOpenSettings()
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(stringResource(gate.label), style = MaterialTheme.typography.bodyMedium)
-            Text(
-                text = stringResource(gate.state),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        gate.fix?.let { fix ->
-            FilledTonalButton(
-                // A start attempt is the one fix that can still be running when the next frame is drawn,
-                // and a second tap would start a second one.
-                enabled = !busy,
-                onClick = {
-                    clickHaptic(view)
-                    onFix(fix)
-                },
-            ) {
-                Text(stringResource(fix.label))
-            }
-        }
-    }
-}
-
 @Composable
 private fun ReadinessCard(readiness: Readiness, onOpenSettings: () -> Unit) {
     val view = LocalView.current
