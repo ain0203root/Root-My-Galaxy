@@ -766,9 +766,6 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="run_notification_channel_description">Shows what a running installation is doing, with actions to stop it or copy the log.</string>
     <string name="run_notification_stopping">Stopping…</string>
     <string name="run_notification_log_copied">Log copied to the clipboard</string>
-    <string name="report_row_title">Copy diagnostic report</string>
-    <string name="report_copied">Report copied</string>
-    <string name="preflight_staging_unknown">Could not be read this time</string>
     <string name="target_search">Search device, model or kernel</string>
     <string name="no_matching_devices_query">Nothing matches "%1$s"</string>
     <string name="target_show_everything">Search every device</string>

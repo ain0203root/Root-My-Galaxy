@@ -94,7 +94,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Difference
 import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
@@ -1451,8 +1450,6 @@ private fun OverviewPage(
     var showAbout by remember { mutableStateOf(false) }
     // A report is two dozen readings and a log file, so the row says it is working rather than looking
     // like a tap that did nothing.
-    var copyingReport by remember { mutableStateOf(false) }
-    var reportError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(installState.phase, resumeTick) {
         // Off the main thread: the KernelSU reading may start `su`, and finding the manager apps walks
         // the package list - neither is worth a frozen frame.
@@ -1613,7 +1610,7 @@ private fun OverviewPage(
         }
         item { ReadinessCard(readiness, onOpenSettings) }
         item { DeviceCard(device) }
-        // The two rows that do something rather than report something, and they come last for that
+        // The rows that do something rather than report something, and they come last for that
         // reason: everything above answers "what is this phone doing", these answer "what else is
         // there to do". Logs is not repeated here - the bar at the bottom already goes there.
         //
@@ -1623,31 +1620,10 @@ private fun OverviewPage(
         // the last thing on the page is not the one list made of two floating cards.
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // The block someone pastes when they ask why it did not work. Gathered rather than typed
-                // out, because the two things a report is worth having for - the app's build and the
-                // phone's identity - are exactly the two nobody remembers to include.
-                HomeLinkRow(
-                    icon = Icons.Rounded.Description,
-                    title = stringResource(R.string.report_row_title),
-                    position = SettingsCardPosition.Top,
-                    busy = copyingReport,
-                    onClick = {
-                        copyingReport = true
-                        scope.launch {
-                            val report = runCatching { collectDiagnosticReport(context) }
-                            copyingReport = false
-                            report.onSuccess { copyReportToClipboard(context, it) }
-                                .onFailure { failure ->
-                                    reportError = failure.message
-                                        ?: failure.javaClass.simpleName
-                                }
-                        }
-                    },
-                )
                 HomeLinkRow(
                     icon = Icons.Rounded.SystemUpdate,
                     title = stringResource(R.string.updater_check),
-                    position = SettingsCardPosition.Middle,
+                    position = SettingsCardPosition.Top,
                     value = updateRowValue(updateStatus),
                     busy = updateStatus.busy,
                     onClick = {
@@ -1669,27 +1645,6 @@ private fun OverviewPage(
     }
     if (showAbout) {
         AboutDialog(onDismiss = { showAbout = false })
-    }
-    // A report that could not be gathered says so rather than copying half of one: the two are different
-    // claims, and a report missing its log tail reads as a phone that logged nothing.
-    reportError?.let { message ->
-        AlertDialog(
-            onDismissRequest = { reportError = null },
-            icon = { Icon(Icons.Rounded.Warning, contentDescription = null) },
-            title = {
-                DialogDimAmount(0.34f)
-                Text(stringResource(R.string.report_row_title))
-            },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = {
-                    clickHaptic(view)
-                    reportError = null
-                }) {
-                    Text(stringResource(R.string.action_close))
-                }
-            },
-        )
     }
 }
 
