@@ -84,20 +84,35 @@ class RunDeepLinkTest {
     }
 
     @Test
-    fun `the notification about a run in flight opens the run screen and names the run`() {
+    fun `a notification names its run and sends every tap through the run screen`() {
         val notification = source("src/main/java/dev/busung/s25uroot/RunNotification.kt")
 
         assertTrue(
-            "the live notification no longer opens the run screen",
+            "the notification no longer opens the run screen",
             notification.contains("liveRunPendingIntent(context, runId)"),
         )
+        // The outcome was the one tap that skipped the screen, and skipping it is what cost the failure card:
+        // the screen for a run this process has shows the stage, the reason and the three answers, and the
+        // record it went to instead has only the log and the verdict. The screen forwards when it is not the
+        // screen for that run, so nothing is lost by sending every tap the same way - and a destination
+        // chosen here from the actions flag is a decision about this process made by a file that cannot see it.
         assertTrue(
-            "the outcome no longer opens the run's own record",
-            notification.contains("runRecordPendingIntent(context, runId)"),
+            "the outcome no longer lands on the run screen, so a failed run opens a log instead of its answers",
+            !notification.contains("runRecordPendingIntent(context, runId)"),
         )
         assertFalse(
             "a destination with no run in it is back: that is the tap that opens the wrong screen",
             notification.contains("Intent(context, InstallActivity::class.java)"),
+        )
+    }
+
+    @Test
+    fun `the boot gate names its run and opens the record, because that run is not this process's`() {
+        val bootGate = source("src/main/java/dev/busung/s25uroot/AutoRootService.kt")
+
+        assertTrue(
+            "the boot gate's notification no longer opens its own run's record",
+            bootGate.contains("runRecordPendingIntent(this, viewModel?.activeRunId)"),
         )
     }
 

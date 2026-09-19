@@ -122,12 +122,13 @@ internal object RunNotification {
      *
      * [withActions] is false only for an outcome, where there is nothing left to stop or to watch: a pair of
      * buttons that act on a run that has ended is worse than no buttons, and the Stop one would be the last
-     * thing anyone tapped. It decides the destination as well, and for the same reason: a run that is still
-     * going may be this process's own, in which case the run screen is the best screen there is, while an
-     * outcome outlives the process that produced it and has only its record left to show.
+     * thing anyone tapped.
      *
-     * [runId] is the run both are about, so the screen that opens is the one that run is on rather than
-     * whichever install screen came first.
+     * [runId] is the run both are about, and it is what the tap carries - an outcome included, because the
+     * run screen is the better place to land for an outcome too: it holds the failure card with the stage,
+     * the reason and the three answers, where the record holds the log and the verdict. The screen hands the
+     * tap on to the record when it is not the screen for that run, so the case an outcome outlives - the
+     * process that produced it is gone - ends up in the same place it would have gone to directly.
      */
     private fun builder(
         context: Context,
@@ -144,13 +145,10 @@ internal object RunNotification {
         .setContentTitle(context.getString(verdict.label))
         .setContentText(message)
         .setStyle(NotificationCompat.BigTextStyle().bigText(message))
-        .setContentIntent(
-            if (withActions) {
-                liveRunPendingIntent(context, runId)
-            } else {
-                runRecordPendingIntent(context, runId)
-            },
-        )
+        // One destination for both lives, because [InstallActivity] is the thing that knows whether this
+        // process has that run: it shows it when it does, and hands the tap to the run's record when it
+        // does not. Choosing here would mean this file deciding from a flag what only the screen can see.
+        .setContentIntent(liveRunPendingIntent(context, runId))
         .setOnlyAlertOnce(true)
         .setOngoing(true)
         .setAutoCancel(false)

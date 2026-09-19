@@ -21,8 +21,8 @@ import android.content.Intent
  *
  * So a notification names the run it is about rather than the screen it wants, and the destination decides:
  * [liveRunIntent] is the run screen, which shows the named run when it is the one this process has and hands
- * off to the record when it is not, and [runRecordIntent] is the record itself, for a notification that is
- * about a run which has already ended.
+ * off to the record when it is not, and [runRecordIntent] is the record itself, for a tap that arrives where
+ * nothing can show the run - the boot gate's notification, whose run lives in another process entirely.
  */
 internal const val EXTRA_RUN_ID = "open_run_id"
 
@@ -36,7 +36,7 @@ internal fun liveRunIntent(context: Context, runId: String?): Intent =
         if (runId != null) putExtra(EXTRA_RUN_ID, runId)
     }
 
-/** The run's own record, for a run that has ended or that another process is running. */
+/** The run's own record, for the tap nothing here can answer: a run another process is holding. */
 internal fun runRecordIntent(context: Context, runId: String?): Intent =
     Intent(context, MainActivity::class.java).apply {
         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
