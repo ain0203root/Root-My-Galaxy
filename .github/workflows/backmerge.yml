@@ -21,6 +21,9 @@ permissions:
   contents: write
   # For the back-merge pull request.
   pull-requests: write
+  # To start `CI Build` for the levelled state - see the fast-forward step for why that cannot be left
+  # to the push itself.
+  actions: write
 
 concurrency:
   group: back-merge
@@ -90,6 +93,20 @@ jobs:
             echo "Fast-forwarded dev from ${DEV_SHA:0:7} to ${SHORT_SHA} (${AHEAD} commit(s))."
             echo "- dev fast-forwarded \`${DEV_SHA:0:7}\` -> \`${SHORT_SHA}\`, ${AHEAD} commit(s)" \
               >> "$GITHUB_STEP_SUMMARY"
+
+            # Moving a ref with this workflow's own token does *not* start another workflow - that is
+            # GitHub's recursion guard, and it was measured rather than assumed: the first fast-forward
+            # of this branch produced no `CI Build` at all. So the build a push to dev would have
+            # started is asked for by name, which is the one event the guard excepts. It is a warning
+            # rather than a failure if it cannot be started: levelling dev is this job, and a build of
+            # the levelled state is the point of the branch rather than of this step.
+            if gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref dev; then
+              echo "- \`CI Build\` started for the levelled state" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "::warning::dev was levelled, but the CI Build for it could not be started."
+              echo "- \`CI Build\` could not be started; run it from the Actions tab" \
+                >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 0
           fi
 

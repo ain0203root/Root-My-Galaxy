@@ -1171,9 +1171,14 @@ compare API, and `main`'s tip is read from the API rather than taken from the wo
 so a run dispatched from any other branch still means "level `dev` with `main`" and cannot point one
 branch's state at the other.
 
-One consequence worth knowing before you push to `main` in a hurry: a fast-forward is a push to `dev`,
-so it runs `CI Build` and publishes a pre-release for that state. Each push to `main` therefore
-produces one pre-release, which is the point — the testing branch always has a build of what `main`
-is — but it is a build per push rather than per `dev` change.
+**Moving a ref is not a push, where workflows are concerned.** The first fast-forward this workflow did
+moved `dev` 117 commits and started *no* `CI Build`: GitHub does not create a new workflow run for events
+triggered by a repository's own workflow token, which is its recursion guard. So after a fast-forward the
+run asks for the build by name — `gh workflow run ci.yml --ref dev`, the one event the guard excepts —
+since a testing branch that is level with `main` and has no build of it is only half the job. Each push
+to `main` therefore produces one pre-release (a warning, not a failure, if the dispatch cannot be made).
+
+A merge from a back-merge pull request does not need that: merging is an ordinary push to `dev`, so
+`CI Build` starts on its own and the release pull request step runs with it.
 
 Use only on devices you own or are explicitly authorized to test.
