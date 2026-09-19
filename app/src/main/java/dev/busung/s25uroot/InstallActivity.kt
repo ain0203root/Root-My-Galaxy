@@ -627,8 +627,12 @@ private fun InBootRetryNotice(block: InBootRetryBlock) {
 
 /**
  * How much weight an answer carries, which is the only thing that separates the three of them.
+ *
+ * Internal rather than private because the answers are not only asked here: a failed run read back from the
+ * history offers the same three, and a second copy of these rows is how the two screens come to disagree
+ * about which answer is the recommended one.
  */
-private enum class RetryOptionEmphasis { Primary, Secondary, Quiet }
+internal enum class RetryOptionEmphasis { Primary, Secondary, Quiet }
 
 /**
  * One answer on the retry dialog: what it is called, and the line that says what it buys.
@@ -639,7 +643,7 @@ private enum class RetryOptionEmphasis { Primary, Secondary, Quiet }
  * containers an answer can be drawn in.
  */
 @Composable
-private fun RetryOption(
+internal fun RetryOption(
     label: String,
     detail: String,
     enabled: Boolean,

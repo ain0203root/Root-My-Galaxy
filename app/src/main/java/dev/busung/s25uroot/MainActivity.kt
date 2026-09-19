@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.View
 import android.widget.Toast
@@ -1188,6 +1189,8 @@ private fun RootApp(
                         openEntryId = openedRunEntry,
                         onEntryOpened = onOpenedRunEntryHandled,
                         onReloadHistory = installViewModel::reloadHistory,
+                        onRunPayloadAgain = { selectionId -> openInstaller(selectionId) },
+                        onRestartAndRetry = { installViewModel.armRetryAfterReboot() },
                     )
                     AppPage.Logs -> LogsPage(padding)
                     AppPage.Settings -> SettingsPage(
@@ -2359,6 +2362,10 @@ private fun HistoryPage(
     onEntryOpened: () -> Unit,
     /** Re-read the history from disk, for a run another process is still writing. */
     onReloadHistory: () -> Unit,
+    /** Start a recorded run's payload again, from a failed record that offers it. */
+    onRunPayloadAgain: (String) -> Unit,
+    /** Arm the one-shot retry for whatever the app last attempted, and ask for the restart. */
+    onRestartAndRetry: suspend () -> Boolean,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -2515,6 +2522,8 @@ private fun HistoryPage(
                 padding = padding,
                 entry = entry,
                 onBack = { selectedHistoryId = null },
+                onRunPayloadAgain = onRunPayloadAgain,
+                onRestartAndRetry = onRestartAndRetry,
             )
         }
     }
@@ -2899,9 +2908,19 @@ private fun HistoryDetail(
     padding: PaddingValues,
     entry: InstallHistoryEntry,
     onBack: () -> Unit,
+    /** Starts a run of the record's own payload choice, the way the payload sheet starts one. */
+    onRunPayloadAgain: (String) -> Unit,
+    /** Arms the one-shot retry and asks for the restart, and says whether the restart was taken. */
+    onRestartAndRetry: suspend () -> Boolean,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
+    // What the app last attempted, read here rather than passed in because it is the one input that is not
+    // the record: a record written when the phone tried something else since still has answers, and which
+    // ones it has depends on what is on the device now. Cheap by design - the boot gate asks the same
+    // question in front of the one attempt its boot gets.
+    val attempted = remember(entry.id, entry.result) { AttemptedPayloadStore.describe(context) }
+    val retryPlan = remember(entry, attempted) { recordRetryPlan(entry, attempted) }
     val exportLogLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -2951,6 +2970,15 @@ private fun HistoryDetail(
             }
         }
         item { HistoryResultCard(entry) }
+        if (retryPlan.answers.isNotEmpty() || retryPlan.gaps.isNotEmpty()) {
+            item {
+                HistoryRetryCard(
+                    plan = retryPlan,
+                    onRestartAndRetry = onRestartAndRetry,
+                    onRunPayloadAgain = onRunPayloadAgain,
+                )
+            }
+        }
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -2968,6 +2996,160 @@ private fun HistoryDetail(
                 )
             }
         }
+    }
+}
+
+/**
+ * A failed record's answers, in the same three the run screen asks with.
+ *
+ * The shape of the problem is the one the tap on a run notification had: the screen a run's answers live on
+ * is the run screen, and a run read later from the history has no screen there - it has a log and a verdict,
+ * which is where a failure stops being actionable. So the answers travel with the record, off the same rows
+ * the run screen draws, and the two that cannot be re-resolved are said out loud rather than left as an
+ * absence.
+ */
+@Composable
+private fun HistoryRetryCard(
+    plan: RecordRetryPlan,
+    onRestartAndRetry: suspend () -> Boolean,
+    onRunPayloadAgain: (String) -> Unit,
+) {
+    val view = LocalView.current
+    val scope = rememberCoroutineScope()
+    var arming by remember { mutableStateOf(false) }
+    // Seconds left of the wait, or null when none is running. Held here, not in a store: it is a countdown
+    // on a screen, and leaving the screen cancels it with nothing left behind - the same as the run screen's.
+    var waitRemaining by remember { mutableStateOf<Int?>(null) }
+    // The restart that could not be asked for. The retry is armed either way, so the only thing to say is
+    // the part the app could not do.
+    var restartRefused by remember { mutableStateOf(false) }
+    val selectionId = plan.selectionId
+    LaunchedEffect(waitRemaining != null) {
+        val selection = selectionId ?: return@LaunchedEffect
+        if (waitRemaining == null) return@LaunchedEffect
+        val startedAt = SystemClock.elapsedRealtime()
+        while (true) {
+            val left = InBootRetry.remainingSeconds(SystemClock.elapsedRealtime() - startedAt)
+            waitRemaining = left
+            if (left <= 0) break
+            delay(1_000)
+        }
+        waitRemaining = null
+        onRunPayloadAgain(selection)
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = stringResource(R.string.retry_choice_title),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            val waiting = waitRemaining
+            if (waiting != null && selectionId != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.retry_waiting_body, waiting),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = {
+                        clickHaptic(view)
+                        waitRemaining = null
+                    }) {
+                        Text(stringResource(R.string.retry_waiting_cancel))
+                    }
+                    Button(onClick = {
+                        clickHaptic(view)
+                        waitRemaining = null
+                        onRunPayloadAgain(selectionId)
+                    }) {
+                        Text(stringResource(R.string.retry_waiting_start))
+                    }
+                }
+            } else {
+                for (answer in plan.answers) {
+                    when (answer) {
+                        RecordRetryAnswer.RestartAndRetry -> RetryOption(
+                            label = stringResource(R.string.retry_after_reboot),
+                            detail = stringResource(R.string.retry_option_reboot_detail),
+                            enabled = !arming,
+                            emphasis = RetryOptionEmphasis.Primary,
+                            onClick = {
+                                clickHaptic(view)
+                                arming = true
+                                scope.launch {
+                                    val restarted = onRestartAndRetry()
+                                    arming = false
+                                    restartRefused = !restarted
+                                }
+                            },
+                        )
+
+                        RecordRetryAnswer.WaitThenRetry -> RetryOption(
+                            label = stringResource(R.string.retry_wait),
+                            detail = stringResource(R.string.retry_option_wait_detail),
+                            enabled = !arming,
+                            onClick = {
+                                clickHaptic(view)
+                                waitRemaining = InBootRetry.remainingSeconds(0)
+                            },
+                        )
+
+                        RecordRetryAnswer.TryNow -> RetryOption(
+                            label = stringResource(R.string.retry_now),
+                            detail = stringResource(R.string.retry_option_now_detail),
+                            enabled = !arming && selectionId != null,
+                            emphasis = RetryOptionEmphasis.Quiet,
+                            onClick = {
+                                clickHaptic(view)
+                                selectionId?.let(onRunPayloadAgain)
+                            },
+                        )
+                    }
+                }
+            }
+            for (gap in plan.gaps) {
+                Text(
+                    text = stringResource(
+                        when (gap) {
+                            RecordRetryGap.LastAttemptWasAnotherPayload ->
+                                R.string.record_retry_other_payload
+                            RecordRetryGap.PayloadNotRecorded -> R.string.record_retry_no_payload
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+    if (restartRefused) {
+        AlertDialog(
+            onDismissRequest = { restartRefused = false },
+            icon = { Icon(Icons.Rounded.RestartAlt, contentDescription = null) },
+            title = { Text(stringResource(R.string.retry_armed_title)) },
+            text = { Text(stringResource(R.string.retry_armed_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    restartRefused = false
+                }) {
+                    Text(stringResource(R.string.action_done))
+                }
+            },
+        )
     }
 }
 

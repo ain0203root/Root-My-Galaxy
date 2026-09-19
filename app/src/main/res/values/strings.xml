@@ -137,6 +137,8 @@
     <string name="log_payload_may_still_run">[!] The payload could not be confirmed stopped and may still be running. Restart the phone before another attempt.</string>
     <string name="install_payload_may_still_run">The payload could not be confirmed as stopped, so it may still be running. Restart the phone before trying again. Running a second payload while the first is still active can lock up the phone.</string>
     <string name="retry_single_payload_hint">Retrying is not available because the last payload may still be running. Starting another one while it is active can lock up the phone.</string>
+    <string name="record_retry_other_payload">Restarting is not offered: the payload this app tried last is a different one, and the restart would run that instead. Run this payload again below.</string>
+    <string name="record_retry_no_payload">This run does not say which payload it used, so there is nothing to run again from here.</string>
     <string name="retry_armed_title">Retry scheduled</string>
     <string name="retry_armed_body">The app could not restart the phone because neither root nor Shizuku is available. Restart the phone yourself. The installation will start automatically after boot.</string>
     <string name="install_load_modules">Restart userspace to load modules</string>
