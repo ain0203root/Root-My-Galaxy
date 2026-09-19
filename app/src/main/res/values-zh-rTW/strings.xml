@@ -168,7 +168,6 @@
     <string name="export_log_saved">日誌已儲存</string>
     <string name="export_log_failed">無法儲存日誌</string>
     <string name="install_tap_open_manager">點擊開啟 KernelSU Manager</string>
-    <string name="how_it_works">運作原理</string>
     <string name="kernelsu_card_description">以核心為基礎的 Android Root 解決方案</string>
     <string name="history_shizuku_used">已使用 Shizuku</string>
     <string name="history_shizuku_not_used">未使用 Shizuku</string>
