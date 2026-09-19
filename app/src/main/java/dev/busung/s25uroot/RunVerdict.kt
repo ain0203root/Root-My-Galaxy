@@ -75,6 +75,13 @@ internal fun runVerdict(result: InstallRunResult): RunVerdict = when (result) {
  * Keyed to the theme's roles rather than to green, amber and red: this app's palette is generated from the
  * user's accent, so "the colour for success" is the accent and "the colour for a warning" is the tertiary role
  * - inventing literal hues here would be the fourth palette on a phone that has one.
+ *
+ * [RunVerdict.Running] wears the accent too, shared with [RunVerdict.Idle] and [RunVerdict.Succeeded]. It used to
+ * wear the tertiary role, on the argument that a run in flight is a caution - and that argument does not survive
+ * being looked at: a run going well is not a warning, and the card is the *install* button, the thing the screen
+ * exists to offer. Painted in the warning hue it read as something having gone wrong on a screen where nothing
+ * had. What tells a run in flight from a finished one is its own label, its icon and the progress bar, none of
+ * which is a colour, and a hue that means "caution" is worth keeping for the cases that mean it.
  */
 internal data class VerdictColors(val container: Color, val content: Color, val accent: Color)
 
@@ -85,8 +92,10 @@ internal fun verdictColors(verdict: RunVerdict): VerdictColors {
         // Idle is the accent as well, because it is the same claim on every other screen: this is the thing
         // to press.
         RunVerdict.Idle -> VerdictColors(scheme.primaryContainer, scheme.onPrimaryContainer, scheme.primary)
+        // The accent, like the two verdicts either side of it: nothing has gone wrong, and "working" is not a
+        // state the reader has to be warned about.
         RunVerdict.Running ->
-            VerdictColors(scheme.tertiaryContainer, scheme.onTertiaryContainer, scheme.tertiary)
+            VerdictColors(scheme.primaryContainer, scheme.onPrimaryContainer, scheme.primary)
         RunVerdict.Succeeded ->
             VerdictColors(scheme.primaryContainer, scheme.onPrimaryContainer, scheme.primary)
         RunVerdict.RootOnly ->

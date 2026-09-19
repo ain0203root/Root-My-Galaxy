@@ -1,6 +1,8 @@
 package dev.busung.s25uroot
 
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -59,10 +61,41 @@ class RunVerdictTest {
     }
 
     @Test
+    fun `no verdict is painted in the role kept for warnings`() {
+        // The verdict is the colour of the install button itself, so this is what a screenshot of a run is
+        // mostly made of. Checked as source because `verdictColors` reads the theme and cannot be called from
+        // a plain unit test, and because the failure is invisible until somebody looks at a phone mid-run: a
+        // run painted in the caution role reads as something having gone wrong when nothing has.
+        val colors = source("RunVerdict.kt").substringAfter("internal fun verdictColors")
+
+        assertFalse(
+            "a verdict is wearing the caution role again, which a run in flight is not",
+            colors.contains("tertiary"),
+        )
+        // The branch itself, with the line breaks normalised so this pins the role rather than a formatting.
+        val running = colors.substringAfter("RunVerdict.Running ->")
+            .substringBefore("RunVerdict.Succeeded ->")
+            .replace(Regex("\\s+"), " ")
+        assertTrue(
+            "the running verdict is no longer on the accent",
+            running.contains("VerdictColors(scheme.primaryContainer"),
+        )
+    }
+
+    @Test
     fun `a verdict and its label are one to one`() {
         // The label is what the notification's title and the history chip are made of, and two verdicts
         // wearing one word is the disagreement this file exists to end.
         val labels = RunVerdict.entries.map { it.label }
         assertEquals(labels.size, labels.toSet().size)
+    }
+
+    private fun source(name: String): String {
+        val file = listOf(File("src/main/java"), File("app/src/main/java"))
+            .filter(File::isDirectory)
+            .flatMap { root -> root.walkTopDown().filter { it.isFile && it.name == name }.toList() }
+            .firstOrNull()
+        requireNotNull(file) { "$name was not found; the scan is looking at the wrong directory" }
+        return file.readText()
     }
 }
