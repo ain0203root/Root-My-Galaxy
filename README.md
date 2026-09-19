@@ -1122,4 +1122,18 @@ and the tag is created on that commit. The version comes from `appVersionBase`, 
 bumped first: dispatching for a version that already has a tag republishes that tag with a freshly
 built APK rather than creating a second one.
 
+### `dev` into `main`
+
+The `CI Build` run ends by opening or updating **one pull request from `dev` into `main`**. It
+appears in the same run that published the pre-release, so the state under review is a state that
+built and passed its tests — a `dev` commit that fails either never reaches a pull request. Merging
+it stays manual: nothing is automerged, and `main` still builds nothing on its own.
+
+The pull request body lists the commits it would bring in, links the pre-release for that exact
+state, and says what merging it means: either the version it produces (`v<version>`, when
+`appVersionBase` has moved) or a note that `appVersionBase` is the same on both branches, in which
+case a stable release from that merge would republish the existing tag instead of cutting a new one.
+Pushing to `dev` again updates the same pull request rather than opening a second one, and if `dev`
+has nothing that `main` does not already have, the run says so and opens nothing.
+
 Use only on devices you own or are explicitly authorized to test.
