@@ -290,6 +290,9 @@ class MainActivity : ComponentActivity() {
             helperSeconds = RunLimits.DEFAULT_HELPER_SECONDS,
         ),
     )
+
+    /** Off until a user turns it on, which is the whole point of it being opt-in. */
+    private var exploitOverride by mutableStateOf(ExploitOverride.defaults())
     private var shizukuToken by mutableStateOf("")
     private var partitionReadOnly by mutableStateOf(false)
     private var payloadMode by mutableStateOf(PayloadMode.Online)
@@ -385,6 +388,7 @@ class MainActivity : ComponentActivity() {
         bootSettleSeconds = AppPreferences.bootSettleSeconds(this)
         autoRootSettleSeconds = AppPreferences.autoRootSettleSeconds(this)
         runLimits = AppPreferences.runLimits(this)
+        exploitOverride = AppPreferences.exploitOverride(this)
         shizukuToken = AppPreferences.shizukuAutomationToken(this)
         partitionReadOnly = AppPreferences.partitionReadOnlyMode(this)
         payloadMode = AppPreferences.payloadMode(this)
@@ -412,6 +416,7 @@ class MainActivity : ComponentActivity() {
                     bootSettleSeconds = bootSettleSeconds,
                     autoRootSettleSeconds = autoRootSettleSeconds,
                     runLimits = runLimits,
+                    exploitOverride = exploitOverride,
                     shizukuToken = shizukuToken,
                     partitionReadOnly = partitionReadOnly,
                     payloadMode = payloadMode,
@@ -481,6 +486,10 @@ class MainActivity : ComponentActivity() {
                         // Read back rather than patched in place, so a stored value that was normalized
                         // on the way in is what the row shows.
                         runLimits = AppPreferences.runLimits(this)
+                    },
+                    onExploitOverrideChanged = { override ->
+                        AppPreferences.setExploitOverride(this, override)
+                        exploitOverride = AppPreferences.exploitOverride(this)
                     },
                     onShizukuTokenChanged = { token ->
                         AppPreferences.setShizukuAutomationToken(this, token)
@@ -659,6 +668,7 @@ private fun RootApp(
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
     runLimits: RunLimitsSettings,
+    exploitOverride: ExploitOverrideSettings,
     shizukuToken: String,
     partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
@@ -680,6 +690,7 @@ private fun RootApp(
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
     onRunLimitChanged: (RunLimit, Int) -> Unit,
+    onExploitOverrideChanged: (ExploitOverrideSettings) -> Unit,
     onShizukuTokenChanged: (String) -> Unit,
     onPartitionReadOnlyChanged: (Boolean) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
@@ -931,12 +942,18 @@ private fun RootApp(
             payloadMode = payloadMode,
             partitionReadOnly = partitionReadOnly,
             cachedOffset = cachedOffset,
-            // The profile's own policy, so the preview shows the environment the run will get.
+            // The policy a run would actually use, resolved here from the same stored override a run
+            // reads - so the preview shows the environment the run will get and names the side that
+            // chose each of the three numbers a user can move.
             plan = InstallViewModel.exploitPlan(
                 freshSession,
                 cachedOffset,
                 shizukuMode,
-                resolved?.routePolicy ?: ExploitRoutePolicy.LEGACY,
+                ExploitOverride.resolve(
+                    policy = resolved?.routePolicy ?: ExploitRoutePolicy.LEGACY,
+                    override = AppPreferences.exploitOverride(context),
+                    freshSession = freshSession,
+                ),
                 AppPreferences.bootSettleSeconds(context),
                 // The same resolution a run performs, from the same stored values: a plan that showed
                 // the defaults while the run enforced the user's choices would be a plan about another
@@ -1214,6 +1231,7 @@ private fun RootApp(
                         bootSettleSeconds = bootSettleSeconds,
                         autoRootSettleSeconds = autoRootSettleSeconds,
                         runLimits = runLimits,
+                        exploitOverride = exploitOverride,
                         shizukuToken = shizukuToken,
                         partitionReadOnly = partitionReadOnly,
                         payloadMode = payloadMode,
@@ -1233,6 +1251,7 @@ private fun RootApp(
                         onBootSettleChanged = onBootSettleChanged,
                         onAutoRootSettleChanged = onAutoRootSettleChanged,
                         onRunLimitChanged = onRunLimitChanged,
+                        onExploitOverrideChanged = onExploitOverrideChanged,
                         onShizukuTokenChanged = onShizukuTokenChanged,
                         onPartitionReadOnlyChanged = onPartitionReadOnlyChanged,
                         onPayloadModeChanged = onPayloadModeChanged,
@@ -3611,6 +3630,7 @@ private fun SettingsPage(
     bootSettleSeconds: Int,
     autoRootSettleSeconds: Int,
     runLimits: RunLimitsSettings,
+    exploitOverride: ExploitOverrideSettings,
     shizukuToken: String,
     partitionReadOnly: Boolean,
     payloadMode: PayloadMode,
@@ -3630,6 +3650,7 @@ private fun SettingsPage(
     onBootSettleChanged: (Int) -> Unit,
     onAutoRootSettleChanged: (Int) -> Unit,
     onRunLimitChanged: (RunLimit, Int) -> Unit,
+    onExploitOverrideChanged: (ExploitOverrideSettings) -> Unit,
     onShizukuTokenChanged: (String) -> Unit,
     onPartitionReadOnlyChanged: (Boolean) -> Unit,
     onPayloadModeChanged: (PayloadMode) -> Unit,
@@ -3762,14 +3783,19 @@ private fun SettingsPage(
     if (showRunLimitsDialog) {
         RunLimitsDialog(
             limits = runLimits,
+            override = exploitOverride,
             onChanged = onRunLimitChanged,
+            onOverrideChanged = onExploitOverrideChanged,
             // Put through the same callback the menu uses, once per ceiling: a reset is three ordinary
             // changes, and going around the path that persists and re-reads them would be a second way
-            // for the stored values to be written.
+            // for the stored values to be written. The override goes back with them: this dialog is one
+            // screen of "how a run is paced", and a reset that left half of it where it was would be
+            // the wrong half of a promise.
             onReset = {
                 RunLimit.entries.forEach { limit ->
                     onRunLimitChanged(limit, RunLimits.defaultSeconds(limit))
                 }
+                onExploitOverrideChanged(ExploitOverride.defaults())
                 Toast.makeText(
                     context,
                     context.getString(R.string.run_limits_reset_done),
@@ -5945,17 +5971,51 @@ private fun RunPlanDialog(
                     ),
                 )
                 RunPlanSection(stringResource(R.string.run_plan_variables))
-                // Where these come from, said where they are shown: they are the payload profile's own
-                // decisions, which is why none of them has a setting.
+                // Where these come from, said where they are shown. The second wording is the one this
+                // feature exists for: once the app supplies any of them, "set by the payload profile, not
+                // by this app" would be a lie about the run in front of the reader.
                 Text(
-                    stringResource(R.string.run_plan_variables_note),
+                    stringResource(
+                        if (display.plan.routePolicy.anyFromApp) {
+                            R.string.run_plan_variables_note_overridden
+                        } else {
+                            R.string.run_plan_variables_note
+                        },
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (display.plan.environment.isEmpty()) {
-                    RunPlanMonospace(stringResource(R.string.run_plan_variables_defaults))
+                // The three a user can move, as rows carrying the side that chose them - the half of the
+                // answer the raw variables below cannot give. Their values still come from the
+                // environment the run is handed, so a row cannot show a number the payload never gets.
+                val policy = display.plan.routePolicy
+                RunPlanRow(
+                    stringResource(R.string.run_plan_attempts),
+                    display.plan.environment["EXPLOIT_ATTEMPTS"]
+                        ?: policy.policy.attempts.toString(),
+                    note = originNote(policy.attemptsOrigin),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_attempt_timeout),
+                    display.plan.environment["EXPLOIT_ATTEMPT_TIMEOUT_SEC"]
+                        ?: stringResource(R.string.run_plan_value_not_applied),
+                    note = originNote(policy.attemptTimeoutOrigin),
+                )
+                RunPlanRow(
+                    stringResource(R.string.run_plan_slide_route),
+                    display.plan.environment["SLIDE_SOURCE"]
+                        ?: stringResource(R.string.run_plan_value_payload_default),
+                    note = originNote(policy.slideRouteOrigin),
+                )
+                val otherVariables = display.plan.environment
+                    .filterKeys { it !in ExploitRoutePolicy.OVERRIDABLE_ENV_NAMES }
+                if (otherVariables.isEmpty()) {
+                    // Reachable only for a fresh session, whose environment is its one attempt: the
+                    // wording used to promise "the payload uses its own defaults", which is the opposite
+                    // of what that case does.
+                    RunPlanMonospace(stringResource(R.string.run_plan_variables_none))
                 } else {
-                    display.plan.environment.forEach { (name, value) ->
+                    otherVariables.forEach { (name, value) ->
                         RunPlanMonospace("$name=$value")
                     }
                 }
@@ -6019,7 +6079,9 @@ private fun RunPlanDialog(
 @Composable
 private fun RunLimitsDialog(
     limits: RunLimitsSettings,
+    override: ExploitOverrideSettings,
     onChanged: (RunLimit, Int) -> Unit,
+    onOverrideChanged: (ExploitOverrideSettings) -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -6059,13 +6121,17 @@ private fun RunLimitsDialog(
                     selected = limits.helperSeconds,
                     onChanged = onChanged,
                 )
-                // The other half of the answer, and the reason three of the run plan's rows cannot be
-                // touched here: they are the payload's numbers, handed over as its own variables.
+                // The other half of the answer: the payload's numbers, handed over as its own
+                // variables, and the switch that lets the app's numbers take their place.
                 Text(
                     stringResource(R.string.run_limits_payload_note),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 6.dp),
+                )
+                ExploitOverrideGroup(
+                    override = override,
+                    onChanged = onOverrideChanged,
                 )
             }
         },
@@ -6127,6 +6193,120 @@ private fun RunLimitGroup(
 }
 
 /**
+ * The opt-in half of this dialog: the app's own numbers for the payload's exploit.
+ *
+ * A switch and then nothing until it is on, because the off state is not a choice among values - it is
+ * the payload's numbers, which is what every shipped target was validated with, and putting three more
+ * pickers in front of someone who does not want them is how a settings screen turns into a wall. The
+ * note says what turning it on actually does, including the case where it does not apply at all.
+ */
+@Composable
+private fun ExploitOverrideGroup(
+    override: ExploitOverrideSettings,
+    onChanged: (ExploitOverrideSettings) -> Unit,
+) {
+    val view = LocalView.current
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        HorizontalDivider(
+            modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                stringResource(R.string.run_limits_override),
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = override.enabled,
+                onCheckedChange = { enabled ->
+                    clickHaptic(view)
+                    onChanged(override.copy(enabled = enabled))
+                },
+            )
+        }
+        Text(
+            stringResource(R.string.run_limits_override_note),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (!override.enabled) return
+        OverrideChoiceGroup(
+            title = stringResource(R.string.run_limits_override_attempts),
+            options = ExploitOverride.allowedAttempts,
+            selected = override.attempts,
+            label = { it.toString() },
+            onSelected = { onChanged(override.copy(attempts = it)) },
+        )
+        OverrideChoiceGroup(
+            title = stringResource(R.string.run_limits_override_timeout),
+            options = ExploitOverride.allowedTimeouts,
+            selected = override.attemptTimeoutSec,
+            label = { RunLimits.label(it) },
+            onSelected = { onChanged(override.copy(attemptTimeoutSec = it)) },
+        )
+        OverrideChoiceGroup(
+            title = stringResource(R.string.run_limits_override_route),
+            options = ExploitOverride.allowedRoutes,
+            selected = override.slideRoute,
+            label = { stringResource(routeLabelRes(it)) },
+            onSelected = { onChanged(override.copy(slideRoute = it)) },
+        )
+    }
+}
+
+/** One value of the override, as a wrapped row of chips joined by a single label. */
+@Composable
+private fun <T> OverrideChoiceGroup(
+    title: String,
+    options: List<T>,
+    selected: T,
+    label: @Composable (T) -> String,
+    onSelected: (T) -> Unit,
+) {
+    val view = LocalView.current
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 6.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            options.forEach { option ->
+                FilterChip(
+                    selected = option == selected,
+                    onClick = {
+                        clickHaptic(view)
+                        onSelected(option)
+                    },
+                    label = { Text(label(option)) },
+                )
+            }
+        }
+    }
+}
+
+/** Who chose one of the three overridable values, as the plan's note line words it. */
+@Composable
+private fun originNote(origin: PolicyOrigin): String = stringResource(
+    when (origin) {
+        PolicyOrigin.Payload -> R.string.run_plan_from_payload
+        PolicyOrigin.App -> R.string.run_plan_from_app
+        PolicyOrigin.FreshSession -> R.string.run_plan_from_fresh_session
+    },
+)
+
+/** The settings label for a route: the two raw tokens stay as the payload spells them. */
+private fun routeLabelRes(route: SlideRoute): Int = when (route) {
+    SlideRoute.Default -> R.string.run_limits_route_default
+    SlideRoute.Auto -> R.string.run_limits_route_auto
+    SlideRoute.Tracefs -> R.string.run_limits_route_tracefs
+    SlideRoute.Legacy -> R.string.run_limits_route_legacy
+}
+
+/**
  * One row of the plan: its name, its value, and the hairline that separates it from the next.
  *
  * The line is what makes this a list rather than a paragraph. Fourteen label-and-value pairs stacked
@@ -6134,7 +6314,12 @@ private fun RunLimitGroup(
  * have to hunt through; a rule per row is what lets the eye run down the names instead.
  */
 @Composable
-private fun RunPlanRow(label: String, value: String, first: Boolean = false) {
+private fun RunPlanRow(
+    label: String,
+    value: String,
+    note: String? = null,
+    first: Boolean = false,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         if (!first) {
             HorizontalDivider(
@@ -6148,6 +6333,15 @@ private fun RunPlanRow(label: String, value: String, first: Boolean = false) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(value, style = MaterialTheme.typography.bodyMedium)
+        // Under the value rather than beside it: the value is the thing being read, and the note is the
+        // answer to the question it raises.
+        if (note != null) {
+            Text(
+                note,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 

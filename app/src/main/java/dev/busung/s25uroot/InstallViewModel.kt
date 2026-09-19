@@ -130,6 +130,14 @@ internal data class ExploitPlan(
      * a cut-off the app enforces on the run, and the plan is where those are shown.
      */
     val bootSettleSeconds: Int = 0,
+    /**
+     * The policy the run will use, with the origin of the three values a user can override.
+     *
+     * Held here rather than only folded into [environment], because the plan has to say *which side*
+     * chose an attempt budget - the environment alone shows the number, which is the half of the answer
+     * a reader cannot get anywhere else.
+     */
+    val routePolicy: EffectiveRoutePolicy,
     val environment: Map<String, String>,
     val shizukuArguments: Map<String, String>,
     /** Null when no stall watchdog applies, which is the case for a fresh session. */
@@ -767,6 +775,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     selectionId == null -> repository.resolveTarget(DeviceSnapshot.current())
                     else -> repository.resolveTarget(selectionId)
                 }
+                // Frozen with the profile, for the whole run, and resolved in one place: the payload's
+                // own numbers unless the user opted to override them, with the fresh-session rule on
+                // top. The run-plan screen calls the same function with the same stored settings, so
+                // what this run enforces is what that screen said it would.
+                val routePolicy = ExploitOverride.resolve(
+                    policy = profile.routePolicy,
+                    override = AppPreferences.exploitOverride(app),
+                    freshSession = profile.requiresFreshP0Session,
+                )
                 // Said before anything is attempted, because the flavour is a property of the entry
                 // that was chosen and not of the app's setting: a catalog that carries only the other
                 // project's payloads serves that one, and the log is where that becomes visible.
@@ -820,7 +837,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 }
                 val localAdbPaired = AdbCredentialStore.hasStoredKey(app) && AppPreferences.adbPaired(app)
                 val transport = chooseRunTransport(
-                    shellRequired = profile.routePolicy.prefersShellTransport,
+                    shellRequired = routePolicy.policy.prefersShellTransport,
                     shizukuRequested = shizukuRequested,
                     shizukuUsable = shizukuUsable,
                     localAdbPaired = localAdbPaired,
@@ -832,7 +849,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 AppLog.info(
                     RUN_LOG_TAG,
                     "Transport ${transport.name} (shell required=" +
-                        "${profile.routePolicy.prefersShellTransport}, Shizuku requested=$shizukuRequested, " +
+                        "${routePolicy.policy.prefersShellTransport}, Shizuku requested=$shizukuRequested, " +
                         "usable=$shizukuUsable, pairing saved=$localAdbPaired)",
                 )
 
@@ -938,13 +955,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
                 activeStage = RunStage.Exploit
                 setPhase(InstallPhase.Exploiting, app.getString(R.string.status_exploit_running))
-                // Stated before the payload runs, so a failed run says which policy produced it.
-                appendLog(profile.routePolicy.describe())
+                // Stated before the payload runs, so a failed run says which policy produced it - and
+                // which side chose the three numbers a user can move.
+                appendLog(routePolicy.policy.describe())
                 appendLog(app.getString(R.string.log_payload_origin, payloads.origin.name.lowercase()))
                 executeExploit(
                     payloads,
                     profile.requiresFreshP0Session,
-                    profile.routePolicy,
+                    routePolicy.policy,
                 )
 
                 // Optional, and before the KernelSU load rather than after: what it protects against
@@ -2051,14 +2069,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             requiresFreshP0Session: Boolean,
             cachedP0Offset: String?,
             shizuku: Boolean,
-            routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
+            // Required, with no default: a default here would have to guess whether the run is a fresh
+            // session, and guessing wrong is exactly the drift - origins that describe a policy other
+            // than the one being planned - that EffectiveRoutePolicy exists to prevent.
+            routePolicy: EffectiveRoutePolicy,
             bootSettleSeconds: Int = 0,
             ceilings: RunCeilings = RunLimits.defaultCeilings(requiresFreshP0Session),
         ): ExploitPlan = ExploitPlan(
             // The same resolved ceilings the run enforces, so the plan cannot describe a limit the run
             // will not apply - and so a value chosen in the settings shows up in both.
             bootSettleSeconds = BootSettle.normalize(bootSettleSeconds),
-            environment = exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
+            routePolicy = routePolicy,
+            environment = exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy.policy),
             shizukuArguments = if (shizuku) {
                 mapOf(
                     "CVE43499_ROOT_HELPER" to SHIZUKU_HELPER_PATH,

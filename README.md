@@ -212,7 +212,9 @@ come from: `slideRoute` (`default`, `auto`, `tracefs`, or `legacy`/`p0`, passed 
 `SLIDE_SOURCE`), `attempts`, `attemptTimeoutSec`, `p0AttemptTimeoutSec`, and `p0OffsetCache`. The
 policy is the single source of the environment, so the run-plan screen, the direct transport and
 the Shizuku transport all read the same values rather than three copies of them, and the run log
-states the policy it used before the payload starts. Fields are read one by one with the legacy
+states the policy it used before the payload starts. Three of those fields — `slideRoute`,
+`attempts` and `attemptTimeoutSec` — are the ones a user may replace with the app's own values by
+turning on the override in Run limits; the rest are always the profile's. Fields are read one by one with the legacy
 value as the fallback: a feed published by a newer workflow must not cost an older build the
 target it can use, and one out-of-range number should not either. A profile that is both marked
 fresh-session and carries a policy keeps both, because who paces the run and how the payload
@@ -324,9 +326,10 @@ read-only, because that changes what the run does before it starts.
 
 **A run has two owners, and the plan says which is which.** The *variables set for the payload* — how
 many attempts, how long each gets, which way the exploit looks for the slide — come from the payload
-profile in the feed, and the app hands them over rather than deciding them: a setting that overrode them
-would be this app claiming to know better than the thing doing the work, so there isn't one. The
-*app-side cut-offs* are the app's own, and those are **Settings → Run Management → Run limits**:
+profile in the feed, and the app hands them over rather than deciding them: the profile is the payload's
+own account of itself, and it is what every shipped target was validated with. That is the default; the
+opt-in override below is the exception. The *app-side cut-offs* are the app's own, and those are
+**Settings → Run Management → Run limits**:
 
 | ceiling | what it decides |
 |---|---|
@@ -347,6 +350,19 @@ setting says**, because those profiles hand their pacing to the payload — a si
 attempt that scans pages — and a ceiling *below* that would cut such a run off between its own decisions
 rather than at one. The setting can raise that ceiling; it cannot lower it. The stall limit is simply not
 applied to one, which the plan says in words rather than showing a value that will not be used.
+
+**The payload's numbers can be overridden, and it is off by default.** The same dialog carries a switch —
+*Override the payload* — which puts the app's attempts, per-attempt timeout and slide route in place of
+the profile's. It exists for testing a device the feed has not been written for yet, and it is off by
+default because it can make a working target fail: those numbers are the payload's account of how it
+behaves, not preferences. It covers exactly those three. `p0AttemptTimeoutSec`, `p0OffsetCache` and
+`prefersShellTransport` stay the profile's — the first two are its P0 route's own pacing, and the last is
+a property of the payload rather than a choice, since a target that needs a shell cannot be told it does
+not. **A fresh-session profile keeps its one attempt whatever the setting says**, because that rule is
+the payload's requirement rather than a default to outbid; the app's slide route still applies to it,
+since how to look for the slide is a different question from how many tries it gets. The run plan names
+the side that chose each of the three, so a run testing an experimental number says so on the screen that
+describes it.
 
 ## The screen during a run
 

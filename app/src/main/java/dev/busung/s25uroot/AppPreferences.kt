@@ -51,6 +51,10 @@ object AppPreferences {
     private const val RUN_STALL_SECONDS = "run_stall_seconds"
     private const val RUN_TOTAL_SECONDS = "run_total_seconds"
     private const val RUN_HELPER_SECONDS = "run_helper_seconds"
+    private const val EXPLOIT_OVERRIDE_ENABLED = "exploit_override_enabled"
+    private const val EXPLOIT_OVERRIDE_ATTEMPTS = "exploit_override_attempts"
+    private const val EXPLOIT_OVERRIDE_ATTEMPT_TIMEOUT = "exploit_override_attempt_timeout"
+    private const val EXPLOIT_OVERRIDE_SLIDE_ROUTE = "exploit_override_slide_route"
     private const val AUTO_ROOT_SETTLE_SECONDS = "auto_root_settle_seconds"
     private const val SHIZUKU_AUTOMATION_TOKEN = "shizuku_automation_token"
     private const val PARTITION_READ_ONLY_MODE = "partition_read_only_mode"
@@ -481,6 +485,47 @@ object AppPreferences {
             RunLimit.Stall -> setRunStallSeconds(context, seconds)
             RunLimit.Helper -> setRunHelperSeconds(context, seconds)
         }
+    }
+
+    /**
+     * The app's own numbers for the payload's exploit, off by default.
+     *
+     * Normalized on the way in and on the way out, like the three ceilings and for the same reason: the
+     * settings only offer the values, and the run and the run plan are entitled to assume that a stored
+     * number is one a user could have picked.
+     */
+    internal fun exploitOverride(context: Context): ExploitOverrideSettings {
+        val stored = prefs(context)
+        return ExploitOverrideSettings(
+            enabled = stored.getBoolean(EXPLOIT_OVERRIDE_ENABLED, false),
+            attempts = ExploitOverride.normalizeAttempts(
+                stored.getInt(EXPLOIT_OVERRIDE_ATTEMPTS, ExploitRoutePolicy.DEFAULT_ATTEMPTS),
+            ),
+            attemptTimeoutSec = ExploitOverride.normalizeTimeout(
+                stored.getInt(
+                    EXPLOIT_OVERRIDE_ATTEMPT_TIMEOUT,
+                    ExploitRoutePolicy.DEFAULT_ATTEMPT_TIMEOUT_SEC,
+                ),
+            ),
+            slideRoute = ExploitOverride.normalizeRoute(
+                SlideRoute.parse(stored.getString(EXPLOIT_OVERRIDE_SLIDE_ROUTE, null)),
+            ),
+        )
+    }
+
+    internal fun setExploitOverride(context: Context, override: ExploitOverrideSettings) {
+        prefs(context).edit()
+            .putBoolean(EXPLOIT_OVERRIDE_ENABLED, override.enabled)
+            .putInt(EXPLOIT_OVERRIDE_ATTEMPTS, ExploitOverride.normalizeAttempts(override.attempts))
+            .putInt(
+                EXPLOIT_OVERRIDE_ATTEMPT_TIMEOUT,
+                ExploitOverride.normalizeTimeout(override.attemptTimeoutSec),
+            )
+            .putString(
+                EXPLOIT_OVERRIDE_SLIDE_ROUTE,
+                ExploitOverride.normalizeRoute(override.slideRoute).name,
+            )
+            .apply()
     }
 
     /**
