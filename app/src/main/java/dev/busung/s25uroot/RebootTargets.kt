@@ -194,6 +194,22 @@ internal fun rebootRefusalFor(tier: ShellTier, target: RebootTarget): RebootRefu
 }
 
 /**
+ * Which part of the group a target's row is, for the one card the six of them draw together.
+ *
+ * Indexed rather than named one by one, because the list is what decides it: a row written as `Top` by hand
+ * would be wrong the moment a target is added, removed or reordered, and wrong in a way only the eye catches -
+ * two rounded tops in a row, or a flat bottom left hanging in the middle of the card. It reads the same
+ * vocabulary the settings list groups its rows with, `GroupedSingle` included, so a list that ever comes down
+ * to one row rounds at both ends instead of drawing a cap on top and a seam below.
+ */
+internal fun rebootRowPosition(index: Int, count: Int): SettingsCardPosition = when {
+    count <= 1 -> SettingsCardPosition.GroupedSingle
+    index <= 0 -> SettingsCardPosition.Top
+    index >= count - 1 -> SettingsCardPosition.Bottom
+    else -> SettingsCardPosition.Middle
+}
+
+/**
  * The widest shell this device will give the app right now, asked for rather than assumed.
  *
  * The same probe the repair actions make, kept in one place for the menu that has to answer the question

@@ -101,6 +101,29 @@ class SettingsCardGroupTest {
         assertEquals(16.dp, settingsCardRestingRadius(SettingsCardPosition.Single, top = false))
     }
 
+    @Test
+    fun `the restart sheet's rows are the settings list's rows`() {
+        // The six ways out were six separately-rounded `Surface`s of their own, which is the one thing this
+        // vocabulary exists to avoid. Checked as source rather than as a screenshot because the failure is
+        // invisible in a diff and compiles cleanly: the rows would simply go back to a second idea of what a
+        // row is, one screen away from the first, and nothing on the page would look obviously wrong.
+        val sheet = sourceRoot()
+            .walkTopDown()
+            .first { file -> file.isFile && file.name == "RebootUi.kt" }
+            .readText()
+
+        assertTrue("the sheet's rows are not cards any more", sheet.contains("Card("))
+        assertTrue(
+            "the rows take no position in a group, so they cannot share the group's curve",
+            sheet.contains("rebootRowPosition("),
+        )
+        assertTrue(
+            "the rows draw a curve of their own instead of the settings card's, press swell included",
+            sheet.contains("expressiveClickableCardShape("),
+        )
+        assertFalse("the sheet has a Surface of its own again", sheet.contains("Surface("))
+    }
+
     /**
      * The positions in the order each file declares them.
      *

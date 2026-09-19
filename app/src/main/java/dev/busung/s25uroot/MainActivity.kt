@@ -7571,7 +7571,7 @@ private fun AboutDialog(onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun expressiveClickableCardShape(
+internal fun expressiveClickableCardShape(
     interactionSource: MutableInteractionSource,
     position: SettingsCardPosition = SettingsCardPosition.Single,
 ): RoundedCornerShape {

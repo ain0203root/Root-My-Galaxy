@@ -1,22 +1,21 @@
 package dev.busung.s25uroot
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -29,7 +28,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -99,21 +97,27 @@ internal fun RebootSheet(onDismiss: () -> Unit, notice: RecoveryOutcome? = null)
                 },
             )
             Spacer(modifier = Modifier.size(4.dp))
-            RebootTarget.entries.forEach { target ->
-                val refusalForRow = tier?.let { known -> rebootRefusalFor(known, target) }
-                RebootTargetRow(
-                    target = target,
-                    // Offered only once the probe has answered and said yes: a row that turns out to be
-                    // refused is worse than one that was never offered.
-                    enabled = tier != null && refusalForRow == null,
-                    reason = refusalForRow,
-                    onSelect = {
-                        refusal = null
-                        if (target.leavesAndroid) confirming = target else scope.launch {
-                            refusal = runRebootTarget(context, target)
-                        }
-                    },
-                )
+            // The six as one card, grouped the way the settings list groups its rows: a 2dp seam between them
+            // and the group's own ends carrying the rest of the curve. Six separately-rounded cards were six
+            // answers to the same question, and read as a list of things rather than a choice between them.
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                RebootTarget.entries.forEachIndexed { index, target ->
+                    val refusalForRow = tier?.let { known -> rebootRefusalFor(known, target) }
+                    RebootTargetRow(
+                        target = target,
+                        position = rebootRowPosition(index, RebootTarget.entries.size),
+                        // Offered only once the probe has answered and said yes: a row that turns out to be
+                        // refused is worse than one that was never offered.
+                        enabled = tier != null && refusalForRow == null,
+                        reason = refusalForRow,
+                        onSelect = {
+                            refusal = null
+                            if (target.leavesAndroid) confirming = target else scope.launch {
+                                refusal = runRebootTarget(context, target)
+                            }
+                        },
+                    )
+                }
             }
             refusal?.let { outcome ->
                 if (!outcome.accepted) {
@@ -170,6 +174,11 @@ internal fun RebootSheet(onDismiss: () -> Unit, notice: RecoveryOutcome? = null)
  * The icon is the same for all six on purpose: they are one kind of action, and six different glyphs would
  * suggest six different kinds. The names separate them.
  *
+ * It is the settings list's row, down to the `Card` and the shape it rests at: the same component, the same
+ * paddings, the same 28dp glyph, and the same swell on press. A sheet of power actions is not a second list
+ * with its own idea of what a row is - the reader has already learned this shape one screen over, and a second
+ * curve for the same kind of thing is the kind of difference nobody can name and everybody notices.
+ *
  * What each one does is **not** written underneath. It was, on the five that needed it, and it was removed for
  * the same reason a list of six rows does not need one: the names are already the whole of it - "Reboot to
  * Download" says what "Reboots into Download mode" said, one line later and twice the height. A *refusal* is a
@@ -178,48 +187,45 @@ internal fun RebootSheet(onDismiss: () -> Unit, notice: RecoveryOutcome? = null)
 @Composable
 private fun RebootTargetRow(
     target: RebootTarget,
+    position: SettingsCardPosition,
     enabled: Boolean,
     reason: RebootRefusal?,
     onSelect: () -> Unit,
 ) {
     val view = LocalView.current
-    val alpha = if (enabled) 1f else 0.45f
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .then(
-                if (enabled) {
-                    Modifier.clickable {
-                        clickHaptic(view)
-                        onSelect()
-                    }
-                } else {
-                    Modifier
-                },
-            ),
+    val interactionSource = remember { MutableInteractionSource() }
+    Card(
+        // A row this phone cannot do is dimmed and takes no tap, which is how the settings list says the same
+        // thing - so the two lists agree about both halves of "not available", and neither needs an alpha of
+        // its own to say it.
+        enabled = enabled,
+        onClick = {
+            clickHaptic(view)
+            onSelect()
+        },
+        modifier = Modifier.fillMaxWidth(),
+        shape = expressiveClickableCardShape(interactionSource, position),
+        interactionSource = interactionSource,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+        ),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 60.dp)
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
                 imageVector = Icons.Rounded.PowerSettingsNew,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = alpha),
-                modifier = Modifier.size(22.dp),
+                modifier = Modifier.size(28.dp),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stringResource(target.label),
                     style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
                 )
                 // The one line a row can still carry, and the only one that has to earn its height: a row that
                 // cannot be pressed has to say what is missing, or it sends people looking in the wrong place.

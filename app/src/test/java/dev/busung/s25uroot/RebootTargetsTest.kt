@@ -112,6 +112,32 @@ class RebootTargetsTest {
     }
 
     @Test
+    fun `the six rows draw one card rather than six`() {
+        val count = RebootTarget.entries.size
+        val positions = RebootTarget.entries.indices.map { rebootRowPosition(it, count) }
+
+        // The ends carry the curve and everything between them is flat, which is the whole of what makes a
+        // run of rows read as one card with seams in it rather than as a stack of separate things.
+        assertEquals(SettingsCardPosition.Top, positions.first())
+        assertEquals(SettingsCardPosition.Bottom, positions.last())
+        assertEquals(
+            List(count - 2) { SettingsCardPosition.Middle },
+            positions.subList(1, positions.lastIndex),
+        )
+        assertEquals("more than one top", 1, positions.count { it == SettingsCardPosition.Top })
+        assertEquals("more than one bottom", 1, positions.count { it == SettingsCardPosition.Bottom })
+        // Rounding an end that is inside the group is the failure the eye has to catch, so it is the one the
+        // rule is written to make impossible: nothing in the middle can be an end.
+        assertEquals(0, positions.count { it == SettingsCardPosition.GroupedSingle })
+    }
+
+    @Test
+    fun `a target on its own rounds at both ends`() {
+        // A single row in a group is the one case where Top-then-Bottom would draw a cap over a seam.
+        assertEquals(SettingsCardPosition.GroupedSingle, rebootRowPosition(0, 1))
+    }
+
+    @Test
     fun `everything that leaves Android carries an argument, and the daemon's restart does not`() {
         RebootTarget.entries.forEach { target ->
             if (target.leavesAndroid || target == RebootTarget.SoftRestart) {
