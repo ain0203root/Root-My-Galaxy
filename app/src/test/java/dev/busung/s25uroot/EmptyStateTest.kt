@@ -1,6 +1,8 @@
 package dev.busung.s25uroot
 
 import java.io.File
+import java.lang.reflect.Modifier
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -11,7 +13,7 @@ import org.junit.Test
  * reason and what would fill it. The two emptinesses are not the same thing and are not answered the same
  * way: a list that is empty because nothing has happened yet needs a way to go and make something happen,
  * while a list that is empty because a filter excluded everything needs a way to undo the filter - and
- * naming three controls to change by hand is not that way.
+ * naming every control to change by hand is not that way.
  *
  * Held as a rule over every empty card rather than one assertion per card, so a fourth empty state added
  * later cannot be a blank area that looks broken.
@@ -38,14 +40,20 @@ class EmptyStateTest {
             .substringBefore("},")
 
         assertTrue("no clear-filters action was found", clear.isNotBlank())
-        listOf(
-            "minLevel = AppLogLevel.Debug",
-            "selectedTags = emptyList()",
-            "query = \"\"",
-        ).forEach { reset ->
+        // Read off the filter itself rather than listed here: a control added to the filter becomes one this
+        // reset is required to clear, instead of one a later edit has to remember to come back for. That is
+        // exactly how the tag selection outlived its own removal from the row for as long as it did.
+        // Instance fields only: the class also carries the Compose compiler's static `$stable`, which is not
+        // a control on the Logs tab.
+        val controls = LogFilter::class.java.declaredFields
+            .filterNot { Modifier.isStatic(it.modifiers) }
+            .map { it.name }
+            .toSet()
+        assertEquals("the log filter's controls are not what this reset was written against", setOf("minLevel", "query"), controls)
+        controls.forEach { control ->
             assertTrue(
-                "clearing the log filters leaves $reset behind, so the list stays empty",
-                clear.contains(reset),
+                "clearing the log filters leaves `$control` behind, so the list stays empty",
+                clear.contains("$control ="),
             )
         }
     }

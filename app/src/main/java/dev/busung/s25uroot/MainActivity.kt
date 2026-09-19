@@ -3244,9 +3244,8 @@ private fun LogsPage(padding: PaddingValues) {
     val entries by AppLog.log.collectAsStateWithLifecycle()
     var minLevel by remember { mutableStateOf(AppLogLevel.Debug) }
     var query by rememberSaveable { mutableStateOf("") }
-    var selectedTags by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var confirmClear by remember { mutableStateOf(false) }
-    val filter = LogFilter(minLevel = minLevel, query = query, tags = selectedTags.toSet())
+    val filter = LogFilter(minLevel = minLevel, query = query)
 
     // The file is the record and this process is not the only one that writes to it: a boot install,
     // and everything logged before this screen existed, is in there and nowhere else. Read on opening
@@ -3262,11 +3261,6 @@ private fun LogsPage(padding: PaddingValues) {
     }
     val hiddenRows = remember(entries, filter) {
         (entries.count(filter::matches) - shown.size).coerceAtLeast(0)
-    }
-    // From the level and the text, not from the selection itself: the row has to keep saying what
-    // can be selected while something is selected.
-    val tagCounts = remember(entries, filter.minLevel, filter.query, filter.tags) {
-        logTagCounts(entries, filter)
     }
 
     if (confirmClear) {
@@ -3284,7 +3278,6 @@ private fun LogsPage(padding: PaddingValues) {
                     AppLog.clear()
                     query = ""
                     minLevel = AppLogLevel.Debug
-                    selectedTags = emptyList()
                     confirmClear = false
                 }) {
                     Text(stringResource(R.string.logs_clear))
@@ -3381,26 +3374,6 @@ private fun LogsPage(padding: PaddingValues) {
                         selected = filter.minLevel == AppLogLevel.Error,
                     ) { minLevel = AppLogLevel.Error }
                 }
-                if (tagCounts.isNotEmpty()) {
-                    // The count beside each tag is what makes the row worth its height: it says where
-                    // the lines are before the log is read, and it moves with the level above it.
-                    LogSectionLabel(stringResource(R.string.logs_tags_label))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        tagCounts.forEach { tag ->
-                            FilterChip(
-                                selected = tag.tag in filter.tags,
-                                onClick = {
-                                    clickHaptic(view)
-                                    selectedTags = filter.togglingTag(tag.tag).tags.toList()
-                                },
-                                label = { Text("${tag.tag} ${tag.count}") },
-                            )
-                        }
-                    }
-                }
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
@@ -3432,7 +3405,6 @@ private fun LogsPage(padding: PaddingValues) {
                     // and undo by hand is a worse answer than a button that undoes all of them.
                     onClearFilters = {
                         minLevel = AppLogLevel.Debug
-                        selectedTags = emptyList()
                         query = ""
                     },
                 )

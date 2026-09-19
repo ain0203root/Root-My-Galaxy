@@ -1,11 +1,12 @@
 package dev.busung.s25uroot
 
+import java.lang.reflect.Modifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The Logs tab's filter, and the tag row it draws from. */
+/** The Logs tab's filter: the level floor, the text, and nothing else. */
 class LogFilterTest {
 
     private fun entry(
@@ -52,79 +53,21 @@ class LogFilterTest {
     }
 
     @Test
-    fun `a tag narrows what the level let through`() {
-        val filter = LogFilter(minLevel = AppLogLevel.Debug, tags = setOf(AppLogTags.KERNEL_SU))
-        assertEquals(
-            listOf("daemon did not answer", "load refused"),
-            log.filter(filter::matches).map { it.message },
+    fun `the filter is a floor and a text, with no tag dimension left`() {
+        // The tag row and the count behind each chip were removed rather than hidden, because the row was
+        // the tallest thing above the log - and the one question it answered is now the text field's job.
+        // Read off the declaration rather than searched for by name, so a `tags` field added back fails
+        // here even if it is called something else.
+        // Instance fields only: the class also carries the Compose compiler's static `$stable`, which is not
+        // one of the questions the filter is asked.
+        val fields = LogFilter::class.java.declaredFields
+            .filterNot { Modifier.isStatic(it.modifiers) }
+            .map { it.name }
+        assertTrue("the level floor is gone from the filter", fields.contains("minLevel"))
+        assertTrue("the text is gone from the filter", fields.contains("query"))
+        assertFalse(
+            "a tag set is part of the filter again; it was removed, not hidden",
+            fields.any { it.contains("tag", ignoreCase = true) },
         )
-
-        val problems = LogFilter(tags = setOf(AppLogTags.KERNEL_SU)).withProblemsOnly(true)
-        assertEquals(
-            listOf("daemon did not answer", "load refused"),
-            log.filter(problems::matches).map { it.message },
-        )
-    }
-
-    @Test
-    fun `two tags are either of them, not both at once`() {
-        val filter = LogFilter(tags = setOf(AppLogTags.RUN, AppLogTags.CATALOG))
-        assertEquals(2, log.count(filter::matches))
-    }
-
-    @Test
-    fun `an empty selection is every tag rather than none`() {
-        assertTrue(LogFilter().tags.isEmpty())
-        assertEquals(log.size, log.count(LogFilter()::matches))
-    }
-
-    @Test
-    fun `tapping a tag twice puts the log back`() {
-        val filter = LogFilter().togglingTag(AppLogTags.RUN)
-        assertEquals(setOf(AppLogTags.RUN), filter.tags)
-        assertTrue(filter.togglingTag(AppLogTags.RUN).tags.isEmpty())
-    }
-
-    @Test
-    fun `the tag row is ranked by what it would show`() {
-        val chips = logTagCounts(log, LogFilter())
-        // Two tags hold two lines each and two hold one, so the ranking is by count and a tie is
-        // broken by name - which is the rule that keeps the row from reordering itself at random.
-        assertEquals(listOf(AppLogTags.KERNEL_SU, AppLogTags.SHIZUKU), chips.take(2).map { it.tag })
-        assertEquals(listOf(2, 2, 1, 1), chips.map { it.count })
-    }
-
-    @Test
-    fun `tag counts follow the level, which is what makes the row worth reading`() {
-        val problems = logTagCounts(log, LogFilter().withProblemsOnly(true))
-        assertEquals(listOf(AppLogTags.KERNEL_SU, AppLogTags.RUN), problems.map { it.tag })
-        assertFalse(problems.any { it.tag == AppLogTags.SHIZUKU })
-    }
-
-    @Test
-    fun `a selected tag keeps its chip at whatever count follows`() {
-        // Selected, and nothing in it is loud enough to pass the floor: the chip has to stay, or the
-        // filter is on with nothing on screen to say so - or to clear it with.
-        val filter = LogFilter(minLevel = AppLogLevel.Error, tags = setOf(AppLogTags.SHIZUKU))
-        val chips = logTagCounts(log, filter)
-        assertEquals(AppLogTags.SHIZUKU, chips.first().tag)
-        assertEquals(0, chips.first().count)
-    }
-
-    @Test
-    fun `a selected tag cannot be pushed off the row by the ranking`() {
-        val tags = (1..MAX_LOG_TAG_CHIPS + 4).map { "Tag$it" }
-        val entries = tags.mapIndexed { index, tag ->
-            entry(if (index == tags.lastIndex) AppLogLevel.Error else AppLogLevel.Info, tag)
-        }
-        val filter = LogFilter(tags = setOf(tags.last()))
-        val chips = logTagCounts(entries, filter)
-        assertEquals(MAX_LOG_TAG_CHIPS, chips.size)
-        assertEquals(tags.last(), chips.first().tag)
-    }
-
-    @Test
-    fun `an empty log offers no chips at all`() {
-        assertTrue(logTagCounts(emptyList(), LogFilter()).isEmpty())
     }
 }

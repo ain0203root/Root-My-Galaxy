@@ -269,14 +269,13 @@
     <string name="logs_filter_info">Info</string>
     <string name="logs_filter_problems">Problems</string>
     <string name="logs_filter_error">Errors</string>
-    <string name="logs_tags_label">Filter by tag</string>
     <string name="logs_search">Filter by text</string>
     <string name="logs_count_window">Newest %1$d, %2$d older not shown</string>
     <string name="logs_empty_title">Nothing logged yet</string>
     <string name="logs_empty_body">Lines appear as soon as the app does something, such as starting Shizuku, fetching the payload catalog, downloading a manager, or running an installation. A run\'s payload output is shown in History.</string>
     <string name="logs_filter_clear">Clear filters</string>
     <string name="logs_empty_filtered_title">No matches</string>
-    <string name="logs_empty_filtered_body">Lower the level filter, clear the tag selection, or clear the text filter to see more of the log.</string>
+    <string name="logs_empty_filtered_body">Lower the level filter or clear the text filter to see more of the log.</string>
     <plurals name="logs_count">
         <item quantity="one">%1$d line</item>
         <item quantity="other">%1$d lines</item>
