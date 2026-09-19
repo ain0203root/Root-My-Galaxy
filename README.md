@@ -1150,6 +1150,30 @@ state, and says what merging it means: either the version it produces (`v<versio
 `appVersionBase` has moved) or a note that `appVersionBase` is the same on both branches, in which
 case a stable release from that merge would republish the existing tag instead of cutting a new one.
 Pushing to `dev` again updates the same pull request rather than opening a second one, and if `dev`
-has nothing that `main` does not already have, the run says so and opens nothing.
+has nothing that `main` does not already have, the run says so and closes the pull request if one is
+open — a release request with nothing left in it reads as work waiting to be done.
+
+### `main` back into `dev`
+
+The other direction is its own workflow, **`Back-merge`**, run on every push to `main` (and on demand
+from the Actions tab). A `dev` that is behind is a `dev` whose next build tests a state `main` has
+already passed, so each run levels the two, and which way it does that is the whole of its logic:
+
+| state | what it does |
+|---|---|
+| `dev` has nothing of its own | **fast-forwards `dev` to `main`** — nothing on `dev` can be lost, so there is nothing to review |
+| the two have diverged | **opens one pull request** from `main` into `dev`, updated rather than duplicated, listing both sides — a merge is a decision |
+| level already | does nothing, and closes a back-merge pull request that no longer has anything in it |
+
+The fast-forward goes through the refs API with `force: false`, so GitHub refuses the update rather
+than clobbering `dev` if the comparison was stale by the time it ran. Both numbers come from the
+compare API, and `main`'s tip is read from the API rather than taken from the workflow's own commit,
+so a run dispatched from any other branch still means "level `dev` with `main`" and cannot point one
+branch's state at the other.
+
+One consequence worth knowing before you push to `main` in a hurry: a fast-forward is a push to `dev`,
+so it runs `CI Build` and publishes a pre-release for that state. Each push to `main` therefore
+produces one pre-release, which is the point — the testing branch always has a build of what `main`
+is — but it is a build per push rather than per `dev` change.
 
 Use only on devices you own or are explicitly authorized to test.

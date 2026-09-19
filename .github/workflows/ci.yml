@@ -205,8 +205,17 @@ jobs:
           set -euo pipefail
 
           AHEAD="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" --jq '.ahead_by')"
+          OPEN_PR="$(gh pr list --base main --head dev --state open --json number --jq '.[0].number // empty')"
           if [ "${AHEAD:-0}" -eq 0 ]; then
             echo "dev has nothing that main does not already have; no pull request to open."
+            if [ -n "$OPEN_PR" ]; then
+              # A release pull request with nothing in it reads as work waiting to be done, and two
+              # things can empty one between two dev pushes: a back-merge, and a push straight to main.
+              gh pr close "$OPEN_PR" \
+                --comment "dev has nothing that main does not already have, so there is nothing to release here."
+              echo "- closed release pull request #${OPEN_PR}, which had nothing left in it" \
+                >> "$GITHUB_STEP_SUMMARY"
+            fi
             exit 0
           fi
           BEHIND="$(gh api "repos/${GITHUB_REPOSITORY}/compare/main...${GITHUB_SHA}" --jq '.behind_by')"
@@ -248,7 +257,7 @@ jobs:
           } > "$RUNNER_TEMP/pr.md"
 
           TITLE="dev to main: ${VERSION_NAME}, ${AHEAD} commit(s)"
-          PR="$(gh pr list --base main --head dev --state open --json number --jq '.[0].number // empty')"
+          PR="$OPEN_PR"
           if [ -n "$PR" ]; then
             gh pr edit "$PR" --title "$TITLE" --body-file "$RUNNER_TEMP/pr.md"
             URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${PR}"
