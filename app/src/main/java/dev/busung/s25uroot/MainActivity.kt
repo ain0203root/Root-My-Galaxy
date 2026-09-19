@@ -3136,8 +3136,9 @@ private fun LogsPage(padding: PaddingValues) {
         item {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 // A floor rather than a match: a warning is what makes someone open this tab, and the
-                // reason for it is in the lines below it. Problems is that same floor under a name
-                // that says what it is for.
+                // reason for it is in the lines below it. Errors is that same floor under the name of the
+                // thing people come here to find - one chip, not two, because an error is only the loudest
+                // warning and a second chip at that level showed a subset of this one.
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -3151,13 +3152,9 @@ private fun LogsPage(padding: PaddingValues) {
                         selected = filter.minLevel == AppLogLevel.Info,
                     ) { minLevel = AppLogLevel.Info }
                     LogFilterChip(
-                        label = R.string.logs_filter_problems,
-                        selected = filter.problemsOnly,
-                    ) { minLevel = filter.withProblemsOnly(!filter.problemsOnly).minLevel }
-                    LogFilterChip(
                         label = R.string.logs_filter_error,
-                        selected = filter.minLevel == AppLogLevel.Error,
-                    ) { minLevel = AppLogLevel.Error }
+                        selected = filter.errorsOnly,
+                    ) { minLevel = filter.withErrorsOnly(!filter.errorsOnly).minLevel }
                 }
                 OutlinedTextField(
                     value = query,

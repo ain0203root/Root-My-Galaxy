@@ -7,8 +7,8 @@ package dev.busung.s25uroot
  * when it clears the floor *and* matches the text, and held apart they would be applied in two places that
  * could disagree about the same line.
  *
- * Pure, so the answers worth checking - what the Problems floor lets through, that turning it off only
- * lowers the floor it raised - are checked without a device.
+ * Pure, so the answers worth checking - what the Errors floor lets through, that turning it off only lowers
+ * the floor it raised - are checked without a device.
  *
  * There used to be a third question, a set of tags drawn as a row of chips with a count beside each one.
  * It is **gone**, and deliberately not replaced by a smaller version of itself: the row was the tallest
@@ -20,26 +20,39 @@ internal data class LogFilter(
     val query: String = "",
 ) {
     /**
-     * Whether problems are all that is being shown.
+     * Whether the Errors chip is on: the floor is a warning, so everything that went wrong is on screen.
      *
-     * Derived from the level instead of being its own flag, because the two would otherwise be able to
-     * disagree: a chip reading "not selected" over a list of warnings, or a lit chip over a floor someone
-     * had just lowered. This way the chip and the list are the same fact.
+     * Warnings are under it on purpose. A warning is what makes someone open this tab - a daemon that did
+     * not answer, a grant that was refused - and an error is the same complaint at its loudest, so one chip
+     * covering both is one idea rather than two. There used to be a second chip one level above this one,
+     * named after the error level, and it showed a subset of what the first already showed.
      */
-    val problemsOnly: Boolean get() = minLevel.ordinal >= AppLogLevel.Warn.ordinal
+    val errorsOnly: Boolean get() = minLevel.ordinal >= FAILURES_FLOOR.ordinal
 
     /**
-     * Raises the floor to warnings and up, or takes it back down to everything.
+     * Turns the Errors chip on, or takes back down the floor it raised.
      *
-     * Turning it off only lowers a floor that is warnings - the level this chip put there. Error is a level
-     * someone picked deliberately, and clearing it would be this chip answering a question it was not asked.
+     * Turning it off only lowers a floor of warnings - the level this chip put there. A higher floor is one
+     * someone picked deliberately, and clearing it would be this chip answering a question it was not
+     * asked.
      */
-    fun withProblemsOnly(on: Boolean): LogFilter = if (on) {
-        copy(minLevel = AppLogLevel.Warn)
+    fun withErrorsOnly(on: Boolean): LogFilter = if (on) {
+        copy(minLevel = FAILURES_FLOOR)
     } else {
-        copy(minLevel = if (minLevel == AppLogLevel.Warn) AppLogLevel.Debug else minLevel)
+        copy(minLevel = if (minLevel == FAILURES_FLOOR) AppLogLevel.Debug else minLevel)
     }
 
     /** Whether a line belongs on screen. */
     fun matches(entry: AppLogEntry): Boolean = AppLogFormat.matches(entry, minLevel, query)
+
+    companion object {
+        /**
+         * Where the Errors chip puts the floor: warnings and up.
+         *
+         * A value rather than `AppLogLevel.Error`, because the chip is about everything that went wrong
+         * rather than about one level's name - and a floor written as `Error` here would silently hide
+         * every warning the tab exists to show.
+         */
+        val FAILURES_FLOOR: AppLogLevel = AppLogLevel.Warn
+    }
 }

@@ -1,5 +1,6 @@
 package dev.busung.s25uroot
 
+import java.io.File
 import java.lang.reflect.Modifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -32,10 +33,10 @@ class LogFilterTest {
     }
 
     @Test
-    fun `problems is the warnings floor under a name that says what it is for`() {
-        val filter = LogFilter().withProblemsOnly(true)
+    fun `the Errors chip is the warnings floor under the name of what people look for`() {
+        val filter = LogFilter().withErrorsOnly(true)
         assertEquals(AppLogLevel.Warn, filter.minLevel)
-        assertTrue(filter.problemsOnly)
+        assertTrue(filter.errorsOnly)
         assertEquals(
             listOf("daemon did not answer", "load refused", "exploit failed"),
             log.filter(filter::matches).map { it.message },
@@ -43,13 +44,13 @@ class LogFilterTest {
     }
 
     @Test
-    fun `turning problems off only lowers the floor that chip raised`() {
-        assertEquals(AppLogLevel.Debug, LogFilter().withProblemsOnly(true).withProblemsOnly(false).minLevel)
+    fun `turning Errors off only lowers the floor that chip raised`() {
+        assertEquals(AppLogLevel.Debug, LogFilter().withErrorsOnly(true).withErrorsOnly(false).minLevel)
 
-        // An error floor is a level someone picked, and this chip did not pick it.
-        val errors = LogFilter(minLevel = AppLogLevel.Error)
-        assertEquals(AppLogLevel.Error, errors.withProblemsOnly(false).minLevel)
-        assertTrue(errors.problemsOnly)
+        // A higher floor is a level someone picked, and this chip did not pick it.
+        val higher = LogFilter(minLevel = AppLogLevel.Error)
+        assertEquals(AppLogLevel.Error, higher.withErrorsOnly(false).minLevel)
+        assertTrue(higher.errorsOnly)
     }
 
     @Test
@@ -70,4 +71,34 @@ class LogFilterTest {
             fields.any { it.contains("tag", ignoreCase = true) },
         )
     }
+
+    @Test
+    fun `one chip covers everything that went wrong`() {
+        // Four chips were drawn where three floors were meant: a Problems chip at the warnings floor and an
+        // Errors chip one level above it, showing a subset of the lines the first already showed. Read off
+        // the page rather than the filter, because where that redundancy lived was the row.
+        val page = source("src/main/java/dev/busung/s25uroot/MainActivity.kt")
+            .substringAfter("private fun LogsPage")
+            .substringBefore("\nprivate fun ")
+
+        assertEquals(
+            "the level chips are no longer All, Info and Errors, one chip per floor",
+            3,
+            Regex("LogFilterChip\\(").findAll(page).count(),
+        )
+        assertFalse(
+            "a second chip for the same failures is back",
+            source("src/main/java/dev/busung/s25uroot/MainActivity.kt").contains("logs_filter_problems"),
+        )
+        assertFalse(
+            "the Problems label is back in the strings",
+            source("src/main/res/values/strings.xml").contains("logs_filter_problems"),
+        )
+    }
+
+    private fun source(relativeToApp: String): String = listOf(
+        File(relativeToApp),
+        File("app/$relativeToApp"),
+    ).firstOrNull(File::isFile)?.readText()
+        ?: throw AssertionError("$relativeToApp was not found from ${File(".").absolutePath}")
 }
