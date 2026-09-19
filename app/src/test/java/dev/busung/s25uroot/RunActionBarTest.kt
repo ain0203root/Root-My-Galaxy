@@ -58,7 +58,7 @@ class RunActionBarTest {
     @Test
     fun `the run's controls are in the bar and not at the end of the page`() {
         val text = source("InstallActivity.kt")
-        val bar = text.indexOf("RunActionBar(")
+        val bar = text.indexOf("RunActionBar")
 
         assertTrue("nothing draws the run's bar", bar > 0)
         listOf(
@@ -74,27 +74,35 @@ class RunActionBarTest {
     }
 
     @Test
-    fun `the bar says how far the run has come, from the fraction the status card uses`() {
+    fun `the bar draws no progress line over its controls`() {
         val text = source("InstallActivity.kt")
-        val bar = text.indexOf("RunActionBar(")
 
-        assertTrue("nothing draws the run's bar", bar > 0)
-        assertTrue(
-            "the bar over the log says nothing about how far the run has come",
-            text.indexOf("progress = installProgress(", bar) > 0,
+        assertTrue("nothing draws the run's bar", text.contains("RunActionBar"))
+        // A hairline across the pill's top edge sat directly over the outermost button, so it read as part of
+        // Stop rather than as the run's position - and it was removed for that, not for being wrong. So the
+        // property is "the bar is handed nothing at all": with no argument to pass, there is no fraction for a
+        // strip to read, and the trailing-lambda call this asserts is also what the statement looks like.
+        assertFalse(
+            "the bar over the log takes an argument again; a fraction is what put a rule back over Stop",
+            text.contains("RunActionBar("),
         )
-        // A failure's stage lives on the failure and a stop's on the state, so the strip has to read
-        // whichever of the two the run ended with - or a stopped run shows an empty line.
-        assertTrue(text.contains("installState.failure?.stage ?: installState.stoppedAt"))
+        assertFalse(
+            "RunActionBar has a progress strip in it again",
+            source("RunActionBar.kt").contains("RunProgressHairline"),
+        )
     }
 
     @Test
-    fun `the bar is handed the run's fraction rather than working one out`() {
-        // One definition of where a run is, in `installProgress`, or the strip and the card's bar can
-        // disagree about the same run - which is worse than either of them being absent.
-        assertFalse(
-            "the bar derives a progress of its own",
-            source("RunActionBar.kt").contains("installProgress"),
+    fun `how far the run has come is still drawn, on the card and in the notification`() {
+        // The strip was removed rather than the feature. One definition of where a run is, in
+        // `installProgress`, drawn by the status card above the log and by the run's own notification.
+        assertTrue(
+            "nothing draws the run's progress any more",
+            source("InstallActivity.kt").contains("installProgress("),
+        )
+        assertTrue(
+            "the run's notification no longer says how far it has come",
+            source("InstallViewModel.kt").contains("installProgress("),
         )
     }
 
