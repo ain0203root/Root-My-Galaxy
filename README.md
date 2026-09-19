@@ -1111,7 +1111,9 @@ Which branch you push to decides which of the two workflows runs:
   same build.
 - **`main`** is what a stable release is cut from, and nothing builds it automatically. Run
   `Release Build` by hand when a stable release is wanted; it publishes the tagged releases it
-  manages (`v<version>`) and marks the newest one as the repository's "Latest".
+  manages (`v<version>`) and marks the newest one as the repository's "Latest". It carries the same
+  two APKs as a pre-release: `<version>.apk` and `<version>-debug.apk`, both signed with the
+  repository key, so either installs over the other.
 - Neither workflow runs on any other branch, and both run the unit suite before they build, so a
   failing test stops a pre-release and a stable release alike.
 

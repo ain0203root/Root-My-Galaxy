@@ -139,25 +139,29 @@ jobs:
       - name: Build APKs
         run: ./gradlew assembleDebug assembleRelease --no-daemon
 
-      - name: Verify release APK signature
+      # Both APKs, not only the release one: the debug buildtype is signed with the same key (see
+      # app/build.gradle.kts), and a release that publishes a debug APK which could not install over
+      # the release APK would be handing out the same broken artifact the CI workflow did.
+      - name: Verify APK signatures
         shell: bash
         run: |
           set -euo pipefail
 
           BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
-          APK="$(ls app/build/outputs/apk/release/*.apk | head -n 1)"
-
-          CERT="$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK")"
-          SIGNED_SHA256="$(echo "$CERT" | grep -m 1 'SHA-256 digest' | awk '{print $NF}' | tr 'A-F' 'a-f')"
           EXPECTED_SHA256="$(keytool -list -v -keystore "$KEYSTORE_FILE" -storepass "$KEYSTORE_PASSWORD" \
             -alias "$KEY_ALIAS" | grep -m 1 'SHA256:' | awk '{print $2}' | tr -d ':' | tr 'A-F' 'a-f')"
 
-          if [ "$SIGNED_SHA256" != "$EXPECTED_SHA256" ]; then
-            echo "::error::Release APK is not signed with the repository key (got $SIGNED_SHA256, expected $EXPECTED_SHA256)."
-            exit 1
-          fi
+          for APK in app/build/outputs/apk/release/*.apk app/build/outputs/apk/debug/*.apk; do
+            CERT="$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK")"
+            SIGNED_SHA256="$(echo "$CERT" | grep -m 1 'SHA-256 digest' | awk '{print $NF}' | tr 'A-F' 'a-f')"
+            if [ "$SIGNED_SHA256" != "$EXPECTED_SHA256" ]; then
+              echo "::error::$APK is not signed with the repository key (got $SIGNED_SHA256, expected $EXPECTED_SHA256)."
+              exit 1
+            fi
+            echo "$APK: $SIGNED_SHA256"
+          done
 
-      - name: Stage release APK
+      - name: Stage APKs
         if: success()
         shell: bash
         run: |
@@ -165,6 +169,7 @@ jobs:
           VERSION_NAME="$(grep -oE 'appVersionBase[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
           mkdir -p release-assets
           cp app/build/outputs/apk/release/*.apk "release-assets/RootMyGalaxy-${VERSION_NAME}.apk"
+          cp app/build/outputs/apk/debug/*.apk "release-assets/RootMyGalaxy-${VERSION_NAME}-debug.apk"
 
       - name: Generate release notes
         shell: bash
@@ -182,9 +187,11 @@ jobs:
             echo "Version: $VERSION_NAME"
             echo "Commit: $TAG_COMMIT"
             echo
-            echo "APK signed with the repository release key: installs over older CI builds and"
-            echo "releases of this fork. Uninstall the upstream build once, it has a different"
-            echo "signature."
+            echo "Two APKs: \`RootMyGalaxy-${VERSION_NAME}.apk\` is the release build, and"
+            echo "\`RootMyGalaxy-${VERSION_NAME}-debug.apk\` is the same code with debugging on. Both are"
+            echo "signed with the repository release key, so either installs over the other, over older CI"
+            echo "builds, and over earlier releases of this fork. Uninstall the upstream build once, it has"
+            echo "a different signature."
             echo
             if [ -n "$PREVIOUS_TAG" ]; then
               echo "Changes since $PREVIOUS_TAG:"
