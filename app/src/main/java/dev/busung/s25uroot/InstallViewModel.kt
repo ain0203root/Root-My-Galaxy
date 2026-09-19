@@ -21,6 +21,22 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 enum class InstallPhase {
+    /**
+     * The app reading this device, before any run exists.
+     *
+     * The value the state is constructed with, and **not** a step of a run: nothing is in flight, nothing can
+     * be stopped, and no stored result corresponds to it. It is apart from [Checking] - which is the first
+     * *step of a run*, where the device is resolved and a stop is a meaningful thing to press - because the two
+     * want opposite answers to "is anything happening".
+     *
+     * Under one phase meaning both, the first frame the app ever drew was a run: a spinner where the status
+     * glyph belongs, a title nothing had written to, a tap the card ignored, and - on the run screen - a Stop
+     * button for a run that did not exist. None of that was a colour or a copy problem; the state was simply
+     * untrue.
+     */
+    Probing,
+
+    /** The first step of a run: resolving this device, its firmware, and the payload the run will use. */
     Checking,
     Ready,
     Settling,
@@ -51,7 +67,7 @@ enum class InstallPhase {
 }
 
 data class InstallUiState(
-    val phase: InstallPhase = InstallPhase.Checking,
+    val phase: InstallPhase = InstallPhase.Probing,
     val message: String = "",
     val probeOutput: String = "",
     val log: String = "",
@@ -73,6 +89,12 @@ data class InstallUiState(
      */
     val transportPrompt: TransportPrompt? = null,
 ) {
+    /**
+     * Whether a run is under way, which is not the same question as whether the app is working.
+     *
+     * [InstallPhase.Probing] is the one phase in which the app is working with no run behind it, and it is
+     * absent from this set on purpose: that absence is the whole of what keeps the first frame from being a run.
+     */
     val busy: Boolean
         get() = phase in setOf(
             InstallPhase.Checking,
@@ -184,7 +206,12 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private val app = application
     private val repository = PayloadRepository(application)
     private val historyStore = InstallHistoryStore(application)
-    private val mutableState = MutableStateFlow(InstallUiState())
+    // Carries a title, because this is the frame the Home card draws before anything has been read. What the
+    // state says it is doing has to be the state's business: the card cannot invent words for a phase, and a
+    // button with nothing written on it is a button nobody presses.
+    private val mutableState = MutableStateFlow(
+        InstallUiState(message = app.getString(R.string.status_checking_device)),
+    )
     private val mutableHistory = MutableStateFlow(historyStore.closeInterruptedRuns())
     private val mutableTargetCatalog = MutableStateFlow(TargetCatalogUiState())
     private var discoveryJob: Job? = null
@@ -645,6 +672,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             RunInFlight.begin(app, currentBootToken())
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
+                message = app.getString(R.string.status_checking_device),
                 probeOutput = mutableState.value.probeOutput,
             )
             startHistory()

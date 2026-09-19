@@ -334,6 +334,9 @@
     <string name="status_ksu_active">KernelSU active</string>
     <string name="status_root_only">Root acquired. KernelSU was not loaded because it is disabled in Settings.</string>
     <string name="status_not_installed">Not installed</string>
+    <!-- The install card's title before anything has been read. It is the state's own message rather than the
+         card's, so a phase with nothing to say cannot leave the button blank. -->
+    <string name="status_checking_device">Checking this device…</string>
     <string name="status_support_failed">Support check failed</string>
     <string name="status_cache_missing">No cached payload</string>
     <string name="status_checking_github">Checking GitHub support manifest</string>

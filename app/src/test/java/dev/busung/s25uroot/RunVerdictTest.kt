@@ -48,6 +48,42 @@ class RunVerdictTest {
     }
 
     @Test
+    fun `the first frame the app draws is not a run in flight`() {
+        // The state the ViewModel is constructed with, which is what the install button draws before the probe
+        // has answered. It opened on `Checking`, a step of a run - so for as long as the probe took, the button
+        // was a run: a spinner, no title, a tap the card ignored, and a Stop bar on the run screen.
+        val first = InstallUiState()
+
+        assertEquals(InstallPhase.Probing, first.phase)
+        assertFalse("the first frame is busy, so the card treats it as a run", first.busy)
+        assertEquals(RunVerdict.Idle, runVerdict(first.phase, first.busy))
+        assertFalse(
+            "the first frame offers a stop for a run that has not started",
+            runControlsOffered(first.phase, first.busy),
+        )
+        assertEquals("nothing has been attempted, so no progress is claimed", 0f, installProgress(first.phase, null))
+    }
+
+    @Test
+    fun `the state the app opens on carries its own words`() {
+        // `message` is what the button writes on itself, and nothing filled it in until the probe published - so
+        // the empty title was not the phase's fault alone. The words live with the state that says them, since a
+        // caller constructing a state cannot be trusted to remember to pass a title.
+        val viewModel = source("InstallViewModel.kt").replace(Regex("\\s+"), " ")
+
+        assertTrue(
+            "the state the app opens on has no title to draw",
+            viewModel.contains("InstallUiState(message = app.getString(R.string.status_checking_device))"),
+        )
+        assertTrue(
+            "the run's own first step publishes an untitled card again",
+            viewModel.contains(
+                "InstallPhase.Checking, message = app.getString(R.string.status_checking_device)",
+            ),
+        )
+    }
+
+    @Test
     fun `every stored result maps to a verdict of its own`() {
         // Exhaustive by construction - this is what makes the history rows and the live card agree - and the
         // assertion that matters is that the mapping is one to one rather than collapsing two into one.

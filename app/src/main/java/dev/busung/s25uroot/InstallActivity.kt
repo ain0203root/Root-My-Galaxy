@@ -971,6 +971,9 @@ private fun installPhaseDetail(installState: InstallUiState): String =
     } else {
         stringResource(
             when (installState.phase) {
+                // The same words the run's own first step uses, and deliberately: it is the same reading, the app
+                // looking at this device. What differs is that no run is under way, so there is nothing to stop.
+                InstallPhase.Probing -> R.string.phase_checking
                 InstallPhase.Checking -> R.string.phase_checking
                 InstallPhase.Ready -> R.string.phase_ready
                 InstallPhase.Settling -> R.string.phase_settling
@@ -1116,6 +1119,8 @@ private val LOG_PANEL_HEIGHT = 280.dp
  * that reached the kernel exploit threw away the one thing the card could still say about it.
  */
 internal fun installProgress(phase: InstallPhase, failureStage: RunStage?): Float = when (phase) {
+    // Nothing has been attempted, so nothing is claimed: the run's own first step is not under way.
+    InstallPhase.Probing -> 0f
     InstallPhase.Checking -> 0.1f
     InstallPhase.Ready -> 0f
     InstallPhase.Settling -> 0.15f
@@ -1208,6 +1213,11 @@ internal fun installerStepState(
         }
     }
 
+    // Nothing has been read yet, so no step is in any state - not even the first one. The card's own title says
+    // the app is looking at the device; marking the support check as in progress would be the card claiming a
+    // run had started, which is the same mistake the first frame used to make about everything else.
+    InstallPhase.Probing -> InstallerStepState.Pending
+
     else -> {
         val activeIndex = when (phase) {
             InstallPhase.Checking, InstallPhase.Ready, InstallPhase.Settling -> 0
@@ -1216,6 +1226,7 @@ internal fun installerStepState(
             InstallPhase.LoadingKernelSu -> 3
             // Unreachable: the branches above take these phases. Listed so a new phase cannot fall
             // through to the first step and look like a support check in progress.
+            InstallPhase.Probing,
             InstallPhase.Installed,
             InstallPhase.RootOnly,
             InstallPhase.Failed,
