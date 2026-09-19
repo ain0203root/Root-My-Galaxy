@@ -8,9 +8,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,18 +25,24 @@ import androidx.compose.ui.unit.dp
  * the page no layout, the log keeps the whole screen, and the controls are where a thumb already is.
  *
  * Which of them exist is not this file's business: it draws a row and the screen fills it. What is here is the
- * *shape* - the pill, the fade behind it and the height it takes - because all three are the same on both
- * screens that float a bar, and the tab bar's version of them already lives with the bar in `MainActivity`.
+ * fade behind that row and the height it takes.
  *
  * The fade is drawn on the bar's own band rather than by the page, which is what makes it leave with the bar
- * and what stops a long page from arriving at the pill at full contrast. A gradient and not a blur: a blur of
- * a scrolling log means rendering it into an offscreen layer and re-blurring it every frame.
+ * and what stops a long page from arriving at the controls at full contrast. A gradient and not a blur: a blur
+ * of a scrolling log means rendering it into an offscreen layer and re-blurring it every frame.
  *
- * Nothing here says how far the run has come. A hairline across the pill's top edge used to, and it was
- * **removed** rather than moved: the pill is a control row, and a rule drawn along the top of a button reads as
- * part of that button - the strip sat directly over Stop in a bar whose buttons are the whole point. How far a
- * run has got is on the status card's own bar above the log, where it is a measurement rather than an
- * ornament.
+ * There is deliberately **no container** around the controls - no pill, no outline, no surface of the bar's
+ * own. One used to be here, carrying the same tinted shape and shadow as the tab bar's, and it was removed
+ * for the reason a border is a border: the controls are already rounded shapes of their own, so a pill a few
+ * dp outside them is a rounded band in a third colour sitting between the button and the page. On the tab bar
+ * the pill has a job - its items are bare icons and labels, and the pill is the only thing giving the row an
+ * edge. Here every control brings its own, so the pill enclosed them exactly the way a stroke would. What
+ * separates the bar from the page is the fade, and a fade has no edge to read as one.
+ *
+ * Nothing here says how far the run has come. A hairline across the top edge used to, and it was **removed**
+ * rather than moved: it sat directly over Stop in a bar whose buttons are the whole point, and a rule drawn
+ * along the top of a button reads as part of that button. How far a run has got is on the status card's own
+ * bar above the log, where it is a measurement rather than an ornament.
  */
 @Composable
 internal fun RunActionBar(
@@ -60,29 +64,19 @@ internal fun RunActionBar(
             .padding(horizontal = 20.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            tonalElevation = 0.dp,
-            shadowElevation = 6.dp,
-        ) {
-            Row(
-                // 12dp rather than the tab bar's 8dp: these are filled buttons with corners of their own,
-                // and the bar's own curve would otherwise cut into the outer two.
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                content = content,
-            )
-        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            content = content,
+        )
     }
 }
 
 /**
  * Whether the run screen has anything to offer for this state, which is whether its bar exists at all.
  *
- * An empty pill over a page is worse than no bar, and this is the one place the question is answered - the
+ * An empty bar over a page is worse than no bar, and this is the one place the question is answered - the
  * screen builds its row from the same phases, so the two cannot disagree about whether there is one.
  *
  * Busy covers every phase the app is working through, including the settle wait; the four at the end are the

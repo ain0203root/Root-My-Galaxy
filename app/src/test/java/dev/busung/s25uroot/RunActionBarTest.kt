@@ -16,6 +16,9 @@ import java.io.File
  * The other two are properties of the source and both were bugs once: the controls sat at the end of the
  * scrolling page, so the log ended against them, and the button over the page had to be told where they began
  * - a measurement that had to be taken in the right place to work at all.
+ *
+ * The third source property is the bar's own container, which is gone: it held the controls inside a rounded
+ * band, and every one of them already has a shape.
  */
 class RunActionBarTest {
 
@@ -44,7 +47,7 @@ class RunActionBarTest {
     @Test
     fun `the screen open before a run has started has no bar`() {
         // The one phase that is neither working nor finished: nothing to stop and nothing to do afterwards,
-        // and an empty pill over the page would be the bar pretending otherwise.
+        // and an empty bar over the page would be the bar pretending otherwise.
         assertFalse(runControlsOffered(InstallPhase.Ready, busy = false))
     }
 
@@ -78,7 +81,7 @@ class RunActionBarTest {
         val text = source("InstallActivity.kt")
 
         assertTrue("nothing draws the run's bar", text.contains("RunActionBar"))
-        // A hairline across the pill's top edge sat directly over the outermost button, so it read as part of
+        // A hairline across the bar's top edge sat directly over the outermost button, so it read as part of
         // Stop rather than as the run's position - and it was removed for that, not for being wrong. So the
         // property is "the bar is handed nothing at all": with no argument to pass, there is no fraction for a
         // strip to read, and the trailing-lambda call this asserts is also what the statement looks like.
@@ -115,6 +118,26 @@ class RunActionBarTest {
         assertTrue(shared.contains("bar: @Composable BoxScope.() -> Unit = {}"))
         assertTrue(shared.contains("Spacer(Modifier.height(barHeight + BACK_TO_TOP_CLEARANCE))"))
         assertTrue(shared.contains("pageBottomInset(barHeight)"))
+    }
+
+    @Test
+    fun `the bar draws no container around its controls`() {
+        val body = source("RunActionBar.kt")
+
+        // The bar was a tinted pill with a shadow, carrying the same shape as the tab bar's. The controls are
+        // rounded shapes of their own, so that pill enclosed them a few dp out in a third colour - a band
+        // between the button and the page, which is what a border is. Asserted on the bar's own source rather
+        // than on a screenshot because the failure is invisible in a diff: one file, one line, and every
+        // button on the run screen grows an outline around it.
+        assertFalse("the bar has a pill around its controls again", body.contains("Surface("))
+        assertFalse("the bar draws a rounded container again", body.contains("RoundedCornerShape"))
+        assertFalse(
+            "the bar has a shadow again; a shadow draws the same band even with no fill behind it",
+            body.contains("shadowElevation"),
+        )
+        // The fade has to stay, and it is not a container: it has no edge and nothing hugs it. With the pill
+        // gone it is the only thing telling the bar's buttons from the log's text behind them.
+        assertTrue("nothing separates the bar from the page any more", body.contains("Brush.verticalGradient"))
     }
 
     private fun source(name: String): String {
