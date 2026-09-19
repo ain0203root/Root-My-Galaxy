@@ -1,6 +1,9 @@
 package dev.busung.s25uroot
 
+import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 private const val THIS_BOOT = "0f2a4c6e-1b2d-4f6a-8c0e-2d4f6a8c0e2d"
@@ -10,6 +13,7 @@ class AutoRootDecisionTest {
 
     private fun decide(
         enabled: Boolean = true,
+        retryArmed: Boolean = false,
         kernelSuLoadEnabled: Boolean = true,
         kernelSuActive: Boolean = false,
         runInFlight: Boolean = false,
@@ -26,6 +30,7 @@ class AutoRootDecisionTest {
         verifiedBootToken = verifiedBootToken,
         attemptedBootToken = attemptedBootToken,
         bootToken = bootToken,
+        retryArmed = retryArmed,
     )
 
     @Test
@@ -129,6 +134,60 @@ class AutoRootDecisionTest {
     }
 
     @Test
+    fun `an armed retry gets this boot's install with root on boot off`() {
+        // The retry is a request the user made by hand from a failed run's dialog, and the phone was
+        // restarted to honour it. Root on boot being off is not a refusal of it - it is a setting about
+        // every other boot.
+        assertEquals(
+            AutoRootDecision.Run,
+            decide(enabled = false, retryArmed = true),
+        )
+    }
+
+    @Test
+    fun `with root on boot on, a retry is still a retry`() {
+        // Both asked for this boot, and one of them owns the attempt's payload: the retry runs the
+        // attempt it was armed for rather than the cached payload, so the boot is a retry boot and is
+        // reported as one. It used to be reported as a root-on-boot boot, because the flag that decided
+        // the wording was guarded by `!bootRootMode`.
+        assertEquals(
+            AutoRootDecision.Run,
+            decide(enabled = true, retryArmed = true),
+        )
+        val service = source("src/main/java/dev/busung/s25uroot/AutoRootService.kt")
+        assertFalse(
+            "the notification's wording is decided by a third flag again, so a boot with both turned on " +
+                "is called root on boot while it runs the payload that failed",
+            service.contains("retryTriggeredThisBoot"),
+        )
+        assertTrue(
+            "the run no longer prefers the attempted payload when the boot is a retry",
+            service.contains("preferAttemptedPayload = retryArmedThisBoot"),
+        )
+        assertTrue(
+            "the notification no longer names a retry boot as one",
+            service.contains("if (retryArmedThisBoot) R.string.autoroot_retry_title"),
+        )
+    }
+
+    @Test
+    fun `a retry boot's own action takes the retry back and leaves root on boot alone`() {
+        val service = source("src/main/java/dev/busung/s25uroot/AutoRootService.kt")
+        val receiver = source("src/main/java/dev/busung/s25uroot/AutoRootBootReceiver.kt")
+
+        assertTrue(
+            "the retry boot's notification still offers to turn off a setting that is not why it runs",
+            service.contains("if (retryArmedThisBoot) AutoRootActionReceiver.ACTION_SKIP_RETRY"),
+        )
+        assertTrue(
+            "the action no longer clears the request it is named after, so a skipped retry comes back at " +
+                "the next restart",
+            receiver.contains("ACTION_SKIP_RETRY ->") &&
+                receiver.contains("AppPreferences.setRetryAfterReboot(context, null)"),
+        )
+    }
+
+    @Test
     fun `root already active outranks the setting and the receipt`() {
         // The state of the device is what decides, not the bookkeeping: if KernelSU is answering,
         // there is nothing to do whatever the settings or the stored tokens say.
@@ -137,4 +196,10 @@ class AutoRootDecisionTest {
             decide(kernelSuActive = true, hasVerifiedInstall = false, verifiedBootToken = null),
         )
     }
+
+    private fun source(relativeToApp: String): String = listOf(
+        File(relativeToApp),
+        File("app/$relativeToApp"),
+    ).firstOrNull(File::isFile)?.readText()
+        ?: throw AssertionError("$relativeToApp was not found from ${File(".").absolutePath}")
 }

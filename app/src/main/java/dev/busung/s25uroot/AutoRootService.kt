@@ -45,23 +45,20 @@ class AutoRootService : Service() {
     private var viewModel: InstallViewModel? = null
 
     /**
-     * Whether this boot's attempt comes from a one-shot retry rather than from root on boot.
+     * Whether this boot's attempt is a one-shot retry, whichever way the boot was also asked for.
      *
      * Read once, before the gate runs, because running it is what consumes the retry: by the time
-     * anything is reported there is no retry left to ask about. It matters because the two are
-     * different promises - one is a setting the user can see and one is a request they made once - and a
-     * notification headed "Root on boot" for a boot that had it switched off reads as the setting being
-     * ignored rather than as the request being honoured.
-     */
-    private var retryTriggeredThisBoot = false
-
-    /**
-     * Whether this boot's attempt is a one-shot retry, whichever way it also happens to be asked for.
+     * anything is reported there is no retry left to ask about.
      *
-     * Distinct from [retryTriggeredThisBoot], which is about what the notification should call itself.
-     * This one decides which payload the run gets: a retry runs the attempt it was armed for, and that is
-     * true whether or not root on boot also wanted this boot's attempt.
+     * It answers both questions a boot run has, and deliberately one field rather than two, because they
+     * cannot disagree: it decides which payload the run gets - a retry runs the attempt it was armed for,
+     * wherever the cached payload would otherwise have come from - and it decides what the notification
+     * calls itself, since a boot whose attempt is a retry is a retry *even when root on boot is also on*.
+     * Those were two fields once, and the second one was guarded by `!bootRootMode`, so a phone with both
+     * turned on was told "Root on boot" while it ran, and reported on, the payload the user had asked it
+     * to retry.
      */
+    @Volatile
     private var retryArmedThisBoot = false
 
     override fun onCreate() {
@@ -80,7 +77,6 @@ class AutoRootService : Service() {
         retryArmedThisBoot = AutoRootSupport.currentBootToken()
             ?.let { bootToken -> AppPreferences.retryPendingForBoot(this, bootToken) }
             ?: false
-        retryTriggeredThisBoot = retryArmedThisBoot && !AppPreferences.bootRootMode(this)
         startForeground(
             NOTIFICATION_ID,
             buildNotification(getString(R.string.autoroot_stabilizing), ongoing = true),
@@ -670,7 +666,7 @@ class AutoRootService : Service() {
         .setSmallIcon(android.R.drawable.stat_sys_warning)
         .setContentTitle(
             getString(
-                if (retryTriggeredThisBoot) R.string.autoroot_retry_title
+                if (retryArmedThisBoot) R.string.autoroot_retry_title
                 else R.string.settings_boot_root,
             ),
         )
@@ -685,14 +681,22 @@ class AutoRootService : Service() {
         .setOngoing(ongoing)
         .setAutoCancel(!ongoing)
         .setPriority(NotificationCompat.PRIORITY_LOW)
+        // The way out of an automatic install, which is a different thing in each of the two boots that
+        // can start one. In a retry boot it takes back the request this boot is honouring, and it must not
+        // touch root on boot: that setting is not why this install is running, and a phone whose next boot
+        // then did nothing would have lost a setting to a tap meant for the run in front of it. The
+        // request is cleared as well as the run stopped, because the notification is up before the gate
+        // has claimed the attempt - and a retry that survived a "skip" comes back at the next restart.
         .addAction(
             0,
-            getString(R.string.autoroot_disable),
+            getString(if (retryArmedThisBoot) R.string.autoroot_skip_retry else R.string.autoroot_disable),
             PendingIntent.getBroadcast(
                 this,
                 1,
-                Intent(this, AutoRootActionReceiver::class.java)
-                    .setAction(AutoRootActionReceiver.ACTION_DISABLE_ROOT_ON_BOOT),
+                Intent(this, AutoRootActionReceiver::class.java).setAction(
+                    if (retryArmedThisBoot) AutoRootActionReceiver.ACTION_SKIP_RETRY
+                    else AutoRootActionReceiver.ACTION_DISABLE_ROOT_ON_BOOT,
+                ),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             ),
         )

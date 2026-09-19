@@ -130,6 +130,17 @@ class AutoRootActionReceiver : BroadcastReceiver() {
                 AutoRootService.stop(context)
             }
 
+            ACTION_SKIP_RETRY -> {
+                // The request goes first, for the same reason the setting does above: the boot's attempt
+                // is claimed a moment later by the gate, and one that was taken back while the
+                // notification was still deciding must stay taken back. Stopping afterwards is what ends
+                // the run in front of it, and it is a stop rather than a refusal - the retry was honoured
+                // as far as this boot is concerned, and the user said no to it.
+                AppPreferences.setRetryAfterReboot(context, null)
+                AppLog.info(AppLogTags.BOOT, "The scheduled retry was cancelled from the notification")
+                AutoRootService.stop(context)
+            }
+
             ACTION_APPLY_MODULES -> applyModules(context)
         }
     }
@@ -175,6 +186,13 @@ class AutoRootActionReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_DISABLE_ROOT_ON_BOOT =
             "dev.busung.s25uroot.action.DISABLE_ROOT_ON_BOOT"
+
+        /**
+         * The same action for the boot whose install is a retry: it takes back the request rather than
+         * the setting, because the setting is not what asked for this run.
+         */
+        const val ACTION_SKIP_RETRY =
+            "dev.busung.s25uroot.action.SKIP_RETRY"
         const val ACTION_APPLY_MODULES =
             "dev.busung.s25uroot.action.APPLY_MODULES"
         private const val TAG = "RootMyGalaxyBootAction"

@@ -13,6 +13,14 @@ import android.content.Context
 /** Why the gate does, or does not, start an automatic install for this boot. */
 internal enum class AutoRootDecision {
     Run,
+
+    /**
+     * Nothing asked for an install in this boot: root on boot is off and no retry is armed.
+     *
+     * Either one asks, and either one is the same answer here - a boot with nothing behind it is not a
+     * boot to report on, unlike [SkipKernelSuLoadingOff], where something *did* ask and could not be given
+     * what it asked for.
+     */
     SkipDisabled,
 
     /**
@@ -81,8 +89,18 @@ internal fun autoRootDecision(
     verifiedBootToken: String?,
     attemptedBootToken: String?,
     bootToken: String,
+    /**
+     * Whether a one-shot retry armed before the restart is what asked for this boot's install.
+     *
+     * A parameter rather than folded into [enabled] by the caller, because the two are different
+     * requests with the same effect and only one is a setting: an armed retry is a tap the user made,
+     * and it gets the boot's attempt even when root on boot is off. Folding it in hid that - the rule
+     * looked as if the automation had been switched on, which is why a retry boot used to announce
+     * itself as one and to offer to turn off a setting that was never why it ran.
+     */
+    retryArmed: Boolean = false,
 ): AutoRootDecision = when {
-    !enabled -> AutoRootDecision.SkipDisabled
+    !enabled && !retryArmed -> AutoRootDecision.SkipDisabled
     // A configuration refusal, so it sits with the setting above rather than with the readings: this
     // boot is not being asked to load anything, whatever the device looks like.
     !kernelSuLoadEnabled -> AutoRootDecision.SkipKernelSuLoadingOff
@@ -200,12 +218,15 @@ internal object AutoRootSupport {
      * and so a caller that has already probed does not have to probe again to ask the question.
      */
     fun decision(context: Context, bootToken: String, kernelSuActive: Boolean): AutoRootDecision {
-        // A retry armed before a reboot is this boot asking for one install, which is what the rule's
-        // first input means - and it only counts in a boot *other* than the one that armed it, so arming
+        // A retry armed before a reboot is the other way this boot can have been asked for one install,
+        // and it is passed as its own input rather than folded into the setting - the rule says what a
+        // retry is worth to a boot (the attempt) without also claiming root on boot was switched on. It
+        // only counts in a boot *other* than the one that armed it, so arming
         // it cannot start the attempt the user declined when they chose to reboot.
         val retryArmed = AppPreferences.retryPendingForBoot(context, bootToken)
         return autoRootDecision(
-            enabled = AppPreferences.bootRootMode(context) || retryArmed,
+            enabled = AppPreferences.bootRootMode(context),
+            retryArmed = retryArmed,
             kernelSuLoadEnabled = AppPreferences.loadKernelSu(context),
             kernelSuActive = kernelSuActive,
             // Read here rather than passed in, because it is the one input that is not a preference: the
