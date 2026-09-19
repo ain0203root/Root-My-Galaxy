@@ -1,9 +1,15 @@
 name: CI Build
 
+# The testing branch builds itself: every push to `dev` produces a pre-release with a debug and a
+# release APK. Nothing else builds automatically - `main` is what a stable release is cut from, and
+# that is the `Release Build` workflow, run by hand.
+#
+# `workflow_dispatch` is the escape hatch: it builds and publishes from whichever ref is picked, so
+# a branch that is not `dev` can still be built deliberately without being made to build always.
 on:
   push:
     branches:
-      - '**'
+      - dev
   workflow_dispatch:
 
 permissions:
@@ -66,6 +72,12 @@ jobs:
             echo "KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
+      # Before the APKs, so a failing test reports as a failing test rather than as a build that
+      # stopped somewhere. The release workflow runs the same task for the same reason: a stable
+      # release is not a way past the suite.
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       - name: Build APKs
         run: ./gradlew assembleDebug assembleRelease --no-daemon
 
@@ -105,7 +117,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      - name: Stage release APK
+      - name: Stage APKs
         shell: bash
         run: |
           set -euo pipefail
@@ -120,9 +132,13 @@ jobs:
           mkdir -p ci-release
           cp app/build/outputs/apk/release/*.apk \
             "ci-release/RootMyGalaxy-${VERSION_NAME}-ci${GITHUB_RUN_NUMBER}.apk"
+          # The debug APK goes out with it, and it is installable over the signed builds because the
+          # debug buildtype is signed with the same key when one is configured (app/build.gradle.kts).
+          cp app/build/outputs/apk/debug/*.apk \
+            "ci-release/RootMyGalaxy-${VERSION_NAME}-ci${GITHUB_RUN_NUMBER}-debug.apk"
 
       - name: Publish pre-release
-        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/dev'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -133,6 +149,7 @@ jobs:
           TAG="ci-${VERSION_NAME}-${GITHUB_RUN_NUMBER}"
           TITLE="CI build ${VERSION_NAME} (${GITHUB_RUN_NUMBER})"
           APK="ci-release/RootMyGalaxy-${VERSION_NAME}-ci${GITHUB_RUN_NUMBER}.apk"
+          DEBUG_APK="ci-release/RootMyGalaxy-${VERSION_NAME}-ci${GITHUB_RUN_NUMBER}-debug.apk"
           SHORT_SHA="$(echo "$GITHUB_SHA" | cut -c1-7)"
 
           {
@@ -145,8 +162,10 @@ jobs:
             echo "- Branch: ${GITHUB_REF_NAME}"
             echo "- Workflow run: [${GITHUB_RUN_NUMBER}](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
             echo
-            echo "Signed with the repository release key, so this installs over older CI builds and"
-            echo "over previous tagged releases of this fork. Uninstall the upstream \`dev.busung.s25uroot\`"
+            echo "Two APKs: \`RootMyGalaxy-${VERSION_NAME}-ci${GITHUB_RUN_NUMBER}.apk\` is the release"
+            echo "build, and \`...-debug.apk\` is the same code with debugging on. Both are signed with"
+            echo "the repository key, so either installs over the other, over older CI builds, and over"
+            echo "previous tagged releases of this fork. Uninstall the upstream \`dev.busung.s25uroot\`"
             echo "build first if it is present: it carries a different signature."
             echo
             echo "Tagged releases come from the Release Build workflow, not from here."
@@ -158,9 +177,9 @@ jobs:
               --notes-file ci-release/notes.md \
               --prerelease \
               --latest=false
-            gh release upload "$TAG" "$APK" --clobber
+            gh release upload "$TAG" "$APK" "$DEBUG_APK" --clobber
           else
-            gh release create "$TAG" "$APK" \
+            gh release create "$TAG" "$APK" "$DEBUG_APK" \
               --target "$GITHUB_SHA" \
               --title "$TITLE" \
               --notes-file ci-release/notes.md \

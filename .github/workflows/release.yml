@@ -77,6 +77,12 @@ jobs:
             echo "KEY_PASSWORD=$KEY_PASSWORD"
           } >> "$GITHUB_ENV"
 
+      # Before the tag, deliberately: this runs on the commit that is about to be tagged, and a
+      # failure here leaves nothing behind. The other order leaves a tag with no release on it, which
+      # is a mess to clean up by hand. The same suite gates the CI workflow's pre-releases.
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
       - name: Resolve release tag
         id: release_tag
         shell: bash

@@ -1097,8 +1097,21 @@ signed differently, so switching from it needs one uninstall.
 
 ## Releases
 
-- `CI Build` publishes a pre-release per run: tag `ci-<version>-<run number>`, marked as a
-  pre-release so it never becomes the repository's "Latest" release.
-- `Release Build` publishes the tagged releases it manages (`v<version>`).
+Which branch you push to decides which of the two workflows runs:
+
+- **`dev`** is the testing branch, and it builds itself. Every push to it runs `CI Build` and
+  publishes a pre-release: tag `ci-<version>-<run number>`, marked as a pre-release so it never
+  becomes the repository's "Latest" release. Its assets are the release APK and a debug APK of the
+  same build.
+- **`main`** is what a stable release is cut from, and nothing builds it automatically. Run
+  `Release Build` by hand when a stable release is wanted; it publishes the tagged releases it
+  manages (`v<version>`) and marks the newest one as the repository's "Latest".
+- Neither workflow runs on any other branch, and both run the unit suite before they build, so a
+  failing test stops a pre-release and a stable release alike.
+
+A stable release is cut from the ref the workflow is dispatched with, which is `main` by default,
+and the tag is created on that commit. The version comes from `appVersionBase`, so it has to be
+bumped first: dispatching for a version that already has a tag republishes that tag with a freshly
+built APK rather than creating a second one.
 
 Use only on devices you own or are explicitly authorized to test.
