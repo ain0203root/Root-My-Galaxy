@@ -92,7 +92,11 @@ import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
-import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Cloud
+import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.DownloadForOffline
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Difference
@@ -968,7 +972,7 @@ private fun RootApp(
     if (updateRefusedDuringRun) {
         AlertDialog(
             onDismissRequest = { updateRefusedDuringRun = false },
-            icon = { Icon(Icons.Rounded.CloudOff, contentDescription = null) },
+            icon = { Icon(Icons.Rounded.SystemUpdate, contentDescription = null) },
             title = {
                 DialogDimAmount(0.34f)
                 Text(stringResource(R.string.updater_run_in_progress_title))
@@ -2219,7 +2223,7 @@ private fun ReadinessCard(readiness: Readiness, onOpenSettings: () -> Unit) {
                 },
             )
             InfoRow(
-                icon = Icons.Rounded.VerifiedUser,
+                icon = Icons.Rounded.Terminal,
                 label = stringResource(R.string.readiness_shizuku),
                 value = stringResource(
                     when (readiness.shizuku) {
@@ -4251,7 +4255,10 @@ private fun SettingsPage(
                     modifier = Modifier.onGloballyPositioned { coordinates ->
                         payloadModeMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
                     },
-                    icon = Icons.Rounded.CloudOff,
+                    // A cloud rather than the crossed-out one it had: this row is about *where* a payload
+                    // comes from, and its value already says which of the two it is - so the crossed-out
+                    // cloud said "offline" on a row whose value often reads "Online".
+                    icon = Icons.Rounded.Cloud,
                     title = stringResource(R.string.settings_payload_mode),
                     description = stringResource(
                         if (payloadMode == PayloadMode.Offline) {
@@ -4281,7 +4288,10 @@ private fun SettingsPage(
                     cached = withContext(Dispatchers.IO) { KnownGoodPayloadStore.describe(context) }
                 }
                 SettingsCard(
-                    icon = Icons.Rounded.CloudOff,
+                    // The arrow-into-a-box is the "downloaded and kept" mark, which is what this row is;
+                    // the crossed-out cloud only said "not in the cloud", which is not the interesting
+                    // half and is also true of every payload on the device.
+                    icon = Icons.Rounded.DownloadForOffline,
                     title = stringResource(R.string.settings_cached_payload),
                     description = stringResource(R.string.settings_cached_payload_summary),
                     // The profile's *name*, not its id. An id like
@@ -4310,7 +4320,9 @@ private fun SettingsPage(
                     )
                 }
                 SettingsCard(
-                    icon = Icons.Rounded.Link,
+                    // A tree of catalogs. A chain link said "linking", which is the pairing row's meaning
+                    // three sections down, and this row is a list of repositories payloads are read from.
+                    icon = Icons.Rounded.AccountTree,
                     title = stringResource(R.string.payload_sources),
                     description = stringResource(R.string.payload_sources_description),
                     // Flat on top: this card sits between two others in the payloads group, and a
@@ -4355,7 +4367,9 @@ private fun SettingsPage(
         if (SettingsSection.Run in openSections) item(key = SettingsTarget.PartitionReadOnly) {
             SettingsSectionBody {
                 SettingsSwitchCard(
-                    icon = Icons.Rounded.Memory,
+                    // Sliders, not the memory chip this had: the chip is the kernel module the KernelSU
+                    // row below is about, and this row reveals rows rather than touching a kernel.
+                    icon = Icons.Rounded.Tune,
                     title = stringResource(R.string.advanced_mode),
                     description = stringResource(R.string.advanced_mode_description),
                     checked = advancedMode,
@@ -4474,7 +4488,10 @@ private fun SettingsPage(
                 SettingsSwitchCard(
                     // The transport a run is handed to, which is why it sits with the other two
                     // Shizuku decisions rather than under appearance.
-                    icon = Icons.Rounded.VerifiedUser,
+                    // A shell, matching the section heading and the app this row is about. It wore the
+                    // shield-with-a-tick, which is the Manager row's mark - the app that owns root - and
+                    // read as a second root row sitting in the Shizuku section.
+                    icon = Icons.Rounded.Terminal,
                     title = stringResource(R.string.shizuku_mode),
                     // The preference is the user's intent and is left alone when Shizuku cannot honour
                     // it; what changes here is that the row stops describing an unusable preference as
@@ -4562,7 +4579,9 @@ private fun SettingsPage(
                         }
                     },
                 )
-                SettingsCard(                        icon = Icons.Rounded.LockOpen,
+                SettingsCard(                        // A key, because the row is a credential and not a lock: an unlocked padlock said
+                    // "this is open", where the value is a token the user pastes in.
+                    icon = Icons.Rounded.Key,
                     title = stringResource(R.string.settings_shizuku_token),
                     description = stringResource(R.string.settings_shizuku_token_summary),
                     value = if (shizukuToken.isBlank()) {
@@ -4870,7 +4889,10 @@ private fun SettingsPage(
                     },
                 )
                 SettingsSwitchCard(
-                    icon = Icons.Rounded.RestartAlt,
+                    // The same bolt the Shizuku-at-boot row uses, because the two rows mean the same
+                    // thing by it: this happens by itself, on a boot, without anyone asking. It wore the
+                    // restart arrow, which is the row directly below it - the one that *does* restart.
+                    icon = Icons.Rounded.Bolt,
                     title = stringResource(R.string.settings_boot_root),
                     // Disabled rather than turned off: the stored choice is kept, so turning loading
                     // back on restores it exactly - and the reason is on the row either way.
@@ -5787,7 +5809,7 @@ private fun CachedPayloadDialog(
     val view = LocalView.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.CloudOff, contentDescription = null) },
+        icon = { Icon(Icons.Rounded.DownloadForOffline, contentDescription = null) },
         title = {
             DialogDimAmount(0.34f)
             Text(stringResource(R.string.cached_payload_title))

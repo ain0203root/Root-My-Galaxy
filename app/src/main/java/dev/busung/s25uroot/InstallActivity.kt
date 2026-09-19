@@ -41,12 +41,14 @@ import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudDownload
+import androidx.compose.material.icons.rounded.FactCheck
+import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.RestartAlt
-import androidx.compose.material.icons.rounded.Security
+import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -216,10 +218,17 @@ internal data class InstallerStep(
 )
 
 internal val installerSteps = listOf(
-    InstallerStep(R.string.step_support_title, R.string.step_support_detail, Icons.Rounded.Security),
+    // A checklist for a step whose text is "Check the device and firmware profile". It wore the shield,
+    // which is the app's mark for root itself at four other sites, so the first step of a run announced
+    // the thing the last step produces.
+    InstallerStep(R.string.step_support_title, R.string.step_support_detail, Icons.Rounded.FactCheck),
     InstallerStep(R.string.step_download_title, R.string.step_download_detail, Icons.Rounded.CloudDownload),
     InstallerStep(R.string.step_exploit_title, R.string.step_exploit_detail, Icons.Rounded.Memory),
-    InstallerStep(R.string.step_ksu_title, R.string.step_ksu_detail, Icons.Rounded.Check),
+    // Not the tick this step used to carry, which the row draws over *every* step that is done: a step
+    // whose own mark is the done-mark reads the same pending and finished. The shield-with-a-tick is
+    // what the manager row is drawn with, and this step is the one that loads KernelSU and leaves it
+    // answering.
+    InstallerStep(R.string.step_ksu_title, R.string.step_ksu_detail, Icons.Rounded.VerifiedUser),
 )
 
 @Composable
