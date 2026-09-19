@@ -72,6 +72,39 @@ class KernelSuManagerTest {
     }
 
     @Test
+    fun `a manager's own name is shown only when it is not the flavour's`() {
+        fun manager(label: String) = InstalledManager(
+            packageName = "x.y.z",
+            label = label,
+            versionName = "3.3.0",
+            flavor = KernelSuFlavor.KernelSu,
+            spoofed = false,
+        )
+
+        // The published build: its label is the name the row above the version already carries, so
+        // showing it is the duplication the version used to be in a different word.
+        assertFalse(
+            "the published manager's own name is printed beside a row that already names it",
+            managerNameWorthShowing(manager("KernelSU"), KernelSuFlavor.KernelSu),
+        )
+        assertFalse(
+            "the same name in different case is the same name",
+            managerNameWorthShowing(manager("kernelsu "), KernelSuFlavor.KernelSu),
+        )
+
+        // The spoofed build: three random words whose package name changes every release, so the
+        // label is the only thing on the phone that says which manager it is.
+        assertTrue(
+            "a manager that does not carry the flavour's name is printed without it",
+            managerNameWorthShowing(manager("sturdy lantern pelican"), KernelSuFlavor.KernelSu),
+        )
+        assertTrue(
+            "the other flavour's name is not this flavour's name",
+            managerNameWorthShowing(manager("KernelSU-Next"), KernelSuFlavor.KernelSu),
+        )
+    }
+
+    @Test
     fun `the offered release is the flavour's own default until one is named`() {
         assertEquals(
             "KernelSU_Next_v3.3.0_33214-release.apk",

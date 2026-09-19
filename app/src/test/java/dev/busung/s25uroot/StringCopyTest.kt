@@ -71,6 +71,22 @@ class StringCopyTest {
     }
 
     @Test
+    fun `the installed manager's description cannot restate the version drawn beside it`() {
+        // The row this one is about read "Manager 3.3.0; KernelSU is installed" under a value of "v3.3.0" -
+        // the same number twice and the flavour's own name twice. A description takes an argument for one
+        // reason here, so a `%` in this value is the version creeping back into the sentence.
+        val installed = values.firstOrNull { (name, _) -> name == "settings_manager_summary_installed" }
+            ?: throw AssertionError(
+                "settings_manager_summary_installed is gone, so this guard would check nothing",
+            )
+
+        assertFalse(
+            "the manager row's description is formatted again: ${installed.second}",
+            "%" in installed.second,
+        )
+    }
+
+    @Test
     fun `no value starts with a space`() {
         // This is the shape a value takes when it is meant to be glued to another: it reads correctly on the
         // line it is written on and wrong on the row it is drawn on, where the row supplies its own gap.

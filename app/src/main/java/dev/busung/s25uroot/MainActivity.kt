@@ -4567,14 +4567,18 @@ private fun SettingsPage(
                 SettingsCard(
                     icon = Icons.Rounded.VerifiedUser,
                     title = stringResource(R.string.settings_manager),
-                    description = if (installedManager != null) {
-                        stringResource(
-                            R.string.settings_manager_summary_installed,
-                            offeredManagerVersion,
-                            installedManager.label,
-                        )
-                    } else {
-                        stringResource(R.string.settings_manager_summary, offeredManagerVersion)
+                    // The version is the row's own value, so the description does not repeat it - it
+                    // says what that number is. The one thing it adds is the name of a manager whose own
+                    // name is not this flavour's: a spoofed build rewrites its package to words that
+                    // change on every release, and its label is then the only thing on the phone that
+                    // says which manager this is. Showing it where it says nothing would be the same
+                    // duplication the version used to be.
+                    description = when {
+                        installedManager == null ->
+                            stringResource(R.string.settings_manager_summary, offeredManagerVersion)
+                        managerNameWorthShowing(installedManager, kernelsuFlavor) ->
+                            stringResource(R.string.settings_manager_summary_named, installedManager.label)
+                        else -> stringResource(R.string.settings_manager_summary_installed)
                     },
                     // What is on the phone, not what the app would install: the offered version is
                     // the row below this one, and the two were the same number in the same place

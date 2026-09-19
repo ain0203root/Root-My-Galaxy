@@ -36,6 +36,21 @@ internal data class ManagerIdentity(
 )
 
 /**
+ * Whether an installed manager's own label says anything the row does not already say.
+ *
+ * It does not for the manager a flavour publishes: its label is the flavour's own name, which the row
+ * above the version already carries, so printing it under the title would be the version's duplication
+ * moved to a different word. It does for a manager that does not publish this name - KernelSU-Next's
+ * spoofed build rewrites its package to three random words per release, and its label is then the only
+ * thing on the phone that identifies it.
+ *
+ * Pure, and case-insensitive because a label is the app's own text: `KernelSU` and `kernelsu` are the
+ * same name, and only one of them is the one this app chose.
+ */
+internal fun managerNameWorthShowing(installed: InstalledManager, flavor: KernelSuFlavor): Boolean =
+    !installed.label.trim().equals(flavor.label, ignoreCase = true)
+
+/**
  * Which project an installed manager belongs to, from the two things it carries.
  *
  * The package name is authoritative when it is one either project publishes. When it is not, the
