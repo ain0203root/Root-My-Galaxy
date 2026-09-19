@@ -117,6 +117,18 @@ android {
         release {
             signingConfig = signingConfigs.getByName("release")
         }
+        debug {
+            // Signed with the repository key when it is configured, and with the stock debug key when
+            // it is not - so a developer without the keystore still builds a debug APK, and every build
+            // this project distributes shares one signature: CI debug, CI release, tagged releases and
+            // a local build all update over each other.
+            //
+            // This was the debug key alone, which is generated per machine and therefore different on
+            // every CI runner: a debug APK built there could not be installed over the previous one, or
+            // over the signed release APK, without an uninstall - so the debug APK published with a
+            // pre-release was an artifact nobody could test with.
+            signingConfigs.getByName("release").storeFile?.let { signingConfig = signingConfigs.getByName("release") }
+        }
     }
 
     // An unsigned release APK builds happily and then fails at install time, which is

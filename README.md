@@ -1092,8 +1092,14 @@ CI provides the same values as environment variables from repository secrets:
 silently mis-signed artifact fails the run.
 
 Because every build shares one key, APKs from the `CI Build` pre-releases and from tagged
-`Release Build` releases update over each other without uninstalling. Upstream's app is
-signed differently, so switching from it needs one uninstall.
+`Release Build` releases update over each other without uninstalling — including the **debug** APK
+published with a pre-release: the debug buildtype is signed with the repository key whenever one is
+configured, and falls back to the stock debug key when it is not. The fallback matters for a
+checkout without the keystore, and the shared key matters everywhere else, because the stock debug
+key is generated per machine: a debug APK built on a CI runner could not be installed over the
+previous one, or over the signed release APK, without an uninstall.
+
+Upstream's app is signed differently, so switching from it needs one uninstall.
 
 ## Releases
 
