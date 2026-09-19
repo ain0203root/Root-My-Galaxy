@@ -100,7 +100,6 @@ import androidx.compose.material.icons.rounded.SelectAll
 import androidx.compose.material.icons.rounded.Error
 import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.FactCheck
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.History
@@ -689,7 +688,6 @@ private fun RootApp(
     var showInstallConfirmation by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
     var showRebootSheet by remember { mutableStateOf(false) }
-    var showPreflight by remember { mutableStateOf(false) }
     // The app's one undo surface. Held here rather than per page, so a deletion on History and a deletion in
     // the residue dialog use the same one - and so neither has to know where it is drawn.
     val snackbarHostState = remember { SnackbarHostState() }
@@ -975,10 +973,6 @@ private fun RootApp(
         )
     }
 
-    if (showPreflight) {
-        PreflightSheet(onDismiss = { showPreflight = false })
-    }
-
     if (showTargetPicker) {
         TargetSelectionSheet(
             device = device,
@@ -1159,7 +1153,6 @@ private fun RootApp(
                         startShizuku = startShizuku,
                         requestShizukuPermission = requestShizukuPermission,
                         onRequestBatteryExemption = onRequestBatteryExemption,
-                        onOpenPreflight = { showPreflight = true },
                         onInstall = {
                             selectedProfile = null
                             if (advancedMode) {
@@ -1428,8 +1421,6 @@ private fun OverviewPage(
     startShizuku: () -> Unit,
     requestShizukuPermission: suspend () -> Boolean,
     onRequestBatteryExemption: () -> Unit,
-    /** Opens the check that says what a run would find, before this boot's attempt is spent on it. */
-    onOpenPreflight: () -> Unit,
 ) {
     val context = LocalContext.current
     val view = LocalView.current
@@ -1632,21 +1623,13 @@ private fun OverviewPage(
         // the last thing on the page is not the one list made of two floating cards.
         item {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                // First in the group because it is about the thing the rest of this page is about: what
-                // would happen if the run were started now.
-                HomeLinkRow(
-                    icon = Icons.Rounded.FactCheck,
-                    title = stringResource(R.string.preflight_row_title),
-                    position = SettingsCardPosition.Top,
-                    onClick = onOpenPreflight,
-                )
                 // The block someone pastes when they ask why it did not work. Gathered rather than typed
                 // out, because the two things a report is worth having for - the app's build and the
                 // phone's identity - are exactly the two nobody remembers to include.
                 HomeLinkRow(
                     icon = Icons.Rounded.Description,
                     title = stringResource(R.string.report_row_title),
-                    position = SettingsCardPosition.Middle,
+                    position = SettingsCardPosition.Top,
                     busy = copyingReport,
                     onClick = {
                         copyingReport = true
