@@ -52,6 +52,29 @@ data class InstallHistoryEntry(
     val failureReason: String? = null,
 )
 
+/**
+ * The entries a launch closes, given the run that is still in flight.
+ *
+ * Pure, so the rule can be checked without a device or a filesystem - and the rule is worth checking, because
+ * getting it wrong in one direction leaves a list claiming an install that is not happening and in the other
+ * marks a run that is going perfectly well as failed.
+ *
+ * [holder] is the record two processes share. An entry still marked [InstallRunResult.Running] is a run that
+ * died with its process - unless it is the entry that record names, which is the run that is still writing it.
+ */
+internal fun List<InstallHistoryEntry>.closingInterruptedRuns(
+    holder: RunHolder?,
+): List<InstallHistoryEntry> = map { entry ->
+    if (entry.result == InstallRunResult.Running && entry.id != holder?.entryId) {
+        entry.copy(
+            completedAtMillis = System.currentTimeMillis(),
+            result = InstallRunResult.Failed,
+        )
+    } else {
+        entry
+    }
+}
+
 class InstallHistoryStore(private val context: Context) {
     private val directory = File(context.filesDir, "install-history").apply { mkdirs() }
 
@@ -61,15 +84,24 @@ class InstallHistoryStore(private val context: Context) {
         .mapNotNull(::decodeOrQuarantine)
         .sortedByDescending(InstallHistoryEntry::startedAtMillis)
 
-    fun closeInterruptedRuns(): List<InstallHistoryEntry> = load().map { entry ->
-        if (entry.result == InstallRunResult.Running) {
-            entry.copy(
-                completedAtMillis = System.currentTimeMillis(),
-                result = InstallRunResult.Failed,
-            ).also(::save)
-        } else {
-            entry
-        }
+    /**
+     * Closes the runs that were interrupted, and leaves the one that is still going alone.
+     *
+     * An entry still marked [InstallRunResult.Running] when nothing is running is a run that died with its
+     * process: closing it is what keeps the list from claiming an install that is not happening.
+     *
+     * [holder] is what keeps that from being wrong in the other direction. A run can be started by this
+     * app's other process - the boot gate installs from `:autoroot_gate` - so opening the app while one is
+     * in flight used to close *that* run's entry and mark it failed, on a run that was still going and
+     * about to write its own result. The record names the entry its owner is writing, so the entry a live
+     * run owns is the one entry this must not touch; when the record names no entry, nothing is spared and
+     * every unfinished one is closed as before.
+     */
+    internal fun closeInterruptedRuns(holder: RunHolder? = null): List<InstallHistoryEntry> {
+        val stored = load()
+        val closed = stored.closingInterruptedRuns(holder)
+        closed.forEachIndexed { index, entry -> if (entry != stored[index]) save(entry) }
+        return closed
     }
 
     fun create(): InstallHistoryEntry = InstallHistoryEntry(

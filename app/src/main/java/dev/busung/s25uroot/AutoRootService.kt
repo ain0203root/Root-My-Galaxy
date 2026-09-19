@@ -658,7 +658,11 @@ class AutoRootService : Service() {
         )
         .setContentText(message)
         .setStyle(NotificationCompat.BigTextStyle().bigText(message))
-        .setContentIntent(launcherPendingIntent())
+        // The run this notification is about, once there is one: the gate's run is in this process, so the
+        // screens cannot show it live and its record is what there is to open. Before the run starts there
+        // is no record at all - the gate is still deciding - and the tap goes Home, which is where the same
+        // notification's other signs are read.
+        .setContentIntent(runRecordPendingIntent(this, viewModel?.activeRunId))
         .setOnlyAlertOnce(true)
         .setOngoing(ongoing)
         .setAutoCancel(!ongoing)
@@ -719,13 +723,6 @@ class AutoRootService : Service() {
                 .putExtra(InstallActivity.EXTRA_RUN_ANSWER, answer.extra),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-
-    private fun launcherPendingIntent(): PendingIntent = PendingIntent.getActivity(
-        this,
-        0,
-        Intent(this, MainActivity::class.java),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
 
     private fun createChannel() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(

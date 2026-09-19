@@ -22,7 +22,18 @@ import java.io.File
  * The boot token travels with the pid for the same reason it does everywhere else in this app: a pid is
  * only unique within one boot, and a record that outlived its boot would name a stranger.
  */
-internal data class RunHolder(val bootToken: String, val pid: Int) {
+internal data class RunHolder(
+    val bootToken: String,
+    val pid: Int,
+    /**
+     * The history entry this run is writing, when it named one.
+     *
+     * It is what turns the record from "somebody is running" into "*this* run is running": the entry is
+     * written to disk as the run goes, so a reader that knows the id can tell the live record from one
+     * left behind by a run that was killed, and can follow that run without being in its process.
+     */
+    val entryId: String? = null,
+) {
 
     /**
      * Whether this record still describes a run in flight.
@@ -35,11 +46,11 @@ internal data class RunHolder(val bootToken: String, val pid: Int) {
 
     companion object {
         /** Parses a stored record, refusing anything that is not one. */
-        fun of(bootToken: String?, pid: String?): RunHolder? {
+        fun of(bootToken: String?, pid: String?, entryId: String? = null): RunHolder? {
             val token = bootToken?.trim()?.takeIf(String::isNotBlank) ?: return null
             val parsed = pid?.trim()?.toIntOrNull() ?: return null
             if (parsed <= 0) return null
-            return RunHolder(token, parsed)
+            return RunHolder(token, parsed, entryId?.trim()?.takeIf(String::isNotBlank))
         }
     }
 }
@@ -49,18 +60,24 @@ internal object RunInFlight {
     private const val STATE = "run_in_flight"
     private const val TOKEN = "boot_token"
     private const val PID = "pid"
+    private const val ENTRY = "entry_id"
 
     /**
      * Records that this process is about to run, and returns whether it recorded anything.
      *
      * A null [bootToken] means the boot could not be read, and nothing is recorded: a holder nobody
-     * could ever match is a record that only serves to go stale.
+     * could ever match is a record that only serves to go stale. [entryId] is the run's own history
+     * entry, named so that anything reading this record can tell which run it is about - and so that the
+     * entry a run is writing is not closed as an interrupted one while it is still being written.
      */
-    fun begin(context: Context, bootToken: String?): Boolean {
+    fun begin(context: Context, bootToken: String?, entryId: String? = null): Boolean {
         val token = bootToken?.trim()?.takeIf(String::isNotBlank) ?: return false
         return preferences(context).edit()
             .putString(TOKEN, token)
             .putString(PID, android.os.Process.myPid().toString())
+            // Null removes the key, which is what a caller with no entry to name wants: a stale id left
+            // from an earlier run would point a reader at a record this run is not writing.
+            .putString(ENTRY, entryId?.trim()?.takeIf(String::isNotBlank))
             .commit()
     }
 
@@ -74,7 +91,7 @@ internal object RunInFlight {
         val preferences = preferences(context)
         val holder = holder(context, preferences) ?: return
         if (holder.pid != android.os.Process.myPid()) return
-        preferences.edit().remove(TOKEN).remove(PID).commit()
+        preferences.edit().remove(TOKEN).remove(PID).remove(ENTRY).commit()
     }
 
     /** The run this device has in flight, or null when there is none. */
@@ -84,6 +101,7 @@ internal object RunInFlight {
         val holder = RunHolder.of(
             bootToken = preferences.getString(TOKEN, null),
             pid = preferences.getString(PID, null),
+            entryId = preferences.getString(ENTRY, null),
         ) ?: return null
         return holder.takeIf { it.holds(currentBootToken(), processAlive(it.pid)) }
     }

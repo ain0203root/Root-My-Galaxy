@@ -64,7 +64,11 @@ class RunNotificationTest {
     fun `the notification is posted with the phase and taken down with the run`() {
         val viewModel = source("InstallViewModel.kt")
 
-        assertTrue(viewModel.contains("RunNotification.post(app, message"))
+        // Named arguments rather than positional since the run's own id joined them, which is the thing
+        // that decides which run a later tap on it opens.
+        assertTrue(viewModel.contains("RunNotification.post("))
+        assertTrue(viewModel.contains("progress = installProgress(phase, failureStage = null)"))
+        assertTrue(viewModel.contains("runId = activeRunId"))
         assertTrue(viewModel.contains("RunNotification.clear(app)"))
         // The gate has a notification of its own: doubling it is how the shade stops being read.
         assertTrue(viewModel.contains("if (!runIsUnattended)"))

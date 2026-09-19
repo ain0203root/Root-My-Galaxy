@@ -22,7 +22,11 @@ class RunActionReceiver : BroadcastReceiver() {
                 // notification.
                 RunStopSignal.request(context)
                 AppLog.warn(AppLogTags.RUN, "Stop requested from the run notification")
-                RunNotification.note(context, context.getString(R.string.run_notification_stopping))
+                RunNotification.note(
+                    context = context,
+                    message = context.getString(R.string.run_notification_stopping),
+                    runId = activeRunId(context),
+                )
             }
             ACTION_COPY_LOG -> {
                 val log = activeRunLog(context)
@@ -31,7 +35,11 @@ class RunActionReceiver : BroadcastReceiver() {
                     AppLogTags.RUN,
                     "Run log copied from the notification (${log.length} characters)",
                 )
-                RunNotification.note(context, context.getString(R.string.run_notification_log_copied))
+                RunNotification.note(
+                    context = context,
+                    message = context.getString(R.string.run_notification_log_copied),
+                    runId = activeRunId(context),
+                )
             }
         }
     }
@@ -49,6 +57,16 @@ class RunActionReceiver : BroadcastReceiver() {
          * notification that outlived its run's history entry, which is the case where the newest entry is
          * still the most useful thing there is.
          */
+        /**
+         * The run the notification this receiver acted on was about, from the record both processes share.
+         *
+         * The receiver is not in the run's process - a broadcast lands in the app's own process, and the
+         * boot gate's run is in another one - so the record is the only thing here that can say which run
+         * the message belongs to. Null when the record names none, and the notification then keeps the
+         * destination it already had.
+         */
+        internal fun activeRunId(context: Context): String? = RunInFlight.holder(context)?.entryId
+
         internal fun activeRunLog(context: Context): String {
             val entries = runCatching { InstallHistoryStore(context).load() }.getOrDefault(emptyList())
             val running = entries.firstOrNull { it.result == InstallRunResult.Running }

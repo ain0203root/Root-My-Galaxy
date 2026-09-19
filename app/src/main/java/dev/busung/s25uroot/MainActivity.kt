@@ -246,6 +246,16 @@ class MainActivity : ComponentActivity() {
     private var settingsTarget by mutableStateOf<String?>(null)
 
     /**
+     * The run a notification asked this app to show, by its history entry, or null.
+     *
+     * Read from the intent for the same reason the target above is. It is a run rather than a screen because
+     * that is what the notification knows: the boot gate's run is in another process and a run whose process
+     * is gone has only its record left, so the record - the entry, written as the run goes - is the one thing
+     * every notification about a run can open.
+     */
+    private var openedRunId by mutableStateOf<String?>(null)
+
+    /**
      * What this launch is, when it is one of the launcher's restart shortcuts rather than a tap on the icon.
      *
      * Read here for the same reason the target above is: it arrives with an intent, and an intent outlives the
@@ -374,6 +384,7 @@ class MainActivity : ComponentActivity() {
         partitionReadOnly = AppPreferences.partitionReadOnlyMode(this)
         payloadMode = AppPreferences.payloadMode(this)
         settingsTarget = SettingsTarget.named(intent?.getStringExtra(SettingsTarget.EXTRA))
+        openedRunId = intent?.getStringExtra(EXTRA_RUN_ID)
         restartShortcut = restartShortcutOf(intent?.action)
         batteryUnrestricted = isBatteryUnrestricted()
         setContent {
@@ -490,6 +501,8 @@ class MainActivity : ComponentActivity() {
                     openInstaller = ::openInstaller,
                     settingsTarget = settingsTarget,
                     onSettingsTargetHandled = { settingsTarget = null },
+                    openedRunEntry = openedRunId,
+                    onOpenedRunEntryHandled = { openedRunId = null },
                     restartShortcut = restartShortcut,
                     onRestartShortcutHandled = { restartShortcut = null },
                 )
@@ -509,6 +522,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         settingsTarget = SettingsTarget.named(intent.getStringExtra(SettingsTarget.EXTRA))
+        openedRunId = intent.getStringExtra(EXTRA_RUN_ID)
         // The shortcut's own second case: the app is already in the back stack, so the restart is asked for in
         // the window that exists rather than in a second one.
         restartShortcut = restartShortcutOf(intent.action)
@@ -671,6 +685,9 @@ private fun RootApp(
     /** A settings card another screen asked this one to open on, or null. */
     settingsTarget: String?,
     onSettingsTargetHandled: () -> Unit,
+    /** The run a notification was about, by its history entry, or null. */
+    openedRunEntry: String?,
+    onOpenedRunEntryHandled: () -> Unit,
     /** The launcher's restart shortcut was used, or null when this launch did not come from one. */
     restartShortcut: RestartShortcut?,
     onRestartShortcutHandled: () -> Unit,
@@ -683,6 +700,11 @@ private fun RootApp(
     // is left to the page itself: it is the only thing that knows where its own rows are.
     LaunchedEffect(settingsTarget) {
         if (settingsTarget != null) selectedPage = AppPage.Settings
+    }
+    // The same shape for a run: the record lives on the History page, so the page comes first and the entry
+    // itself is opened by the page, which is the only thing that knows when its list has arrived.
+    LaunchedEffect(openedRunEntry) {
+        if (openedRunEntry != null) selectedPage = AppPage.History
     }
     var showInstallConfirmation by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
@@ -1163,6 +1185,9 @@ private fun RootApp(
                         onDeleteEntries = installViewModel::deleteHistoryEntries,
                         onRestoreEntries = installViewModel::restoreHistoryEntries,
                         onOpenHome = { selectedPage = AppPage.Overview },
+                        openEntryId = openedRunEntry,
+                        onEntryOpened = onOpenedRunEntryHandled,
+                        onReloadHistory = installViewModel::reloadHistory,
                     )
                     AppPage.Logs -> LogsPage(padding)
                     AppPage.Settings -> SettingsPage(
@@ -2301,6 +2326,26 @@ private fun InfoRow(
     }
 }
 
+/**
+ * How often a run's record is re-read while it is still being written.
+ *
+ * A second, because the entry is a small file saved once per log line and the screen is showing a run that
+ * is happening now: a longer tick reads as a stalled log, and a shorter one is a file read per frame for no
+ * more information than the file has.
+ */
+private const val HISTORY_LIVE_TICK_MILLIS = 1000L
+
+/**
+ * The result of the entry this page is showing, from the whole history rather than the filtered list.
+ *
+ * Read from the full list because it is asked about a run in flight: a filter that hides the entry would
+ * otherwise stop the record from being re-read, which is exactly the run whose log is still moving.
+ */
+private fun selectedEntryResult(
+    history: List<InstallHistoryEntry>,
+    id: String?,
+): InstallRunResult? = history.firstOrNull { it.id == id }?.result
+
 @Composable
 private fun HistoryPage(
     padding: PaddingValues,
@@ -2309,6 +2354,11 @@ private fun HistoryPage(
     onDeleteEntries: (Set<String>) -> Unit,
     onRestoreEntries: (List<InstallHistoryEntry>) -> Unit,
     onOpenHome: () -> Unit,
+    /** A run something outside this page asked to see, by its entry id, or null. */
+    openEntryId: String?,
+    onEntryOpened: () -> Unit,
+    /** Re-read the history from disk, for a run another process is still writing. */
+    onReloadHistory: () -> Unit,
 ) {
     val view = LocalView.current
     val context = LocalContext.current
@@ -2386,6 +2436,28 @@ private fun HistoryPage(
     val clearFilters: () -> Unit = {
         resultFilter = HistoryFilter.All
         selectionIds = emptySet()
+    }
+    // Opened only once the entry is in the list: it arrives with an intent, and the list is read from disk
+    // a moment later, so a page that opened the id it was handed would open nothing at all. The caller is
+    // told when it has been opened, so a return to this page does not reopen it.
+    LaunchedEffect(openEntryId, history) {
+        val wanted = openEntryId ?: return@LaunchedEffect
+        if (history.any { it.id == wanted }) {
+            selectedHistoryId = wanted
+            onEntryOpened()
+        }
+    }
+    // A run another process is on - the boot gate's, above all - writes its entry as it goes, so the record
+    // is live and re-reading it is what makes this screen show that run rather than a snapshot of it.
+    // Stopped as soon as the entry stops being a run in flight.
+    LaunchedEffect(selectedHistoryId, selectedEntryResult(history, selectedHistoryId)) {
+        if (selectedEntryResult(history, selectedHistoryId) != InstallRunResult.Running) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            delay(HISTORY_LIVE_TICK_MILLIS)
+            onReloadHistory()
+        }
     }
     val selectedEntry = filtered.firstOrNull { it.id == selectedHistoryId }
     val selectableIds = filtered

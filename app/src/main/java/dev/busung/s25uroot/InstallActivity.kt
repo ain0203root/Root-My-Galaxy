@@ -98,6 +98,11 @@ class InstallActivity : ComponentActivity() {
         enableEdgeToEdge()
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         val selectionId = intent.getStringExtra(EXTRA_PROFILE_ID)
+        // Taken off the intent for the same reason the install request is, and read once: a tap on a run
+        // notification names the run it was about, and what this screen can do with that name does not
+        // change while it is open.
+        val openedRunId = intent.getStringExtra(EXTRA_RUN_ID)
+        intent.removeExtra(EXTRA_RUN_ID)
         val startInstall = savedInstanceState == null && AppPreferences.consumeInstallRequest(
             this,
             intent.getStringExtra(EXTRA_INSTALL_REQUEST_ID),
@@ -120,6 +125,16 @@ class InstallActivity : ComponentActivity() {
             ) {
                 val installState by installViewModel.state.collectAsStateWithLifecycle()
                 BackHandler(enabled = installState.busy) {}
+                // A notification names the run it is about, and this screen is only the right one for a run
+                // *this process* has. Anything else - the boot gate's run, a run whose process is gone - is
+                // not here, and a fresh install screen would offer to start a second run while the
+                // notification was describing the first. The run's record is what has something to show.
+                LaunchedEffect(openedRunId, installViewModel.activeRunId) {
+                    if (openedRunId != null && openedRunId != installViewModel.activeRunId) {
+                        startActivity(runRecordIntent(this@InstallActivity, openedRunId))
+                        finish()
+                    }
+                }
                 LaunchedEffect(startInstall, selectionId, answer) {
                     when {
                         answer != null -> startAnsweredRun(answer, selectionId)

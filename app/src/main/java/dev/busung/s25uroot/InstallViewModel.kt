@@ -212,7 +212,12 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private val mutableState = MutableStateFlow(
         InstallUiState(message = app.getString(R.string.status_checking_device)),
     )
-    private val mutableHistory = MutableStateFlow(historyStore.closeInterruptedRuns())
+    // The run in flight is named to this, because a run this app's *other* process is on must not be
+    // closed here as an interrupted one: the gate installs from its own process, and opening the app
+    // while it works used to mark that run failed.
+    private val mutableHistory = MutableStateFlow(
+        historyStore.closeInterruptedRuns(RunInFlight.holder(application)),
+    )
     private val mutableTargetCatalog = MutableStateFlow(TargetCatalogUiState())
     private var discoveryJob: Job? = null
     private var installJob: Job? = null
@@ -291,6 +296,19 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private val publishClaim = PublishClaim()
     val state: StateFlow<InstallUiState> = mutableState.asStateFlow()
     val history: StateFlow<List<InstallHistoryEntry>> = mutableHistory.asStateFlow()
+
+    /**
+     * The history entry of this process's run, for as long as the process lives.
+     *
+     * Kept past the end of the run rather than cleared with it, because two things are still about that
+     * run after it has finished: the notification left in the shade for a run that did not simply succeed,
+     * and the screen that notification opens. Both are built after the entry has been closed, and an id
+     * that vanished with the run would send a tap at that notification to a fresh install screen instead of
+     * to the run it is about.
+     */
+    @Volatile
+    var activeRunId: String? = null
+        private set
     val targetCatalog: StateFlow<TargetCatalogUiState> = mutableTargetCatalog.asStateFlow()
 
     init {
@@ -666,16 +684,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         RunStopSignal.clear(app)
         installJob = viewModelScope.launch(Dispatchers.IO) {
 
-            // Said before anything is staged, so a sweep in the app's other process cannot take the
-            // payload out from under this run. Best-effort and silent: a boot that cannot be read means
-            // no record, which is the behaviour this app had before the record existed.
-            RunInFlight.begin(app, currentBootToken())
             mutableState.value = InstallUiState(
                 phase = InstallPhase.Checking,
                 message = app.getString(R.string.status_checking_device),
                 probeOutput = mutableState.value.probeOutput,
             )
             startHistory()
+            // Said before anything is staged, so a sweep in the app's other process cannot take the
+            // payload out from under this run. Best-effort and silent: a boot that cannot be read means
+            // no record, which is the behaviour this app had before the record existed. The entry is
+            // named because it is created above and is already on disk: it is what lets another process
+            // tell this run's record from one a killed run left behind.
+            RunInFlight.begin(app, currentBootToken(), activeRunId)
             // First line of every run, and part of its stored history with the rest of the log: a
             // result is only reproducible if the build that produced it is on the record. The
             // version code is part of that identity, not decoration: the name only names the
@@ -1121,6 +1141,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                             message = mutableState.value.failure?.reason
                                 ?: mutableState.value.message,
                             verdict = outcome,
+                            runId = activeRunId,
                         )
                     }
                 }
@@ -1806,7 +1827,12 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         // Not for an unattended run: that one has the boot gate's own notification, and two of them saying
         // the same thing is how the shade stops being read.
         if (!runIsUnattended) {
-            RunNotification.post(app, message, installProgress(phase, failureStage = null))
+            RunNotification.post(
+                context = app,
+                message = message,
+                progress = installProgress(phase, failureStage = null),
+                runId = activeRunId,
+            )
         }
     }
 
@@ -1822,7 +1848,20 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     private fun startHistory() {
         val entry = historyStore.create()
         activeHistoryEntry = entry
+        activeRunId = entry.id
         publishHistory(entry)
+    }
+
+    /**
+     * Re-reads the run history from disk.
+     *
+     * The store is written as a run goes - every log line is saved with it - so this is what makes one
+     * run's record live on a screen that is not in the process running it. The boot gate installs from its
+     * own process, and a run that failed with its process gone is the other case: both are on disk and
+     * neither is in this process's memory.
+     */
+    fun reloadHistory() {
+        mutableHistory.value = historyStore.load()
     }
 
     private fun updateHistory(transform: (InstallHistoryEntry) -> InstallHistoryEntry) {

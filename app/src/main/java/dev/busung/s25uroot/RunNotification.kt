@@ -44,12 +44,12 @@ internal object RunNotification {
      * whether the post throws: an app that has been denied notifications should not have its run fail, and the
      * first failure is logged once rather than on every phase.
      */
-    fun post(context: Context, message: String, progress: Float) {
+    fun post(context: Context, message: String, progress: Float, runId: String?) {
         ensureChannel(context)
         runCatching {
             NotificationManagerCompat.from(context).notify(
                 NOTIFICATION_ID,
-                builder(context, message, RunVerdict.Running, withActions = true).apply {
+                builder(context, message, RunVerdict.Running, withActions = true, runId = runId).apply {
                     setProgress(100, (progress.coerceIn(0f, 1f) * 100).toInt(), false)
                 }.build(),
             )
@@ -67,12 +67,12 @@ internal object RunNotification {
      * the card on Home is the account of that, and a notification saying "done" about the thing you just did
      * is noise.
      */
-    fun finish(context: Context, message: String, verdict: RunVerdict) {
+    fun finish(context: Context, message: String, verdict: RunVerdict, runId: String?) {
         ensureChannel(context)
         runCatching {
             NotificationManagerCompat.from(context).notify(
                 NOTIFICATION_ID,
-                builder(context, message, verdict, withActions = false).apply {
+                builder(context, message, verdict, withActions = false, runId = runId).apply {
                     setOngoing(false)
                     setAutoCancel(true)
                 }.build(),
@@ -88,12 +88,12 @@ internal object RunNotification {
      * Used by the two actions: the run is at some stage, and what a person needs after tapping is that the tap
      * was taken. The next phase posts the bar again, so the bar being absent for a moment says nothing wrong.
      */
-    fun note(context: Context, message: String) {
+    fun note(context: Context, message: String, runId: String?) {
         ensureChannel(context)
         runCatching {
             NotificationManagerCompat.from(context).notify(
                 NOTIFICATION_ID,
-                builder(context, message, RunVerdict.Running, withActions = true).build(),
+                builder(context, message, RunVerdict.Running, withActions = true, runId = runId).build(),
             )
         }.onFailure { error ->
             warnOnce(context, "the run notification could not be updated", error)
@@ -122,13 +122,19 @@ internal object RunNotification {
      *
      * [withActions] is false only for an outcome, where there is nothing left to stop or to watch: a pair of
      * buttons that act on a run that has ended is worse than no buttons, and the Stop one would be the last
-     * thing anyone tapped.
+     * thing anyone tapped. It decides the destination as well, and for the same reason: a run that is still
+     * going may be this process's own, in which case the run screen is the best screen there is, while an
+     * outcome outlives the process that produced it and has only its record left to show.
+     *
+     * [runId] is the run both are about, so the screen that opens is the one that run is on rather than
+     * whichever install screen came first.
      */
     private fun builder(
         context: Context,
         message: String,
         verdict: RunVerdict,
         withActions: Boolean,
+        runId: String?,
     ) = NotificationCompat
         .Builder(context, CHANNEL_ID)
         // The verdict's own colour and glyph, so the shade says the same thing the card does - words
@@ -138,7 +144,13 @@ internal object RunNotification {
         .setContentTitle(context.getString(verdict.label))
         .setContentText(message)
         .setStyle(NotificationCompat.BigTextStyle().bigText(message))
-        .setContentIntent(runScreenPendingIntent(context))
+        .setContentIntent(
+            if (withActions) {
+                liveRunPendingIntent(context, runId)
+            } else {
+                runRecordPendingIntent(context, runId)
+            },
+        )
         .setOnlyAlertOnce(true)
         .setOngoing(true)
         .setAutoCancel(false)
@@ -156,15 +168,6 @@ internal object RunNotification {
                 actionPendingIntent(context, RunActionReceiver.ACTION_COPY_LOG, requestCode = 2),
             )
         }
-
-    /** Back to the screen that is running it, which is where a decision about a run belongs. */
-    private fun runScreenPendingIntent(context: Context) = PendingIntent.getActivity(
-        context,
-        0,
-        Intent(context, InstallActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-    )
 
     private fun actionPendingIntent(context: Context, action: String, requestCode: Int) =
         PendingIntent.getBroadcast(
