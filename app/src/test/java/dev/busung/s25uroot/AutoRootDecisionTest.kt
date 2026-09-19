@@ -171,19 +171,45 @@ class AutoRootDecisionTest {
     }
 
     @Test
-    fun `a retry boot's own action takes the retry back and leaves root on boot alone`() {
+    fun `the notification's way out skips the run and not the setting`() {
         val service = source("src/main/java/dev/busung/s25uroot/AutoRootService.kt")
         val receiver = source("src/main/java/dev/busung/s25uroot/AutoRootBootReceiver.kt")
 
         assertTrue(
-            "the retry boot's notification still offers to turn off a setting that is not why it runs",
-            service.contains("if (retryArmedThisBoot) AutoRootActionReceiver.ACTION_SKIP_RETRY"),
+            "one action behind both labels, or the two boots can drift apart again",
+            service.contains("setAction(AutoRootActionReceiver.ACTION_SKIP_INSTALL)"),
+        )
+        assertFalse(
+            "the way out of one boot's run turns off the setting that governs every boot after it",
+            receiver.contains("AppPreferences.setBootRootMode"),
         )
         assertTrue(
-            "the action no longer clears the request it is named after, so a skipped retry comes back at " +
-                "the next restart",
-            receiver.contains("ACTION_SKIP_RETRY ->") &&
+            "the skip no longer takes back the request this boot is honouring, so a skipped retry comes " +
+                "back at the next restart",
+            receiver.contains("skipTakesBackRetry(AppPreferences.retryArmedInBoot(context), bootToken)") &&
                 receiver.contains("AppPreferences.setRetryAfterReboot(context, null)"),
+        )
+    }
+
+    @Test
+    fun `a skip takes back the retry this boot ran, never one armed while it ran`() {
+        // The pending case: armed in a boot that is over, so this boot is honouring it and skipping means
+        // giving it up - otherwise it survives and the next restart runs it again.
+        assertTrue(
+            "a pending retry survives the skip",
+            skipTakesBackRetry(armedForBoot = LAST_BOOT, bootToken = THIS_BOOT),
+        )
+        // The armed-in-this-boot case: the user asked for a retry of the boot *after* this one, which is
+        // how the flag waits. Clearing that would take back something just requested, under a button that
+        // says it is skipping the run in front of them.
+        assertFalse(
+            "a retry armed for the next boot is taken back by a skip of this one",
+            skipTakesBackRetry(armedForBoot = THIS_BOOT, bootToken = THIS_BOOT),
+        )
+        assertFalse("nothing armed is nothing to take back", skipTakesBackRetry(null, THIS_BOOT))
+        assertFalse(
+            "an unreadable boot id cannot tell whose request it is, so it takes nothing back",
+            skipTakesBackRetry(LAST_BOOT, null),
         )
     }
 

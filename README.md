@@ -884,7 +884,9 @@ standalone transport: an automatic install cannot drift from a manual one. It is
 — the wait uses its own shorter boot-settle floor (the manual one is a separate setting),the run keeps its own cut-offs, and the
 gate has a deadline of its own — and it reports through the notification it must show anyway,
 including which stage a failure stopped in. Failures are recorded in run history like any other run,
-and the notification's *Turn off* action is how a boot automation is stopped without opening the app.
+and the notification's *Skip install* action is how one is stopped without opening the app — the run
+in front of you, not the setting: root on boot keeps its value, and the action on a boot that is
+honouring a retry is the same one under the name *Skip retry*, which takes that request back too.
 
 Because it runs unattended, nothing in the gate is allowed to take its process down: the wake lock it
 holds for the duration is best-effort, and the whole gate is wrapped so an unexpected throw reports

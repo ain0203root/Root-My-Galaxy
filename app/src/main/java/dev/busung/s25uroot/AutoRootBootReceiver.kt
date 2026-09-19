@@ -119,25 +119,22 @@ class AutoRootBootReceiver : BroadcastReceiver() {
 class AutoRootActionReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            ACTION_DISABLE_ROOT_ON_BOOT -> {
-                // Turning the setting off first is what makes the decision stick: the service stops
-                // for this boot, and the next boot's receiver sees the setting before anything else.
-                AppPreferences.setBootRootMode(context, false)
-                AppLog.info(
-                    AppLogTags.BOOT,
-                    "Root on boot turned off from the notification",
-                )
-                AutoRootService.stop(context)
-            }
-
-            ACTION_SKIP_RETRY -> {
-                // The request goes first, for the same reason the setting does above: the boot's attempt
-                // is claimed a moment later by the gate, and one that was taken back while the
-                // notification was still deciding must stay taken back. Stopping afterwards is what ends
-                // the run in front of it, and it is a stop rather than a refusal - the retry was honoured
-                // as far as this boot is concerned, and the user said no to it.
-                AppPreferences.setRetryAfterReboot(context, null)
-                AppLog.info(AppLogTags.BOOT, "The scheduled retry was cancelled from the notification")
+            ACTION_SKIP_INSTALL -> {
+                // One action for both kinds of boot install, because it means one thing: not this time.
+                // It used to turn off root on boot - a setting, not the run the notification was about -
+                // so skipping a run nobody asked to stop permanently also changed every boot after it.
+                //
+                // What it does take back is the request this boot is honouring, when there is one: the
+                // notification is up before the gate has claimed the attempt, so a retry that survived a
+                // "skip" came back at the next restart. That is [skipTakesBackRetry]'s question, and the
+                // answer is no for a retry armed while this boot was already running - that one is for
+                // the boot after this one.
+                val bootToken = AutoRootSupport.currentBootToken()
+                if (skipTakesBackRetry(AppPreferences.retryArmedInBoot(context), bootToken)) {
+                    AppPreferences.setRetryAfterReboot(context, null)
+                    AppLog.info(AppLogTags.BOOT, "The scheduled retry was taken back from the notification")
+                }
+                AppLog.info(AppLogTags.BOOT, "This boot's install was skipped from the notification")
                 AutoRootService.stop(context)
             }
 
@@ -184,15 +181,15 @@ class AutoRootActionReceiver : BroadcastReceiver() {
     }
 
     companion object {
-        const val ACTION_DISABLE_ROOT_ON_BOOT =
-            "dev.busung.s25uroot.action.DISABLE_ROOT_ON_BOOT"
-
         /**
-         * The same action for the boot whose install is a retry: it takes back the request rather than
-         * the setting, because the setting is not what asked for this run.
+         * Take back the install this boot is running, and nothing else.
+         *
+         * One action for a root-on-boot install and for a retry, since the two differ only in what asked
+         * for the boot's attempt - which the handler reads from the device rather than from which button
+         * was pressed.
          */
-        const val ACTION_SKIP_RETRY =
-            "dev.busung.s25uroot.action.SKIP_RETRY"
+        const val ACTION_SKIP_INSTALL =
+            "dev.busung.s25uroot.action.SKIP_INSTALL"
         const val ACTION_APPLY_MODULES =
             "dev.busung.s25uroot.action.APPLY_MODULES"
         private const val TAG = "RootMyGalaxyBootAction"

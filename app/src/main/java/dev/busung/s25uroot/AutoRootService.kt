@@ -681,22 +681,20 @@ class AutoRootService : Service() {
         .setOngoing(ongoing)
         .setAutoCancel(!ongoing)
         .setPriority(NotificationCompat.PRIORITY_LOW)
-        // The way out of an automatic install, which is a different thing in each of the two boots that
-        // can start one. In a retry boot it takes back the request this boot is honouring, and it must not
-        // touch root on boot: that setting is not why this install is running, and a phone whose next boot
-        // then did nothing would have lost a setting to a tap meant for the run in front of it. The
-        // request is cleared as well as the run stopped, because the notification is up before the gate
-        // has claimed the attempt - and a retry that survived a "skip" comes back at the next restart.
+        // The way out of an automatic install: it takes back *this boot's* run, whichever of the two ways
+        // the boot was asked for. It used to turn root on boot off instead, which is a different thing
+        // wearing the label of a way out of one run - the setting governs every boot after this one, and
+        // someone stopping a run they were watching did not ask for their next reboot to change. The two
+        // labels differ only in naming which request is being taken back, because that is what the reader
+        // is looking at; the action behind them is the same one.
         .addAction(
             0,
-            getString(if (retryArmedThisBoot) R.string.autoroot_skip_retry else R.string.autoroot_disable),
+            getString(if (retryArmedThisBoot) R.string.autoroot_skip_retry else R.string.autoroot_skip_install),
             PendingIntent.getBroadcast(
                 this,
                 1,
-                Intent(this, AutoRootActionReceiver::class.java).setAction(
-                    if (retryArmedThisBoot) AutoRootActionReceiver.ACTION_SKIP_RETRY
-                    else AutoRootActionReceiver.ACTION_DISABLE_ROOT_ON_BOOT,
-                ),
+                Intent(this, AutoRootActionReceiver::class.java)
+                    .setAction(AutoRootActionReceiver.ACTION_SKIP_INSTALL),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             ),
         )

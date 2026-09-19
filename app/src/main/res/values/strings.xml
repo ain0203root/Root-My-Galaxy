@@ -180,8 +180,8 @@
     <string name="autoroot_shizuku_unstartable">Use Shizuku is enabled, but the app cannot start it because there is no root access, wireless debugging pairing, or start token. Run this installation without Shizuku, or turn off Root on boot.</string>
     <string name="autoroot_answer_retry_shizuku">Start Shizuku</string>
     <string name="autoroot_answer_standard">Run without Shizuku</string>
-    <string name="autoroot_disable">Turn off</string>
     <string name="autoroot_skip_retry">Skip retry</string>
+    <string name="autoroot_skip_install">Skip install</string>
     <string name="autoroot_channel_name">Root on boot</string>
     <string name="autoroot_channel_description">Runs the installation with cached payload after reboot.</string>
     <string name="settings_section_wireless_adb">Wireless ADB Management</string>

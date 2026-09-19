@@ -69,6 +69,21 @@ internal fun bootPayloadNeedsShell(
     ?: true
 
 /**
+ * Whether taking back the install in front of you also takes back the retry this device has armed.
+ *
+ * Asked when the notification's skip is tapped, and the answer is not "always": the retry has to be the
+ * one that *asked for this boot*. A retry armed while this boot is already running is a request for the
+ * next one - it was armed in this boot, which is exactly what makes it wait - and clearing it would take
+ * back something the user just asked for, under a button that says the opposite.
+ *
+ * An unreadable boot id takes nothing back. The two ids are what the question is made of, and without one
+ * of them there is no way to tell a request this boot is honouring from one it is not, so the armed retry
+ * is left where it is - the gate cannot run anything without a boot id anyway.
+ */
+internal fun skipTakesBackRetry(armedForBoot: String?, bootToken: String?): Boolean =
+    armedForBoot != null && bootToken != null && armedForBoot != bootToken
+
+/**
  * The gate's whole rule, as one pure decision.
  *
  * Order matters and is the reason this is not spread through the service: a boot that already has
