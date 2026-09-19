@@ -86,11 +86,13 @@ class RestartShortcutTest {
     fun `the soft restart is labelled as the target it runs`() {
         val shortcut = shortcuts().single { it.attribute("android:action") == ACTION_SOFT_RESTART }
 
-        // The label is the sheet's own for that row rather than a second wording of it: the shortcut runs the
-        // same thing the row does, and a name invented for the launcher is a name that has to be kept in step
-        // with the one on the row by hand.
+        // The short label is the sheet's own for that row rather than a second wording of it: the shortcut runs
+        // the same thing the row does, and a name invented for the launcher is a name that has to be kept in
+        // step with the one on the row by hand. The long label is its own string, because it is the one place
+        // that still explains what a soft restart is - the row it used to share that line with has only its
+        // name now.
         assertEquals("@string/reboot_target_soft_restart", shortcut.attribute("android:shortcutShortLabel"))
-        assertEquals("@string/reboot_target_soft_restart_detail", shortcut.attribute("android:shortcutLongLabel"))
+        assertEquals("@string/shortcut_soft_restart_long", shortcut.attribute("android:shortcutLongLabel"))
     }
 
     @Test

@@ -168,7 +168,12 @@ internal fun RebootSheet(onDismiss: () -> Unit, notice: RecoveryOutcome? = null)
  * One target, as a row of the sheet.
  *
  * The icon is the same for all six on purpose: they are one kind of action, and six different glyphs would
- * suggest six different kinds. What separates them is written next to them.
+ * suggest six different kinds. The names separate them.
+ *
+ * What each one does is **not** written underneath. It was, on the five that needed it, and it was removed for
+ * the same reason a list of six rows does not need one: the names are already the whole of it - "Reboot to
+ * Download" says what "Reboots into Download mode" said, one line later and twice the height. A *refusal* is a
+ * different thing and stays, because the only question a row that cannot be pressed raises is what is missing.
  */
 @Composable
 private fun RebootTargetRow(
@@ -216,21 +221,13 @@ private fun RebootTargetRow(
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = alpha),
                 )
-                // A reason replaces what the target does rather than joining it: the only question a row
-                // that cannot be pressed raises is what is missing.
-                val line = when {
-                    reason != null -> stringResource(reason.lineRes())
-                    else -> target.detail?.let { stringResource(it) }
-                }
-                if (line != null) {
+                // The one line a row can still carry, and the only one that has to earn its height: a row that
+                // cannot be pressed has to say what is missing, or it sends people looking in the wrong place.
+                reason?.let { why ->
                     Text(
-                        text = line,
+                        text = stringResource(why.lineRes()),
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (reason != null) {
-                            MaterialTheme.colorScheme.error.copy(alpha = 0.85f)
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
+                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.85f),
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )

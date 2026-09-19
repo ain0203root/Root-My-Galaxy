@@ -622,6 +622,10 @@
     <!-- The launcher's short label for the restart shortcut: what fits beside an icon, where the sheet's own
          title is what the long label and the sheet itself are for. -->
     <string name="shortcut_restart_short">Restart</string>
+    <!-- The soft restart shortcut's long label. Not a row's second line any more - the sheet's rows carry their
+         names alone - but the launcher still has to explain the shortcut somewhere, and it has no row to read
+         that from. -->
+    <string name="shortcut_soft_restart_long">Restarts Android userspace only.</string>
     <string name="reboot_status_checking">Checking what this device will allow…</string>
     <string name="reboot_status_root">Root is available</string>
     <string name="reboot_status_shizuku">Only a Shizuku shell is available. It can reboot the phone, but a soft reboot requires root.</string>
@@ -631,15 +635,10 @@
     <string name="reboot_refused">The phone would not take the request.</string>
     <string name="reboot_target_reboot">Reboot</string>
     <string name="reboot_target_soft_restart">Soft restart</string>
-    <string name="reboot_target_soft_restart_detail">Restarts Android userspace only.</string>
     <string name="reboot_target_recovery">Reboot to Recovery</string>
-    <string name="reboot_target_recovery_detail">Reboots into Android Recovery mode.</string>
     <string name="reboot_target_bootloader">Reboot to Bootloader</string>
-    <string name="reboot_target_bootloader_detail">Reboots into Odin mode. Power + Volume Down can restart the phone from there.</string>
     <string name="reboot_target_download">Reboot to Download</string>
-    <string name="reboot_target_download_detail">Reboots into Download mode. Power + Volume Down can restart the phone from there.</string>
     <string name="reboot_target_edl">Reboot to EDL</string>
-    <string name="reboot_target_edl_detail"> Only some devices support this request, so the phone may simply restart.</string>
     <string name="reboot_confirm_title">Leave Android?</string>
     <string name="reboot_confirm_body">The phone will restart into %1$s and will not return to this screen on its own.
 

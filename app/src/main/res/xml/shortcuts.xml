@@ -43,7 +43,7 @@
         android:enabled="true"
         android:icon="@drawable/ic_shortcut_restart"
         android:shortcutShortLabel="@string/reboot_target_soft_restart"
-        android:shortcutLongLabel="@string/reboot_target_soft_restart_detail">
+        android:shortcutLongLabel="@string/shortcut_soft_restart_long">
         <intent
             android:action="dev.busung.s25uroot.action.SOFT_RESTART"
             android:targetPackage="dev.busung.s25uroot"

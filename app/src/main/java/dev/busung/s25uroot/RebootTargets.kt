@@ -19,8 +19,6 @@ import kotlinx.coroutines.withContext
  */
 internal enum class RebootTarget(
     @StringRes val label: Int,
-    /** The line under the name, or null when the name is the whole of it. */
-    @StringRes val detail: Int? = null,
     /** The argument the phone is asked to reboot with, or null for a plain reboot. */
     val argument: String? = null,
     /**
@@ -36,30 +34,25 @@ internal enum class RebootTarget(
     Reboot(R.string.reboot_target_reboot),
     SoftRestart(
         label = R.string.reboot_target_soft_restart,
-        detail = R.string.reboot_target_soft_restart_detail,
         viaDaemon = true,
     ),
     Recovery(
         label = R.string.reboot_target_recovery,
-        detail = R.string.reboot_target_recovery_detail,
         argument = "recovery",
         leavesAndroid = true,
     ),
     Bootloader(
         label = R.string.reboot_target_bootloader,
-        detail = R.string.reboot_target_bootloader_detail,
         argument = "bootloader",
         leavesAndroid = true,
     ),
     Download(
         label = R.string.reboot_target_download,
-        detail = R.string.reboot_target_download_detail,
         argument = "download",
         leavesAndroid = true,
     ),
     Edl(
         label = R.string.reboot_target_edl,
-        detail = R.string.reboot_target_edl_detail,
         argument = "edl",
         leavesAndroid = true,
     ),
