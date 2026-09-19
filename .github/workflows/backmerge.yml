@@ -38,6 +38,10 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          # There is no checkout in this job - nothing here needs the files - and without one `gh`
+          # cannot work out which repository it is talking to: `gh pr list` in particular fails with
+          # "not a git repository" and takes the whole step with it. The repo has to be named.
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -54,7 +58,8 @@ jobs:
           BEHIND="$(gh api "$COMPARE" --jq '.behind_by')"
           DEV_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha')"
           SHORT_SHA="$(echo "$MAIN_SHA" | cut -c1-7)"
-          PR="$(gh pr list --base dev --head main --state open --json number --jq '.[0].number // empty')"
+          PR="$(gh pr list --repo "$GITHUB_REPOSITORY" --base dev --head main --state open \
+            --json number --jq '.[0].number // empty')"
 
           {
             echo "### Back-merge"
@@ -66,7 +71,8 @@ jobs:
             if [ -n "$PR" ]; then
               # An open back-merge that has nothing left in it is worse than no pull request: it reads as
               # work waiting to be done.
-              gh pr close "$PR" --comment "main and dev are level again, so there is nothing left to bring across."
+              gh pr close "$PR" --repo "$GITHUB_REPOSITORY" \
+                --comment "main and dev are level again, so there is nothing left to bring across."
               echo "Closed back-merge pull request #${PR}, which had nothing left in it." >> "$GITHUB_STEP_SUMMARY"
             else
             echo "dev is level with \`main\`; nothing to bring across." >> "$GITHUB_STEP_SUMMARY"
@@ -108,11 +114,13 @@ jobs:
 
           TITLE="Back-merge: main into dev (${AHEAD} commit(s))"
           if [ -n "$PR" ]; then
-            gh pr edit "$PR" --title "$TITLE" --body-file "$RUNNER_TEMP/backmerge.md"
+            gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" \
+              --title "$TITLE" --body-file "$RUNNER_TEMP/backmerge.md"
             URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/pull/${PR}"
             echo "Updated back-merge pull request #${PR}: ${URL}"
           else
-            OUT="$(gh pr create --base dev --head main --title "$TITLE" --body-file "$RUNNER_TEMP/backmerge.md")"
+            OUT="$(gh pr create --repo "$GITHUB_REPOSITORY" --base dev --head main \
+              --title "$TITLE" --body-file "$RUNNER_TEMP/backmerge.md")"
             echo "$OUT"
             URL="$(printf '%s\n' "$OUT" | grep -oE 'https://[^ ]+/pull/[0-9]+' | tail -n 1 || true)"
           fi

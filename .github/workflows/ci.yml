@@ -201,6 +201,9 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          # Named rather than inferred, so this step does not depend on the checkout above it to work
+          # out which repository it is talking to.
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
