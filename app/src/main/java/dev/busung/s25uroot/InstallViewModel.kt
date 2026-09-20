@@ -1903,6 +1903,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
 
     private fun setPhase(phase: InstallPhase, message: String) {
         mutableState.value = mutableState.value.copy(phase = phase, message = message)
+        // Written down as it moves, not only in memory: the phase is what a bar is drawn from, and the bar
+        // has to be drawable by a screen in the app's own process for a run that is happening in another
+        // one. The entry is saved per log line already, so this adds no write of its own.
+        updateHistory { entry -> entry.copy(phase = phase) }
         appendLog("[*] $message")
         // The run, in the shade, for the length of a run that is usually spent with the phone in a pocket.
         // Not for an unattended run: that one has the boot gate's own notification, and two of them saying
@@ -1995,6 +1999,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 completedAtMillis = System.currentTimeMillis(),
                 result = result,
                 log = mutableState.value.log,
+                // Cleared, because it means "where a run in flight has got to": a finished record that still
+                // carried a phase would be one a screen could draw a live bar for, which is the state this
+                // field exists to make visible and must not outlive.
+                phase = null,
             )
         }
         activeHistoryEntry = null
