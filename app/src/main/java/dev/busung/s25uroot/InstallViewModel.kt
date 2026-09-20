@@ -1557,11 +1557,26 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         // An exit code says the late-load command finished, not that anything is reachable now, so
         // the run states which independent reading confirmed the control channel before it claims
         // success - and refuses to claim it when none of them did.
-        val readings = KernelSuRuntime.readings(app, lateLoad.output)
+        val firstLook = KernelSuRuntime.readings(app, lateLoad.output)
+        // Then the route those readings cannot take on their own. Three of the four need a door a first
+        // install has not opened, and the fourth - the kernel's own module list - is read either by the
+        // app, which policy denies, or through a shell, which a run can be without. This run is holding
+        // bootstrap root, so it asks again the way the module handling above does, and only when nothing
+        // has answered yet: a reading that already spoke is not second-guessed.
+        val readings = firstLook.withModuleList(
+            if (firstLook.moduleLoaded == null && firstLook.proofs.isEmpty()) moduleListAsRoot() else null,
+        )
         // Said every time, not only on a refusal: the readings are how the next person to read the
         // log tells an unusable load from a check that could not see a healthy one.
         appendLog(app.getString(R.string.log_ksu_control_readings, readings.summary()))
-        require(readings.proofs.isNotEmpty()) { app.getString(R.string.error_ksu_not_ready) }
+        require(readings.proofs.isNotEmpty()) {
+            // Which of the two refusals this is, because they send a reader to different places: one is
+            // a load that is not there, the other is a check that could not be made at all.
+            app.getString(
+                if (readings.lookedAtTheKernel()) R.string.error_ksu_not_ready
+                else R.string.error_ksu_unconfirmed,
+            )
+        }
         appendLog(
             app.getString(
                 R.string.log_ksu_control_verified,
@@ -1747,6 +1762,29 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         return viaKernelSu
             ?.let { CommandResult(it.exitCode, it.output) }
             ?: runHelper("-c", command)
+    }
+
+    /**
+     * The kernel's module list, read with the root this run is still holding.
+     *
+     * The reading [KernelSuRuntime.moduleLoaded] cannot make on its own here: its two routes are the app's
+     * own read of `/proc/modules`, which policy denies, and a shell through Shizuku, which a run of this app
+     * can be without - and on a first install it usually is. That leaves the bootstrap root the exploit just
+     * obtained, which is not a lesser answer: the module list is a fact about the kernel and this is the same
+     * transport the module handling above uses to act on that kernel.
+     *
+     * Null when nothing answered, including the case the handoff is designed to have: a Samsung kernel may
+     * refuse new connections to it once KernelSU is loaded and healthy. That is not a reason for the run to
+     * die here - the refusal that follows is a refusal to claim a load, not a proof of one.
+     */
+    private suspend fun moduleListAsRoot(): Boolean? {
+        val result = runCatching { runMaintenance(MODULE_LIST_COMMAND) }.getOrNull() ?: return null
+        return when (result.code) {
+            0 -> true
+            // grep's own "nothing matched", which is an answer rather than a failure.
+            1 -> false
+            else -> null
+        }
     }
 
     /**
@@ -2042,6 +2080,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         private const val SHIZUKU_PAYLOAD_PATH = "/data/local/tmp/ksu-payload"
         private const val SHIZUKU_KSUD_PATH = KSUD_PATH
         private const val SHIZUKU_KSUD_STAGE_PATH = KSUD_STAGE_PATH
+
+        /** The kernel's loaded modules, by name; grep's exit code is the answer. */
+        private const val MODULE_LIST_COMMAND = "/system/bin/grep -w kernelsu /proc/modules"
         private val LOG_POLL_INTERVAL = 250.milliseconds
         private val HELPER_POLL_INTERVAL = 250.milliseconds
         private val SHIZUKU_LOG_POLL_INTERVAL = 1.seconds
