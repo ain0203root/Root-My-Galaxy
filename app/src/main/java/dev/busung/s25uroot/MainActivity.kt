@@ -2362,6 +2362,22 @@ private fun InfoRow(
 private const val HISTORY_LIVE_TICK_MILLIS = 1000L
 
 /**
+ * How long the page waits between looking for a run it was asked to open but cannot find yet.
+ *
+ * Short, because the entry is already on disk when the notification that named it was posted - what the
+ * wait is for is this process's copy of the history being older than that run, not the entry arriving.
+ */
+private const val RUN_LOOKUP_TICK_MILLIS = 400L
+
+/**
+ * How many times it looks before deciding the device does not have that run.
+ *
+ * Bounded for the same reason the live tick is: a request that can never be answered must not leave the page
+ * reloading a file forever, and eight looks over three seconds is longer than a file read needs.
+ */
+private const val RUN_LOOKUP_ATTEMPTS = 8
+
+/**
  * The result of the entry this page is showing, from the whole history rather than the filtered list.
  *
  * Read from the full list because it is asked about a run in flight: a filter that hides the entry would
@@ -2467,24 +2483,52 @@ private fun HistoryPage(
         resultFilter = HistoryFilter.All
         selectionIds = emptySet()
     }
-    // Opened only once the entry is in the list: it arrives with an intent, and the list is read from disk
-    // a moment later, so a page that opened the id it was handed would open nothing at all. The caller is
-    // told when it has been opened, so a return to this page does not reopen it.
+    // Opened once the entry is in the list: it arrives with an intent, and this page's copy of the history
+    // was read when the app started - which can be before the run the intent names began, since a boot run
+    // writes its entry from another process. So a miss is looked for again rather than believed, and the
+    // look is what turns "the tap did nothing" into the run it asked for.
+    //
+    // Bounded, because an entry that never turns up is one this device does not have - a record deleted
+    // since. That case says so and drops the request, which is the part that matters: the page used to do
+    // nothing at all, leaving whatever run was already on screen looking like the one that was asked for.
+    // The caller is told either way, so a return to this page does not reopen it.
+    var looksForRun by remember(openEntryId) { mutableStateOf(0) }
     LaunchedEffect(openEntryId, history) {
         val wanted = openEntryId ?: return@LaunchedEffect
         if (history.any { it.id == wanted }) {
+            // A filter left over from earlier must not stand in the way of the run something asked to see:
+            // the request names one run, and a list that hides it would open nothing at all.
+            if (filtered.none { it.id == wanted }) resultFilter = HistoryFilter.All
             selectedHistoryId = wanted
             onEntryOpened()
+            return@LaunchedEffect
         }
+        if (looksForRun >= RUN_LOOKUP_ATTEMPTS) {
+            onEntryOpened()
+            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.history_run_not_here)) }
+            return@LaunchedEffect
+        }
+        looksForRun++
+        delay(RUN_LOOKUP_TICK_MILLIS)
+        onReloadHistory()
     }
     // A run another process is on - the boot gate's, above all - writes its entry as it goes, so the record
     // is live and re-reading it is what makes this screen show that run rather than a snapshot of it.
-    // Stopped as soon as the entry stops being a run in flight.
+    //
+    // Two things say a run is still going and either is enough. The stored verdict is the usual one. The
+    // shared record is the other, and it is not redundant: an app that opens while a boot run is in flight
+    // closes every unfinished entry it thinks was interrupted, so a record can read failed while the process
+    // that owns it is still writing it - and a screen that stopped following on the verdict alone would stop
+    // on a run that is happening. The follow ends when neither says so, and the reload that shows the run's
+    // own next line is what puts the verdict back.
     LaunchedEffect(selectedHistoryId, selectedEntryResult(history, selectedHistoryId)) {
-        if (selectedEntryResult(history, selectedHistoryId) != InstallRunResult.Running) {
-            return@LaunchedEffect
-        }
         while (true) {
+            val claim = RunInFlight.holder(context)?.entryId
+            if (selectedEntryResult(history, selectedHistoryId) != InstallRunResult.Running &&
+                claim != selectedHistoryId
+            ) {
+                return@LaunchedEffect
+            }
             delay(HISTORY_LIVE_TICK_MILLIS)
             onReloadHistory()
         }
