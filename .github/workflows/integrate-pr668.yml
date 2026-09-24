@@ -1,5 +1,6 @@
 name: Integrate Root-My-Galaxy PR 668
 # temporary integration runner
+# sync trigger
 
 on:
   pull_request:
