@@ -30,13 +30,20 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android build tools
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1"
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-37" "build-tools;36.0.0" "cmake;3.22.1"
 
       - name: Set up NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r28
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Build APK
         run: |
@@ -62,7 +69,9 @@ jobs:
 
           TAG_NAME="s24fe-june-s721b-dzg1-experimental"
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release delete "$TAG_NAME" --yes --cleanup-tag
+            gh release edit "$TAG_NAME"               --title "Experimental Samsung S24 FE — June Profile (S721BXXSDDZG1)"               --prerelease
+            gh release upload "$TAG_NAME"               release/Root-My-Galaxy-S24FE-S721BXXSDDZG1-Experimental.apk               release/Root-My-Galaxy-S24FE-S721BXXSDDZG1-Experimental.apk.sha256               --clobber
+            exit 0
           fi
 
           gh release create "$TAG_NAME" \
