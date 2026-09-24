@@ -6,28 +6,24 @@ on:
       - main
     paths:
       - 'README.md'
-      - '.github/workflows/ci.yml'
+      - '.github/workflows/**'
       - 'app/**'
       - 'build.gradle.kts'
       - 'settings.gradle.kts'
       - 'gradle.properties'
       - 'gradle/**'
+      - 'gradlew'
+      - 'gradlew.bat'
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: 'Publish the freshly built APK as an experimental GitHub Release'
-        required: true
-        default: false
-        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=true
 
 concurrency:
-  group: ci-build-${{ github.ref }}
+  group: ci-build
   cancel-in-progress: true
 
 jobs:
@@ -52,22 +48,44 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
-      - name: Install Android build tools
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "cmake;3.22.1"
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;36.0.0" \
+            "cmake;3.22.1"
 
       - name: Set up NDK
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r28
 
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Make Gradle executable
         run: chmod +x ./gradlew
+
+      - name: Run JVM unit tests
+        run: ./gradlew :app:testDebugUnitTest --no-daemon --stacktrace
 
       - name: Build CI debug APK
         run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
       - name: Verify APK exists
         run: test -s app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Verify APK signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "\${ANDROID_HOME}/build-tools" -path '*/apksigner' -type f | sort -V | tail -n 1)"
+          test -x "$apksigner"
+          "$apksigner" verify --verbose app/build/outputs/apk/debug/app-debug.apk
 
       - name: Generate APK checksum
         run: sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app-debug.sha256
@@ -81,43 +99,3 @@ jobs:
             app-debug.sha256
           if-no-files-found: error
           retention-days: 14
-
-      - name: Publish experimental release
-        if: contains(github.event.head_commit.message, '[release-s24fe]') || (github.event_name == 'workflow_dispatch' && inputs.publish_release == true)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          TAG="v0.2.65-s24fe-experimental"
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          SHA="app-debug.sha256"
-          NOTES=$(cat <<'EOF'
-## Root My Galaxy · Experimental S24 FE Build
-
-This release contains a freshly built APK from the fork's `main` branch.
-
-### Current focus
-
-- Samsung Galaxy S24 FE research
-- S721B `6.1.157` profile work
-- TraceFS/KASLR diagnostics
-- fresh P0 session support
-- forensic diagnostic build infrastructure
-- optional offline payload mode
-- isolated experimental Canadian `SM-S721W` profile work
-
-### Important
-
-This is an **experimental engineering build**, not a universal root guarantee. Results can vary by exact model, firmware revision, execution context, payload state, and kernel memory layout.
-
-Use only on devices you own or are explicitly authorized to test.
-
-The APK is accompanied by a SHA-256 checksum for integrity verification.
-EOF
-)
-          gh release create "$TAG" "$APK" "$SHA" \
-            --repo ain0203root/Root-My-Galaxy \
-            --title "Root My Galaxy · v0.2.65 · Experimental S24 FE" \
-            --notes "$NOTES" \
-            --prerelease
