@@ -588,12 +588,24 @@ class PayloadRepository(private val context: Context) {
         "https://raw.githubusercontent.com/${PayloadSource.DEFAULT.repository}/" +
             "${PayloadSource.DEFAULT.branch}/"
 
+    /**
+     * The built-in feed historically published artifact URLs from the upstream repository. Our
+     * fork carries the same catalog and artifacts, so that upstream prefix is accepted only when the
+     * selected source is the built-in fork. The URL is still rewritten to the selected source and
+     * the resolved commit below, so a run never follows the upstream branch after verification.
+     */
+    private fun builtInUpstreamRawPrefix(): String =
+        "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/"
+
     private fun pinArtifactUrl(source: PayloadSource, url: String, commit: String): String {
         val prefix = mutableRawPrefix(source)
         val builtInPrefix = builtInMutableRawPrefix()
+        val upstreamPrefix = builtInUpstreamRawPrefix()
         val relative = when {
             url.startsWith(prefix) -> url.removePrefix(prefix)
             url.startsWith(builtInPrefix) -> url.removePrefix(builtInPrefix)
+            source.repository == PayloadSource.DEFAULT.repository && url.startsWith(upstreamPrefix) ->
+                url.removePrefix(upstreamPrefix)
             else -> error(context.getString(R.string.repo_url_invalid))
         }
         return "${rawRepository(source)}/$commit/$relative"
