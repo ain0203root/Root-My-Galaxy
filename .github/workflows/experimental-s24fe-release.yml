@@ -35,7 +35,7 @@ jobs:
         run: |
           set -euo pipefail
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-37" "build-tools;36.0.0" "cmake;3.22.1"
+          sdkmanager "platform-tools" "platforms;android-37.0" "build-tools;36.0.0" "cmake;3.22.1"
 
       - name: Set up NDK
         uses: nttld/setup-ndk@v1
