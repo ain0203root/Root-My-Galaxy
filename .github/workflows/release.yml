@@ -65,20 +65,20 @@ jobs:
         run: |
           set -euo pipefail
           VERSION_NAME="$(grep -oE 'versionName[[:space:]]*=[[:space:]]*"[^"]+"' app/build.gradle.kts | head -n 1 | cut -d'"' -f2)"
-          SHORT_SHA="\${GITHUB_SHA:0:7}"
-          TAG_NAME="v\${VERSION_NAME}-s24fe-\${SHORT_SHA}"
-          APK="Root-My-Galaxy-\${TAG_NAME}.apk"
-          cp app/build/outputs/apk/debug/app-debug.apk "release-\${APK}"
-          sha256sum "release-\${APK}" | tee "release-\${APK}.sha256"
-          echo "TAG_NAME=\${TAG_NAME}" >> "\${GITHUB_ENV}"
-          echo "APK=release-\${APK}" >> "\${GITHUB_ENV}"
-          echo "SHA=release-\${APK}.sha256" >> "\${GITHUB_ENV}"
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          TAG_NAME="v${VERSION_NAME}-s24fe-${SHORT_SHA}"
+          APK="Root-My-Galaxy-${TAG_NAME}.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "release-${APK}"
+          sha256sum "release-${APK}" | tee "release-${APK}.sha256"
+          echo "TAG_NAME=${TAG_NAME}" >> "${GITHUB_ENV}"
+          echo "APK=release-${APK}" >> "${GITHUB_ENV}"
+          echo "SHA=release-${APK}.sha256" >> "${GITHUB_ENV}"
 
       - name: Verify APK signing
         shell: bash
         run: |
           set -euo pipefail
-          apksigner="$(find "\${ANDROID_HOME}/build-tools" -path '*/apksigner' -type f | sort -V | tail -n 1)"
+          apksigner="$(find "${ANDROID_HOME}/build-tools" -path '*/apksigner' -type f | sort -V | tail -n 1)"
           test -x "$apksigner"
           "$apksigner" verify --verbose "$APK"
 
@@ -87,21 +87,21 @@ jobs:
         with:
           name: release-artifact
           path: |
-            release-\${APK#release-}
-            \${SHA}
+            release-*.apk
+            release-*.apk.sha256
           if-no-files-found: error
           retention-days: 30
 
       - name: Create or update GitHub release
         env:
-          GH_TOKEN: \${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           NOTES="$(cat <<EOF
 ## Root My Galaxy — Experimental S24 FE build
 
-Built from commit \${GITHUB_SHA} on ref \${GITHUB_REF_NAME}.
+Built from commit ${GITHUB_SHA} on ref ${GITHUB_REF_NAME}.
 
 This is an experimental engineering build. Results may vary by device, firmware, execution context, payload state, and kernel memory layout.
 
@@ -109,21 +109,21 @@ Use only on devices you own or are explicitly authorized to test.
 
 SHA-256:
 \`\`\`
-$(cat "\${SHA}")
+$(cat "${SHA}")
 \`\`\`
 EOF
 )"
-          if gh release view "\${TAG_NAME}" --repo "\${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-            gh release edit "\${TAG_NAME}" --repo "\${GITHUB_REPOSITORY}" \
-              --title "Root My Galaxy · Experimental · \${TAG_NAME}" \
-              --notes "\${NOTES}" \
+          if gh release view "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release edit "${TAG_NAME}" --repo "${GITHUB_REPOSITORY}" \
+              --title "Root My Galaxy · Experimental · ${TAG_NAME}" \
+              --notes "${NOTES}" \
               --prerelease
-            gh release upload "\${TAG_NAME}" "\${APK}" "\${SHA}" \
-              --repo "\${GITHUB_REPOSITORY}" --clobber
+            gh release upload "${TAG_NAME}" "${APK}" "${SHA}" \
+              --repo "${GITHUB_REPOSITORY}" --clobber
           else
-            gh release create "\${TAG_NAME}" "\${APK}" "\${SHA}" \
-              --repo "\${GITHUB_REPOSITORY}" \
-              --title "Root My Galaxy · Experimental · \${TAG_NAME}" \
-              --notes "\${NOTES}" \
+            gh release create "${TAG_NAME}" "${APK}" "${SHA}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "Root My Galaxy · Experimental · ${TAG_NAME}" \
+              --notes "${NOTES}" \
               --prerelease
           fi
