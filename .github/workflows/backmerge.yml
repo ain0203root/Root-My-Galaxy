@@ -55,12 +55,20 @@ jobs:
           # means the same thing: there is no way to point this at main while it levels something else,
           # which is what using the dispatched ref would allow.
           MAIN_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          SHORT_SHA="$(echo "$MAIN_SHA" | cut -c1-7)"
+
+          # Forks may start without a dev branch. Bootstrap it instead of making every main push red.
+          if ! DEV_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha' 2>/dev/null)"; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs"               -f ref="refs/heads/dev"               -f sha="$MAIN_SHA" >/dev/null
+            echo "Created missing dev branch at main ${SHORT_SHA}."
+            echo "- created missing \`dev\` branch at \`${SHORT_SHA}\`" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
           COMPARE="repos/${GITHUB_REPOSITORY}/compare/dev...${MAIN_SHA}"
           # What main has and dev does not, then the other way round.
           AHEAD="$(gh api "$COMPARE" --jq '.ahead_by')"
           BEHIND="$(gh api "$COMPARE" --jq '.behind_by')"
-          DEV_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/dev" --jq '.object.sha')"
-          SHORT_SHA="$(echo "$MAIN_SHA" | cut -c1-7)"
           PR="$(gh pr list --repo "$GITHUB_REPOSITORY" --base dev --head main --state open \
             --json number --jq '.[0].number // empty')"
 
