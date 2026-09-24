@@ -155,21 +155,18 @@ jobs:
             git commit -m "feat: integrate Root-My-Galaxy #668 into live S721B fork"
           fi
 
-          git branch -f integrated-pr668-ready HEAD
-          git push origin "HEAD:refs/heads/integrated-pr668-ready" --force
-
       - name: Build and test integrated branch
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin integrated-pr668-ready
-          git checkout --force integrated-pr668-ready
           chmod +x ./gradlew
           ./gradlew :app:testDebugUnitTest :app:assembleDebug --no-daemon --stacktrace
 
-      - name: Verify integration commit
+      - name: Publish only after a successful build
         shell: bash
         run: |
           set -euo pipefail
           echo "Integrated SHA: $(git rev-parse HEAD)"
+          test -z "$(git diff --name-only --diff-filter=U)"
           git status --short
+          git push origin "HEAD:refs/heads/integrated-pr668-ready" --force
