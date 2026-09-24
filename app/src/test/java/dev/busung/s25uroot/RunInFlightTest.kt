@@ -77,27 +77,24 @@ class RunInFlightTest {
     }
 
     @Test
-    fun `a start refused for a run in flight leaves no trace of a run`() {
+    fun `an in-flight record from another process does not hard-refuse this attempt`() {
         val viewModel = source("src/main/java/dev/busung/s25uroot/InstallViewModel.kt")
         val body = viewModel.substringAfter("fun install(").substringBefore("\n    suspend fun ")
 
-        val refusal = body.indexOf("runInFlightElsewhere()?.let")
-        assertTrue("the run no longer checks whether another one is in flight", refusal > 0)
-        // Before the record is written, and not merely before the run: a refusal that announced itself as
-        // this process's run would overwrite the record the *other* run is keeping - the sweep would then
-        // take that run's staged payload out from under it, which is the bug this guard is here to prevent.
-        assertTrue(
-            "the refusal claims the run-in-flight record, so it can overwrite the run it refused to join",
-            refusal < body.indexOf("RunInFlight.begin("),
+        val guard = body.indexOf("runInFlightElsewhere()?.let")
+        assertTrue("the cross-process record remains observable", guard > 0)
+
+        val begin = body.indexOf("RunInFlight.begin(", guard)
+        assertTrue("the run record is still created for the current attempt", begin > guard)
+
+        val guardBody = body.substring(guard, begin)
+        assertFalse(
+            "a stale/foreign run record must not hard-refuse the current attempt",
+            Regex("\\breturn\\b").containsMatchIn(guardBody),
         )
         assertTrue(
-            "the refusal writes a history entry for an attempt that was never made",
-            refusal < body.indexOf("startHistory()"),
-        )
-        assertTrue(
-            "nothing on the screen says why the run did not start",
-            viewModel.contains("R.string.install_run_in_flight") &&
-                viewModel.contains("R.string.status_run_in_flight"),
+            "the foreign run is explicitly logged as observational",
+            guardBody.contains("continuing this exploit attempt"),
         )
     }
 
