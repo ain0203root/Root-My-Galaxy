@@ -96,7 +96,11 @@ jobs:
                 git checkout --theirs -- "$path" 2>/dev/null || cp "$theirs" "$path"
                 ;;
               *)
-                git merge-file --ours -p "$ours" "$base" "$theirs" > "$path"
+                git merge-file --ours -p "$ours" "$base" "$theirs" > "$path" || true
+                if grep -qE '^(<<<<<<<|=======|>>>>>>>)' "$path"; then
+                  echo "Unresolved three-way merge markers remain in $path" >&2
+                  exit 1
+                fi
                 ;;
             esac
           done
