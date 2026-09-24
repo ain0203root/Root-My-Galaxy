@@ -145,14 +145,14 @@ jobs:
           # The temporary workflow must not become part of the product branch.
           rm -f .github/workflows/integrate-pr668.yml
 
-          # If merge left an unmerged index, the file-level resolutions above should have cleared it.
-          if git diff --name-only --diff-filter=U | grep -q .; then
+          # Mark the explicitly resolved paths in the index before checking for unmerged entries.
+          git add -A
+
+          if git diff --cached --name-only --diff-filter=U | grep -q .; then
             echo "Unresolved merge conflicts remain:" >&2
-            git diff --name-only --diff-filter=U >&2
+            git diff --cached --name-only --diff-filter=U >&2
             exit 1
           fi
-
-          git add -A
 
           if git diff --cached --quiet; then
             echo "Nothing to commit after integration."
