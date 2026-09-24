@@ -1,6 +1,9 @@
 name: Integrate Root-My-Galaxy PR 668
 
 on:
+  push:
+    branches:
+      - integrate-pr668-run
   workflow_dispatch:
 
 permissions:
