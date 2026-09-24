@@ -23,8 +23,8 @@ env:
   GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.caching=true
 
 concurrency:
-  group: ci-build
-  cancel-in-progress: true
+  group: ci-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
