@@ -84,10 +84,10 @@ class RunInFlightTest {
         val guard = body.indexOf("runInFlightElsewhere()?.let")
         assertTrue("the cross-process record remains observable", guard > 0)
 
-        val begin = body.indexOf("RunInFlight.begin(", guard)
-        assertTrue("the run record is still created for the current attempt", begin > guard)
+        val guardEnd = body.indexOf("\n\n        // Taken before the question below", guard)
+        assertTrue("the observational guard has a bounded body", guardEnd > guard)
 
-        val guardBody = body.substring(guard, begin)
+        val guardBody = body.substring(guard, guardEnd)
         assertFalse(
             "a stale/foreign run record must not hard-refuse the current attempt",
             Regex("\\breturn\\b").containsMatchIn(guardBody),
@@ -95,6 +95,10 @@ class RunInFlightTest {
         assertTrue(
             "the foreign run is explicitly logged as observational",
             guardBody.contains("continuing this exploit attempt"),
+        )
+        assertTrue(
+            "the run record is still created for the current attempt",
+            body.indexOf("RunInFlight.begin(", guardEnd) > guardEnd,
         )
     }
 
