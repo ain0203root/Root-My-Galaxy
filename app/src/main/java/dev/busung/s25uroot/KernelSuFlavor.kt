@@ -1,0 +1,192 @@
+package dev.busung.s25uroot
+
+import androidx.annotation.StringRes
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * Which KernelSU the app installs and drives.
+ *
+ * KernelSU and KernelSU-Next are separate projects with separate kernels, separate managers and
+ * separate daemons, and they cannot both be in the kernel at once: each hooks the same syscall paths,
+ * so a boot carries one of them or neither. That is why this is stored for the app rather than passed
+ * to one run, and why changing it has to wait for a restart.
+ *
+ * The ids are the feed's own. A payload entry declares `"flavor": "kernelsu-next"`, and this decides
+ * whether a run may use that entry. An entry that says nothing is [Default], which is what keeps every
+ * manifest written before flavours existed readable.
+ */
+enum class KernelSuFlavor(
+    /** The id a feed entry names. */
+    val id: String,
+    /** What the app calls it in a log line; prose for the screen lives in [summaryRes]. */
+    val label: String,
+    /** The manager APK's package, which is how the app can tell which one is installed. */
+    val managerPackage: String,
+    /** Where its releases live, which is what a manager upgrade resolves against. */
+    val repository: String,
+    /**
+     * The manager version offered when nothing overrides it.
+     *
+     * Both flavours offer 3.3.0, because that is the KernelSU this project's payloads are built from:
+     * the daemon a run stages and the manager that talks to it come from the same release, and offering
+     * one from an older line is how the app came to hand people a manager its own kernel was never
+     * built against. Nothing checks this against the version on the phone - a newer manager installs and
+     * is used exactly the same, and one picked by hand takes precedence - so it is only the one offered
+     * unprompted.
+     */
+    val defaultManagerVersion: String,
+    /** The file name that version was published under, for when the store cannot be asked. */
+    val defaultManagerAsset: String,
+    /** What this flavour is, for the settings row that offers it. */
+    @StringRes val summaryRes: Int,
+) {
+    KernelSu(
+        id = "kernelsu",
+        label = "KernelSU",
+        managerPackage = "me.weishu.kernelsu",
+        repository = "tiann/KernelSU",
+        defaultManagerVersion = "3.3.0",
+        defaultManagerAsset = "KernelSU_v3.3.0_32601-release.apk",
+        summaryRes = R.string.flavor_kernelsu_summary,
+    ),
+    KernelSuNext(
+        id = "kernelsu-next",
+        label = "KernelSU-Next",
+        managerPackage = "com.rifsxd.ksunext",
+        repository = "KernelSU-Next/KernelSU-Next",
+        defaultManagerVersion = "3.3.0",
+        defaultManagerAsset = "KernelSU_Next_v3.3.0_33214-release.apk",
+        summaryRes = R.string.flavor_kernelsu_next_summary,
+    ),
+    ;
+
+    /** The manager the app offers unprompted, without asking for its release. */
+    val defaultManagerRelease: ManagerRelease
+        get() = ManagerRelease(
+            flavor = this,
+            version = defaultManagerVersion,
+            url = releaseAssetUrl(defaultManagerVersion, defaultManagerAsset),
+        )
+
+    companion object {
+        /** What a payload entry means when it does not declare a flavour. */
+        val Default = KernelSu
+
+        /**
+         * The flavour an id names, or null when it is not one this build knows.
+         *
+         * Null rather than a fallback: a manifest that says `"flavor": "kernel-su"` is a typo, and
+         * reading it as the default would install the wrong kernel on a phone that asked for the
+         * other one. The caller turns this into a message that lists [ids].
+         */
+        fun fromId(id: String?): KernelSuFlavor? {
+            val trimmed = id?.trim().orEmpty()
+            if (trimmed.isEmpty()) return null
+            return entries.firstOrNull { it.id.equals(trimmed, ignoreCase = true) }
+        }
+
+        /** The ids a feed entry may declare, for a message that says what was expected. */
+        val ids: String get() = entries.joinToString { it.id }
+    }
+}
+
+/** A manager APK: whose it is, which version, and where to download it. */
+data class ManagerRelease(
+    val flavor: KernelSuFlavor,
+    val version: String,
+    val url: String,
+) {
+    val assetName: String
+        get() = url.substringAfterLast('/')
+}
+
+/** The download URL for one of a flavour's own release assets. */
+internal fun KernelSuFlavor.releaseAssetUrl(version: String, asset: String): String =
+    "https://github.com/$repository/releases/download/v$version/$asset"
+
+/**
+ * The APK inside a GitHub release, as the releases API describes it.
+ *
+ * A manager's file name carries a build number that its version does not - 3.3.0 publishes
+ * `KernelSU_v3.3.0_32601-release.apk` - so a version can only be turned into a download by asking for
+ * the release. That is also what makes a manual upgrade possible: nothing here assumes a version, so
+ * a version upstream has not shipped is a failed lookup rather than a wrong file.
+ *
+ * A `spoofed` build is skipped while another APK is present. It is a variant that reports a different
+ * signature to the modules that check one, which is not what an unprompted install should hand over.
+ * A release carrying only that variant still resolves to it, because a file is better than a refusal
+ * once the user has named the version themselves.
+ */
+internal fun managerApkInRelease(body: String): String? {
+    val assets = runCatching { JSONObject(body.trim()).optJSONArray("assets") }.getOrNull() ?: return null
+    val apks = buildList {
+        for (index in 0 until assets.length()) {
+            val asset = assets.optJSONObject(index) ?: continue
+            val name = asset.optString("name")
+            val url = asset.optString("browser_download_url").trim()
+            if (url.isEmpty() || !name.endsWith(".apk")) continue
+            add(name to url)
+        }
+    }
+    return (apks.firstOrNull { !it.first.contains("spoofed", ignoreCase = true) }
+        ?: apks.firstOrNull())?.second
+}
+
+/**
+ * The versions a flavour's release listing offers, newest first.
+ *
+ * What a listing makes possible is *choosing* a version rather than remembering one. Each entry is a tag
+ * with its leading `v` removed, which is exactly what the lookup for one version asks for
+ * (`releases/tags/v<version>`) - so a version picked from this list resolves through the same code path
+ * as one typed by hand, and the two cannot drift apart.
+ *
+ * Drafts are skipped: a draft's tag is not published yet, so looking it up could only fail. A
+ * prerelease is kept, and its own tag is what says it is one - what a flavour's newest release is, is
+ * not this app's decision to make.
+ */
+internal fun managerVersionsInReleases(body: String): List<String> {
+    // Left to throw when the answer is not a listing at all, which is what a rate limit or a renamed
+    // repository looks like: they are a failure to read, not an empty catalogue.
+    val releases = JSONArray(body.trim())
+    val versions = mutableListOf<String>()
+    for (index in 0 until releases.length()) {
+        val release = releases.optJSONObject(index) ?: continue
+        if (release.optBoolean("draft", false)) continue
+        val version = release.optString("tag_name").trim()
+            .removePrefix("v")
+            .removePrefix("V")
+            .trim()
+        if (version.isEmpty() || version in versions) continue
+        versions += version
+    }
+    return versions
+}
+
+/**
+ * What this boot can do with [selected], given which flavour is already loaded into it.
+ *
+ * Only one of the two fits in the kernel, and the loader says so rather than replacing what is there,
+ * so a run of the other flavour is a restart away rather than an error to retry. [AlreadyLoaded] is
+ * not a refusal: loading the same flavour again is what a second run in one boot does anyway, and it
+ * ends at the same place.
+ */
+internal enum class FlavorBootState {
+    /** Nothing of either flavour is loaded, so this boot can take [selected]. */
+    Loadable,
+
+    /** The flavour being run is the one this boot already carries. */
+    AlreadyLoaded,
+
+    /** The other flavour is in the kernel, so this one cannot be loaded until a restart. */
+    OtherFlavorLoaded,
+}
+
+internal fun flavorBootState(
+    selected: KernelSuFlavor,
+    loadedInThisBoot: KernelSuFlavor?,
+): FlavorBootState = when {
+    loadedInThisBoot == null -> FlavorBootState.Loadable
+    loadedInThisBoot == selected -> FlavorBootState.AlreadyLoaded
+    else -> FlavorBootState.OtherFlavorLoaded
+}

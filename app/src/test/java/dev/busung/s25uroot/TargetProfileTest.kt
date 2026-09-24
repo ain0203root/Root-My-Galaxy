@@ -2,6 +2,7 @@ package dev.busung.s25uroot
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,6 +26,98 @@ class TargetProfileTest {
     fun rejectsUnlistedModelOrKernelVersion() {
         assertFalse(profile.matches(snapshot("SM-S928B", "6.6.98-android15-8-build")))
         assertFalse(profile.matches(snapshot("SM-S938N", "6.6.102-android15-8-build")))
+    }
+
+    @Test
+    fun prefersProfileWithExactKernelRelease() {
+        val zcs = profile.copy(
+            profileId = "pa2q-S9360ZCSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf("6.6.98"),
+        )
+        val zhs = profile.copy(
+            profileId = "pa2q-S9360ZHSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf(
+                "6.6.98",
+                "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k",
+            ),
+        )
+
+        val selected = listOf(zcs, zhs)
+            .resolveFor(snapshot("SM-S9360", "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k"))
+
+        assertEquals("pa2q-S9360ZHSCCZG1", selected?.profileId)
+    }
+
+    @Test
+    fun fallsBackToThreePartMatch() {
+        val selected = listOf(profile)
+            .resolveFor(snapshot("SM-S931B", "6.6.98-android15-8-build-a"))
+
+        assertEquals("galaxy-s25-series-kernel-6.6.98", selected?.profileId)
+    }
+
+    @Test
+    fun returnsNullWhenNothingMatches() {
+        assertNull(listOf(profile).resolveFor(snapshot("SM-S928B", "6.6.98-android15-8-build-a")))
+    }
+
+    @Test
+    fun aProfileThatDeclaresOnlyTheFullReleaseStillMatches() {
+        // Sources are not limited to the feed's three-part form, and the rest of the app already
+        // reads a listed full release as a match. When only this rule disagreed, an entry a source
+        // offered could never be selected, and the device was told nothing covered it.
+        val exactOnly = profile.copy(
+            profileId = "pa2q-S9360ZHSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf("6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k"),
+        )
+        val device = snapshot("SM-S9360", "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k")
+
+        assertEquals("pa2q-S9360ZHSCCZG1", listOf(exactOnly).resolveFor(device)?.profileId)
+    }
+
+    @Test
+    fun kernelMatchSeparatesAnExactReleaseFromAThreePartSibling() {
+        val zhs = profile.copy(
+            profileId = "pa2q-S9360ZHSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf(
+                "6.6.98",
+                "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k",
+            ),
+        )
+        val zcs = profile.copy(
+            profileId = "pa2q-S9360ZCSCCZG1",
+            models = setOf("SM-S9360"),
+            kernelVersions = setOf("6.6.98"),
+        )
+        val snapshot = snapshot("SM-S9360", "6.6.98-android15-8-pd6ff1cd-abogkiS9360ZHSCCZG1-4k")
+
+        assertEquals(KernelMatch.Exact, zhs.kernelMatch(snapshot))
+        assertEquals(KernelMatch.Version, zcs.kernelMatch(snapshot))
+    }
+
+    @Test
+    fun kernelMatchIsNoneForAnUnlistedKernel() {
+        assertEquals(
+            KernelMatch.None,
+            profile.kernelMatch(snapshot("SM-S931B", "6.6.102-android15-8-build")),
+        )
+    }
+
+    @Test
+    fun freshP0SessionOutlastsTheLongestAttemptEnvelopeProposedForIt() {
+        // One community proposal allowed a single 840-second attempt, another 1200 s of page scan
+        // plus 2200 s of attempt. The app must not be the thing that cuts such a run off, so the
+        // ceiling for a marked profile covers the longest of those, and only marked profiles move.
+        assertTrue(RunLimits.defaultCeilings(freshSession = true).totalMillis >= 3_400_000L)
+        assertTrue(
+            RunLimits.defaultCeilings(freshSession = true).totalMillis >
+                RunLimits.defaultCeilings(freshSession = false).totalMillis,
+        )
+        assertEquals(900_000L, RunLimits.defaultCeilings(freshSession = false).totalMillis)
     }
 
     @Test

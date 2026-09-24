@@ -6,7 +6,37 @@ import org.json.JSONObject
 data class RemoteArtifact(
     val url: String,
     val size: Long,
-)
+    /**
+     * Whether the declared [size] is enforced. The feed sets this to false for an artifact whose
+     * declared size is not trustworthy, which is the only alternative to disabling the check for
+     * every artifact of every source at once. A declared [sha256] proves the same thing and more,
+     * so it takes over the check and this flag stops mattering for that artifact.
+     */
+    val verifySize: Boolean = true,
+    /**
+     * Lowercase hex SHA-256 of the artifact, when the feed declares one.
+     *
+     * This is what a size cannot be: verifiable. A size says nothing about the content, so a feed
+     * that cannot state a trustworthy one has to turn checking off altogether; a hash lets it state
+     * something the app can check either way.
+     */
+    val sha256: String? = null,
+) {
+    init {
+        require(!verifySize || size > 0) {
+            "An enforced size has to be positive: $url declares $size"
+        }
+        require(sha256 == null || isSha256(sha256)) { "Invalid artifact SHA-256 for $url" }
+    }
+
+    /** Whether the declared size still has to be checked, which a hash makes redundant. */
+    val checksSize: Boolean
+        get() = verifySize && sha256 == null
+}
+
+/** Whether [value] is a lowercase hex SHA-256, the only form the app compares against. */
+internal fun isSha256(value: String): Boolean =
+    value.length == 64 && value.all { it in '0'..'9' || it in 'a'..'f' }
 
 data class TargetProfile(
     val profileId: String,
@@ -14,8 +44,28 @@ data class TargetProfile(
     val models: Set<String>,
     val kernelVersions: Set<String>,
     val requiresFreshP0Session: Boolean = false,
+    /** How this target wants its exploit run. Carried with the profile so every path uses it. */
+    val routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
     val exploit: RemoteArtifact,
     val kernelSu: RemoteArtifact,
+    /**
+     * Which KernelSU this entry's daemon and module belong to.
+     *
+     * Carried with the profile rather than read from the app's setting, because the two have to be
+     * the same thing: this entry's `ksud` embeds a module for one flavour's kernel, and installing
+     * it into the other one's is what a flavour mix-up looks like from the phone's side. An entry
+     * that does not declare one is KernelSU, which is every entry written before flavours existed.
+     */
+    val flavor: KernelSuFlavor = KernelSuFlavor.Default,
+    /** Source that provided this target, empty when it was not loaded through one. */
+    val sourceId: String = "",
+    val sourceLabel: String = "",
+    /**
+     * Commit the source was read at when this target was loaded. Artifact URLs are pinned to it, so
+     * recording it is what makes a finished run traceable to the catalog revision it came from
+     * rather than to whatever the branch held at the time.
+     */
+    val sourceCommit: String = "",
 ) {
     init {
         require(models.isNotEmpty()) { "Payload must support at least one model" }
@@ -25,17 +75,79 @@ data class TargetProfile(
     fun matchesDevice(snapshot: DeviceSnapshot): Boolean =
         models.any { it.equals(snapshot.model, ignoreCase = true) }
 
+    /**
+     * Whether this entry covers the device's kernel, in either form a source may declare it.
+     *
+     * The feed writes the leading three-part `uname -r` value, and an entry may additionally list a
+     * full release to say which exact build it documents. Both are a match here because both are a
+     * match everywhere else: [resolveFor] and [kernelMatch] already read a listed full release as
+     * coverage, so an entry that declared only that used to be selected by neither and refused by
+     * this - a payload a source offers, and a device told nothing covers it.
+     */
     fun matchesKernelVersion(snapshot: DeviceSnapshot): Boolean =
-        snapshot.kernelVersion in kernelVersions
+        snapshot.kernelVersion in kernelVersions || snapshot.kernelRelease in kernelVersions
 
     fun matches(snapshot: DeviceSnapshot): Boolean =
         matchesDevice(snapshot) && matchesKernelVersion(snapshot)
+
+    /** Unique across sources, unlike [profileId], which two sources may both offer. */
+    val selectionId: String
+        get() = selectionIdFor(sourceId, profileId)
 
     val supportedModels: String
         get() = models.joinToString()
 
     val supportedKernelVersions: String
         get() = kernelVersions.joinToString()
+}
+
+/**
+ * Picks the profile for [snapshot], preferring the ones of [flavor].
+ *
+ * Within a flavour the rules are unchanged: an exact full kernel-release match wins over a three-part
+ * one, so regional builds that share a model and kernel version resolve to the profile that documents
+ * their build.
+ *
+ * The flavour is a preference rather than a filter, and the fallback is deliberate. A catalog that
+ * only carries the other flavour for this device is still a catalog that roots it, and refusing to
+ * use it would leave a user who picked the wrong flavour in the app with no run at all and no way to
+ * tell why. Which flavour was actually offered is a property of the returned profile, and the run
+ * reports it, so the fallback is visible instead of silent.
+ */
+fun List<TargetProfile>.resolveFor(
+    snapshot: DeviceSnapshot,
+    flavor: KernelSuFlavor = KernelSuFlavor.Default,
+): TargetProfile? {
+    val matching = filter { it.matches(snapshot) }
+    val preferred = matching.filter { it.flavor == flavor }
+    return preferred.firstOrNull { snapshot.kernelRelease in it.kernelVersions }
+        ?: preferred.firstOrNull()
+        ?: matching.firstOrNull { snapshot.kernelRelease in it.kernelVersions }
+        ?: matching.firstOrNull()
+}
+
+/**
+ * How a profile's declared kernel versions line up with a device.
+ *
+ * A profile that lists the device's full `uname -r` release documents this exact build; one that
+ * lists only the three-part version may still be the right payload, but the feed has not tied it to
+ * this build, which is what regional siblings look like from the app's side.
+ */
+enum class KernelMatch {
+    /** The device's full kernel release is listed. */
+    Exact,
+
+    /** Only the three-part kernel version is listed. */
+    Version,
+
+    /** Neither is listed; only reachable in the sheet when the device filter is off. */
+    None,
+}
+
+fun TargetProfile.kernelMatch(snapshot: DeviceSnapshot): KernelMatch = when {
+    snapshot.kernelRelease in kernelVersions -> KernelMatch.Exact
+    snapshot.kernelVersion in kernelVersions -> KernelMatch.Version
+    else -> KernelMatch.None
 }
 
 data class SupportManifest(
@@ -60,14 +172,10 @@ data class SupportManifest(
                             models = payload.getJSONArray("models").strings(),
                             kernelVersions = payload.getJSONArray("kernelVersions").strings(),
                             requiresFreshP0Session = payload.optBoolean("requiresFreshP0Session", false),
-                            exploit = RemoteArtifact(
-                                url = exploit.getString("url"),
-                                size = exploit.getLong("size"),
-                            ),
-                            kernelSu = RemoteArtifact(
-                                url = kernelSu.getString("url"),
-                                size = kernelSu.getLong("size"),
-                            ),
+                            routePolicy = ExploitRoutePolicy.parse(payload.optJSONObject("routePolicy")),
+                            exploit = exploit.artifact(),
+                            kernelSu = kernelSu.artifact(),
+                            flavor = payload.flavor(),
                         ),
                     )
                 }
@@ -78,5 +186,62 @@ data class SupportManifest(
         private fun JSONArray.strings(): Set<String> = buildSet {
             for (index in 0 until length()) add(getString(index))
         }
+
+        /**
+         * The flavour an entry declares, or the default when it declares none.
+         *
+         * An id this build does not know is refused rather than read as the default. A manifest that
+         * says `"flavor": "kernel-su"` was written for something, and installing the other project's
+         * module because the name looked close is the one outcome that cannot be explained afterwards.
+         */
+        private fun JSONObject.flavor(): KernelSuFlavor {
+            val declared = optString("flavor").trim()
+            if (declared.isEmpty()) return KernelSuFlavor.Default
+            return KernelSuFlavor.fromId(declared)
+                ?: error("Unknown payload flavour \"$declared\"; expected one of ${KernelSuFlavor.ids}")
+        }
+
+        /** Reads one artifact. Both artifacts of a payload take the same optional fields. */
+        private fun JSONObject.artifact(): RemoteArtifact = RemoteArtifact(
+            url = getString("url"),
+            size = getLong("size"),
+            verifySize = optBoolean("verifySize", true),
+            sha256 = optString("sha256").trim().takeIf(String::isNotEmpty),
+        )
     }
 }
+
+/**
+ * What a catalog offers, summarised so a source can be judged before it is saved rather than
+ * discovered to be useless by a failed run.
+ *
+ * [models] and [kernelVersions] are the union across every payload, sorted, because the question a
+ * source has to answer is what it covers, not which payload happens to be listed first.
+ */
+data class SourceCoverage(
+    /** Revision the catalog was read at, so a summary is tied to the revision that produced it. */
+    val commit: String,
+    val payloadCount: Int,
+    val models: List<String>,
+    val kernelVersions: List<String>,
+    /** The payload a run would pick on this device, or null when nothing here fits it. */
+    val deviceProfileId: String?,
+    /** How many payloads list this device's model and kernel version. */
+    val deviceProfileCount: Int,
+)
+
+/**
+ * Summarises a parsed catalog for [snapshot].
+ *
+ * The device question is answered with the same [resolveFor] the installer uses, so a summary
+ * cannot claim a catalog covers a device that a run would then refuse.
+ */
+fun SupportManifest.coverageFor(snapshot: DeviceSnapshot, commit: String): SourceCoverage =
+    SourceCoverage(
+        commit = commit,
+        payloadCount = targets.size,
+        models = targets.flatMap { it.models }.distinct().sorted(),
+        kernelVersions = targets.flatMap { it.kernelVersions }.distinct().sorted(),
+        deviceProfileId = targets.resolveFor(snapshot)?.profileId,
+        deviceProfileCount = targets.count { it.matches(snapshot) },
+    )

@@ -85,7 +85,8 @@
     <string name="log_install_complete">[+] Installation terminée</string>
     <string name="log_bootstrap_root">[+] Droits root de base acquis</string>
     <string name="log_ksu_staged">[+] Préparation de KernelSU terminée</string>
-    <string name="log_ksu_control_verified">[+] Canal de contrôle KernelSU vérifié</string>
+    <string name="log_ksu_control_verified">[+] Canal de contrôle KernelSU vérifié (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU chargé mais aucun canal de contrôle n\'a répondu ; root n\'est pas encore utilisable</string>
     <string name="error_helper_unavailable">L\'assistant de démarrage n\'est pas exécutable</string>
     <string name="error_exploit_stalled">Le journal de l\'exploit n\'a pas avancé depuis 90 secondes</string>
     <string name="error_exploit_timeout">L\'exploit a dépassé la limite de 15 minutes</string>
@@ -108,6 +109,7 @@
     <string name="repo_commit_invalid">GitHub a renvoyé un SHA de commit invalide</string>
     <string name="repo_url_invalid">Le dépôt d\'artefacts n\'est pas autorisé</string>
     <string name="repo_response_too_large">La réponse a dépassé sa limite de taille</string>
+    <string name="repo_api_limited">La limite de requêtes GitHub est atteinte ; réessayez dans quelques minutes</string>
     <string name="open_github">Ouvrir GitHub</string>
     <string name="github_card_title">Explorer Root My Galaxy</string>
     <string name="github_card_description">Voir le code source et les instructions d\'utilisation.</string>
@@ -120,6 +122,14 @@
     <string name="shizuku_mode_description">Utiliser Shizuku pour exécuter la charge utile. Cela peut améliorer la fiabilité.</string>
     <string name="shizuku_not_running_title">Shizuku n\'est pas en cours d\'exécution</string>
     <string name="shizuku_not_running_body">Démarrez le service Shizuku avec adb ou root et accordez la permission à cette application, puis activez cette option.</string>
+    <string name="settings_shizuku_start">Démarrer Shizuku maintenant</string>
+    <string name="settings_shizuku_start_summary">Lance le service Shizuku via KernelSU, pour que cette application continue de fonctionner sans ordinateur</string>
+    <string name="settings_shizuku_boot">Shizuku au démarrage</string>
+    <string name="settings_shizuku_boot_summary">Démarrer Shizuku automatiquement après un redémarrage lorsque l\'appareil a déjà root</string>
+    <string name="status_shizuku_starting">Démarrage\u2026</string>
+    <string name="status_shizuku_started">Shizuku est en cours d\'exécution</string>
+    <string name="error_shizuku_start_no_root">Shizuku ne peut être démarré ici que sur un appareil déjà root ; lancez d\'abord l\'installation.</string>
+    <string name="notification_channel_shizuku">Démarrage de Shizuku</string>
     <string name="action_download_shizuku">Télécharger Shizuku</string>
     <string name="error_shizuku_unavailable">Shizuku n\'est pas en cours d\'exécution. Démarrez d\'abord Shizuku avec adb ou root.</string>
     <string name="error_shizuku_permission">La permission Shizuku n\'a pas été accordée</string>
@@ -144,7 +154,6 @@
     <string name="export_log_saved">Journal enregistré</string>
     <string name="export_log_failed">Impossible d\'enregistrer le journal</string>
     <string name="install_tap_open_manager">Toucher pour ouvrir KernelSU Manager</string>
-    <string name="how_it_works">Comment ça marche</string>
     <string name="kernelsu_card_description">Une solution root basée sur le noyau pour Android</string>
     <string name="history_shizuku_used">Shizuku utilisé</string>
     <string name="history_shizuku_not_used">Shizuku non utilisé</string>

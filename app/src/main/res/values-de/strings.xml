@@ -17,7 +17,6 @@
     <string name="install_tap_retry">Tippen zum Wiederholen</string>
     <string name="install_tap_start">Tippen um KernelSU zu installieren</string>
     <string name="device">Gerät</string>
-    <string name="how_it_works">So funktioniert es</string>
     <string name="kernelsu_card_title">KernelSU</string>
     <string name="kernelsu_card_description">Eine kernelbasierte Root-Lösung für Android</string>
     <string name="firmware">Firmware</string>
@@ -105,7 +104,8 @@
     <string name="log_install_complete">[+] Installation abgeschlossen</string>
     <string name="log_bootstrap_root">[+] Bootstrap-Root erhalten</string>
     <string name="log_ksu_staged">[+] KernelSU-Staging abgeschlossen</string>
-    <string name="log_ksu_control_verified">[+] KernelSU-Steuerungskanal verifiziert</string>
+    <string name="log_ksu_control_verified">[+] KernelSU-Steuerungskanal verifiziert (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU geladen, aber kein Steuerungskanal hat geantwortet; root ist noch nicht nutzbar</string>
     <string name="error_helper_unavailable">Bootstrap-Helfer ist nicht ausführbar</string>
     <string name="error_exploit_stalled">Exploit-Log ist seit 90 Sekunden nicht vorangeschritten</string>
     <string name="error_exploit_timeout">Exploit hat das 15-Minuten-Limit überschritten</string>
@@ -129,6 +129,7 @@
     <string name="repo_commit_invalid">GitHub hat einen ungültigen Commit-SHA zurückgegeben</string>
     <string name="repo_url_invalid">Das Artefakt-Repository ist nicht zulässig</string>
     <string name="repo_response_too_large">Die Antwort hat das Größenlimit überschritten</string>
+    <string name="repo_api_limited">GitHubs Ratenlimit wurde erreicht; versuche es in ein paar Minuten erneut</string>
     <string name="open_github">GitHub öffnen</string>
     <string name="github_card_title">Root My Galaxy erkunden</string>
     <string name="github_card_description">Quellcode und Nutzungshinweise ansehen.</string>
@@ -141,6 +142,14 @@
     <string name="shizuku_mode_description">Shizuku zum Ausführen der Payload verwenden. Dies kann die Zuverlässigkeit verbessern</string>
     <string name="shizuku_not_running_title">Shizuku ist nicht aktiv</string>
     <string name="shizuku_not_running_body">Starte den Shizuku-Dienst über ADB oder Root, erteile dieser App die Berechtigung und aktiviere dann diese Option.</string>
+    <string name="settings_shizuku_start">Shizuku jetzt starten</string>
+    <string name="settings_shizuku_start_summary">Startet den Shizuku-Dienst über KernelSU, damit diese App ohne Computer weiter funktioniert</string>
+    <string name="settings_shizuku_boot">Shizuku beim Start</string>
+    <string name="settings_shizuku_boot_summary">Shizuku nach einem Neustart automatisch starten, wenn das Gerät bereits Root hat</string>
+    <string name="status_shizuku_starting">Wird gestartet\u2026</string>
+    <string name="status_shizuku_started">Shizuku läuft</string>
+    <string name="error_shizuku_start_no_root">Shizuku kann hier nur auf einem Gerät mit Root gestartet werden; führe zuerst die Installation aus.</string>
+    <string name="notification_channel_shizuku">Shizuku-Start</string>
     <string name="action_download_shizuku">Shizuku herunterladen</string>
     <string name="error_shizuku_unavailable">Shizuku ist nicht aktiv. Starte Shizuku zuerst über ADB oder Root.</string>
     <string name="error_shizuku_permission">Die Shizuku-Berechtigung wurde nicht erteilt</string>

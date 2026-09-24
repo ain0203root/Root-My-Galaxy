@@ -51,7 +51,6 @@
     <string name="history_detail_title">Detalhes da execução</string>
     <string name="history_started">Começou: %1$s</string>
     <string name="history_completed">Completou: %1$s</string>
-    <string name="history_log">Logs de execução</string>
     <string name="history_log_empty">Nenhum output de log por enquanto.</string>
 
     <string name="install_title">Instalar</string>
@@ -87,7 +86,8 @@
     <string name="log_install_complete">[+] Instalação completa</string>
     <string name="log_bootstrap_root">[+] Root bootstrap adquirido</string>
     <string name="log_ksu_staged">[+] Preparação do KernelSU completa</string>
-    <string name="log_ksu_control_verified">[+] Canal de controle do KernelSU verificado</string>
+    <string name="log_ksu_control_verified">[+] Canal de controle do KernelSU verificado (%1$s)</string>
+    <string name="error_ksu_not_ready">KernelSU carregado, mas nenhum canal de controle respondeu; root ainda não está utilizável</string>
     <string name="error_helper_unavailable">O helper de bootstrap não é executável</string>
     <string name="error_exploit_stalled">O log do exploit não avançou por 90 segundos</string>
     <string name="error_exploit_timeout">O exploit excedeu o limite de 15 minutos</string>
@@ -110,6 +110,7 @@
     <string name="repo_commit_invalid">O GitHub retornou um SHA de commit inválido</string>
     <string name="repo_url_invalid">O repositório de artefatos não é permitido</string>
     <string name="repo_response_too_large">A resposta excedeu seu limite de tamanho</string>
+    <string name="repo_api_limited">O limite de requisições do GitHub foi atingido; tente novamente em alguns minutos</string>
     <string name="open_github">Abrir GitHub</string>
     <string name="github_card_title">Explorar o Root My Galaxy</string>
     <string name="github_card_description">Ver o código-fonte e instruções de uso.</string>
@@ -131,6 +132,14 @@
     <string name="shizuku_mode_description">Usar o Shizuku para executar o payload. Isso pode melhorar a confiabilidade.</string>
     <string name="shizuku_not_running_title">Shizuku não está em execução</string>
     <string name="shizuku_not_running_body">Inicie o Shizuku com adb ou root primeiro.</string>
+    <string name="settings_shizuku_start">Iniciar o Shizuku agora</string>
+    <string name="settings_shizuku_start_summary">Inicia o serviço Shizuku pelo KernelSU, para este app continuar funcionando sem um computador</string>
+    <string name="settings_shizuku_boot">Shizuku ao iniciar</string>
+    <string name="settings_shizuku_boot_summary">Iniciar o Shizuku automaticamente após reiniciar quando o aparelho já tem root</string>
+    <string name="status_shizuku_starting">Iniciando\u2026</string>
+    <string name="status_shizuku_started">O Shizuku está em execução</string>
+    <string name="error_shizuku_start_no_root">O Shizuku só pode ser iniciado aqui em um aparelho que já tem root; execute a instalação primeiro.</string>
+    <string name="notification_channel_shizuku">Início do Shizuku</string>
     <string name="action_download_shizuku">Baixar o Shizuku</string>
     <string name="error_shizuku_unavailable">Shizuku não está em execução. Inicie o Shizuku com adb ou root primeiro.</string>
     <string name="error_shizuku_permission">Permissão do Shizuku não concedida</string>

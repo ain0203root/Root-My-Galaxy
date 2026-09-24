@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
+import java.security.MessageDigest
 import java.net.URL
 import org.json.JSONObject
 
@@ -13,51 +14,311 @@ data class VerifiedPayloads(
     val profile: TargetProfile,
     val exploit: File,
     val kernelSu: File,
+    /**
+     * Where these files came from. It decides two things: whether the payload may be published to the
+     * known-good cache (only a downloaded one may, because only it was checked against the feed), and
+     * what the log says about the run.
+     */
+    val origin: PayloadOrigin = PayloadOrigin.Downloaded,
 )
 
 /**
- * Payload source repository.
+ * The commit a ref resolves to, from either shape of answer GitHub can give.
  *
- * Two modes are supported at build time:
- *  - Online (default): the original upstream implementation, unchanged — the
- *    manifest and artifacts are fetched from the upstream payloads repository
- *    pinned to the latest commit.
- *  - Offline (opt-in via the `rmgOfflinePayloads` Gradle property): the
- *    manifest and all artifacts are read from bundled assets
- *    (`payloads/targets-v3.json` and `payloads/<payloadId>/...`), so no
- *    network is required at runtime.
+ * The app asks for `application/vnd.github.sha`, which answers with the bare 40-character commit,
+ * and that is what it reads first. A JSON commit object is still understood, because a server or a
+ * proxy that ignores the requested media type would otherwise turn a resolvable source into an
+ * unreadable one. Anything else - an error page, a truncated body - resolves to nothing rather than
+ * to a commit the app then trusts.
  */
+internal fun parseCommitResponse(body: String): String? {
+    val trimmed = body.trim()
+    if (PayloadSource.isCommitValid(trimmed)) return trimmed
+    val fromJson = runCatching { JSONObject(trimmed).optString("sha") }.getOrNull() ?: return null
+    return fromJson.trim().takeIf(PayloadSource::isCommitValid)
+}
+
+/** Where a catalog lives inside a repository. */
+internal const val MANIFEST_PATH = "support/targets-v3.json"
+
+/**
+ * The URL a catalog is read from at one specific revision.
+ *
+ * Pure, and named after the revision rather than after the source, because the property that makes a
+ * revision summary worth showing is that it reads the revision the user is looking at and not the
+ * branch's current head.
+ */
+internal fun revisionManifestUrl(repository: String, commit: String): String =
+    "https://raw.githubusercontent.com/$repository/$commit/$MANIFEST_PATH"
+
+/** A revision a source can be pinned to, as a picker lists it. */
+data class SourceRevision(
+    val commit: String,
+    /** The tag this revision is named by, when it has one; null for a plain commit. */
+    val tag: String? = null,
+    /** The first line of the commit message, or the tag name. */
+    val label: String = "",
+    /** The commit date, as the short form shown beside it. */
+    val date: String = "",
+)
+
+/**
+ * The commits GitHub returns, newest first, as the picker lists them.
+ *
+ * A commit whose SHA is not a full commit is dropped rather than listed: picking it would store a
+ * pin that cannot be resolved again, which is the one thing a pin must never be. A message is only
+ * ever shown, never parsed, so only its first line and a bounded length survive.
+ */
+internal fun parseCommits(body: String, limit: Int = Int.MAX_VALUE): List<SourceRevision> {
+    val array = runCatching { org.json.JSONArray(body.trim()) }.getOrNull() ?: return emptyList()
+    return buildList {
+        for (index in 0 until minOf(array.length(), limit)) {
+            val entry = array.optJSONObject(index) ?: continue
+            val sha = entry.optString("sha").trim()
+            if (!PayloadSource.isCommitValid(sha)) continue
+            val commit = entry.optJSONObject("commit")
+            val message = commit?.optString("message").orEmpty().lineSequence()
+                .firstOrNull(String::isNotBlank).orEmpty().trim().take(MESSAGE_MAX_LENGTH)
+            val date = commit?.optJSONObject("committer")?.optString("date")
+                ?.take(DATE_LENGTH)
+                .orEmpty()
+            add(SourceRevision(commit = sha, label = message, date = date))
+        }
+    }
+}
+
+/**
+ * The commits in a ref's atom feed, newest first.
+ *
+ * This is the same list the repository page shows, in the one form GitHub publishes without the
+ * REST API: each entry carries the commit in `Grit::Commit/<sha>`, its first line in the title and
+ * its date in `updated`. Entries that do not carry a full commit are dropped rather than listed,
+ * and a feed that cannot be read at all is an empty list, so the caller can fall back instead of
+ * failing on the format.
+ */
+internal fun parseCommitAtom(body: String, limit: Int = Int.MAX_VALUE): List<SourceRevision> {
+    if (!body.contains("<entry>")) return emptyList()
+    return buildList {
+        for (entry in ENTRY.findAll(body)) {
+            if (size >= limit) break
+            val block = entry.groupValues[1]
+            val commit = COMMIT_IN_ENTRY.find(block)?.groupValues?.get(1) ?: continue
+            if (!PayloadSource.isCommitValid(commit)) continue
+            val title = TITLE_IN_ENTRY.find(block)?.groupValues?.get(1).orEmpty()
+                .let { it.replace(WHITESPACE, " ").trim() }
+                .take(MESSAGE_MAX_LENGTH)
+            val date = UPDATED_IN_ENTRY.find(block)?.groupValues?.get(1).orEmpty().take(DATE_LENGTH)
+            add(SourceRevision(commit = commit, label = title, date = date))
+        }
+    }
+}
+
+private val ENTRY = Regex("<entry>(.*?)</entry>", RegexOption.DOT_MATCHES_ALL)
+private val COMMIT_IN_ENTRY = Regex("Grit::Commit/([0-9a-f]{40})")
+private val TITLE_IN_ENTRY = Regex("<title>(.*?)</title>", RegexOption.DOT_MATCHES_ALL)
+private val UPDATED_IN_ENTRY = Regex("<updated>(.*?)</updated>", RegexOption.DOT_MATCHES_ALL)
+private val WHITESPACE = Regex("\\s+")
+
+/**
+ * The tags GitHub returns, as the picker lists them. A tag carries the commit it points at, which
+ * is what gets pinned - a tag can be moved onto another commit, so it is never stored as a pin.
+ */
+internal fun parseTags(body: String, limit: Int = Int.MAX_VALUE): List<SourceRevision> {
+    val array = runCatching { org.json.JSONArray(body.trim()) }.getOrNull() ?: return emptyList()
+    return buildList {
+        for (index in 0 until minOf(array.length(), limit)) {
+            val entry = array.optJSONObject(index) ?: continue
+            val name = entry.optString("name").trim()
+            val sha = entry.optJSONObject("commit")?.optString("sha").orEmpty().trim()
+            if (name.isEmpty() || !PayloadSource.isCommitValid(sha)) continue
+            add(SourceRevision(commit = sha, tag = name, label = name.take(MESSAGE_MAX_LENGTH)))
+        }
+    }
+}
+
+/** How long a revision label may be before it stops being a label. */
+private const val MESSAGE_MAX_LENGTH = 96
+
+/** Enough of `2026-09-08T19:55:26Z` to read as a date. */
+private const val DATE_LENGTH = 10
+
+/** SHA-256 of [bytes] as lowercase hex, the form a manifest declares an artifact hash in. */
+internal fun sha256Hex(bytes: ByteArray): String =
+    MessageDigest.getInstance("SHA-256").digest(bytes).toHex()
+
+internal fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
+
+/**
+ * Targets merged from every enabled source, plus one message per source that could not be
+ * read. A source that fails is left out rather than taking the whole catalog down with it.
+ */
+data class LoadedCatalog(
+    val targets: List<TargetProfile>,
+    val sourceFailures: List<String>,
+)
+
 class PayloadRepository(private val context: Context) {
-    fun loadTargets(): List<TargetProfile> {
+    fun loadCatalog(): LoadedCatalog {
         if (BuildConfig.OFFLINE_PAYLOADS) {
             val bytes = context.assets.open(MANIFEST_ASSET).use { it.readBytes() }
-            return SupportManifest.parse(bytes).targets
+            return LoadedCatalog(SupportManifest.parse(bytes).targets, emptyList())
         }
-        val commit = resolveMainCommit()
-        val manifestBytes = downloadBytes(rawUrl(commit, "support/targets-v3.json"), MAX_MANIFEST_BYTES)
-        return SupportManifest.parse(manifestBytes).targets.map { profile -> profile.copy(
-            exploit = profile.exploit.copy(url = pinArtifactUrl(profile.exploit.url, commit)),
-            kernelSu = profile.kernelSu.copy(url = pinArtifactUrl(profile.kernelSu.url, commit)),
-        ) }
+        val sources = AppPreferences.payloadSources(context).enabledSources()
+        require(sources.isNotEmpty()) { context.getString(R.string.repo_no_source_enabled) }
+
+        val targets = mutableListOf<TargetProfile>()
+        val failures = mutableListOf<String>()
+        sources.forEach { source ->
+            try {
+                targets += loadSource(source)
+            } catch (error: Throwable) {
+                val detail = context.getString(
+                    R.string.repo_source_failed,
+                    source.label,
+                    error.message ?: error.javaClass.simpleName,
+                )
+                failures += detail
+                // Per source and with the source's own words, because this is the failure that used to
+                // be visible only as a run that would not start: "a source did not load" says nothing
+                // about which one, and a rate limit reads nothing like a missing manifest.
+                AppLog.warn(AppLogTags.CATALOG, detail)
+            }
+        }
+        AppLog.info(
+            AppLogTags.CATALOG,
+            "Catalog loaded from ${sources.size - failures.size}/${sources.size} enabled sources, " +
+                "${targets.size} targets",
+        )
+
+        require(targets.isNotEmpty()) {
+            failures.ifEmpty { listOf(context.getString(R.string.repo_no_profile)) }.joinToString("\n")
+        }
+        return LoadedCatalog(targets, failures)
     }
 
-    fun resolveTarget(snapshot: DeviceSnapshot): TargetProfile = loadTargets()
-        .firstOrNull { it.matches(snapshot) }
-        ?: error(context.getString(R.string.repo_no_profile))
+    fun loadTargets(): List<TargetProfile> = loadCatalog().targets
 
-    fun resolveTarget(profileId: String): TargetProfile = loadTargets()
-        .firstOrNull { it.profileId == profileId }
-        ?: error(context.getString(R.string.repo_profile_missing, profileId))
+    /**
+     * The payload a run should use on this device, preferring the flavour the app is set to.
+     *
+     * The flavour is a preference and not a filter, because its alternative - refusing when the
+     * enabled sources happen to carry only the other one - leaves a user with no run and nothing that
+     * says which entry to add. Which flavour was offered is on the profile, and the run reports it.
+     */
+    fun resolveTarget(snapshot: DeviceSnapshot): TargetProfile {
+        val catalog = loadTargets()
+        return catalog.resolveFor(snapshot, AppPreferences.kernelsuFlavor(context))
+            ?: error(noProfileReason(snapshot, catalog))
+    }
+
+    /**
+     * Why nothing covered this device, with the entries that came closest.
+     *
+     * The first line names the identity that was searched for, because that is what the user can
+     * compare against the feed themselves; anything after it names what the enabled sources do carry,
+     * so a gap of one build reads differently from a gap of one whole model. The caller's message is
+     * one line on the screen and the whole of this in the log, which is why the identity is first.
+     */
+    private fun noProfileReason(snapshot: DeviceSnapshot, catalog: List<TargetProfile>): String {
+        val headline = context.getString(R.string.repo_no_profile, TargetGap.describe(snapshot))
+        val closest = TargetGap.closest(snapshot, catalog)
+        if (closest.isEmpty()) {
+            return "$headline\n${context.getString(R.string.repo_no_profile_none)}"
+        }
+        val named = closest.joinToString("; ") { entry ->
+            when (entry.reason) {
+                TargetGap.Reason.SameModel -> context.getString(
+                    R.string.repo_no_profile_other_kernel,
+                    entry.displayName,
+                    entry.kernels,
+                )
+                TargetGap.Reason.SameKernel -> context.getString(
+                    R.string.repo_no_profile_other_model,
+                    entry.displayName,
+                )
+            }
+        }
+        return "$headline\n${context.getString(R.string.repo_no_profile_closest, named)}"
+    }
+
+    /** Resolves a catalog selection, which may name the source it came from. */
+    fun resolveTarget(selectionId: String): TargetProfile {
+        val sourceId = sourceFromSelectionId(selectionId)
+        val profileId = profileFromSelectionId(selectionId)
+        val source = sourceId?.let { id ->
+            AppPreferences.payloadSources(context).firstOrNull { it.id == id }
+        }
+        if (sourceId != null && source == null) {
+            error(context.getString(R.string.repo_source_missing, sourceId))
+        }
+
+        val candidates = if (source != null) loadSource(source) else loadTargets()
+        return candidates.firstOrNull { it.profileId == profileId }
+            ?: error(context.getString(R.string.repo_profile_missing, profileId))
+    }
+
+    /**
+     * Reads a source without saving it: the check the sources sheet runs before a repository is
+     * added. An unreachable repository, a missing manifest, or a schema this app cannot read is
+     * reported here instead of becoming a source that fails silently on every later run.
+     */
+    fun inspect(source: PayloadSource, snapshot: DeviceSnapshot): SourceCoverage {
+        val fetched = fetchManifest(source)
+        return fetched.manifest.coverageFor(snapshot, fetched.commit)
+    }
+
+    /**
+     * Reads what a source would serve at [commit], with nothing pinned.
+     *
+     * This is the picker's question - what does *this* revision contain - and it has to be asked while
+     * the pin is still a proposal, so the revision is an argument here instead of being resolved from
+     * the source's own state. The catalog is read from the revision itself, so the summary describes
+     * the revision the user chose rather than whichever one the branch is on.
+     */
+    fun inspectAt(source: PayloadSource, snapshot: DeviceSnapshot, commit: String): SourceCoverage {
+        require(PayloadSource.isCommitValid(commit)) {
+            context.getString(R.string.repo_commit_invalid)
+        }
+        val manifest = SupportManifest.parse(
+            downloadBytes(revisionManifestUrl(source.repository, commit), MAX_MANIFEST_BYTES),
+        )
+        return manifest.coverageFor(snapshot, commit)
+    }
+
+    /** The manifest and the revision it was read at. Both callers need the revision. */
+    private data class FetchedManifest(val commit: String, val manifest: SupportManifest)
+
+    private fun fetchManifest(source: PayloadSource): FetchedManifest {
+        val commit = resolveCommit(source)
+        val manifestBytes = downloadBytes(
+            rawUrl(source, commit, MANIFEST_PATH),
+            MAX_MANIFEST_BYTES,
+        )
+        return FetchedManifest(commit, SupportManifest.parse(manifestBytes))
+    }
+
+    private fun loadSource(source: PayloadSource): List<TargetProfile> {
+        val fetched = fetchManifest(source)
+        val commit = fetched.commit
+        return fetched.manifest.targets.map { profile ->
+            profile.copy(
+                sourceId = source.id,
+                sourceLabel = source.label,
+                sourceCommit = commit,
+                exploit = profile.exploit.copy(url = pinArtifactUrl(source, profile.exploit.url, commit)),
+                kernelSu = profile.kernelSu.copy(url = pinArtifactUrl(source, profile.kernelSu.url, commit)),
+            )
+        }
+    }
 
     fun download(profile: TargetProfile, onProgress: (String) -> Unit): VerifiedPayloads {
-        val directory = File(context.filesDir, "payloads/${profile.profileId}").apply { mkdirs() }
-        val exploitDestination = File(directory, "cve-2026-43499-app.so")
+        val directory = File(context.filesDir, "payloads/${cacheKey(profile)}").apply { mkdirs() }
         val exploit = if (BuildConfig.FORENSIC_BUILD) {
-            copyEmbeddedForensicPayload(exploitDestination, onProgress)
+            copyEmbeddedForensicPayload(File(directory, "cve-2026-43499-app.so"), onProgress)
         } else {
-            downloadArtifact(
+            importedExploit(directory, onProgress) ?: downloadArtifact(
                 profile.exploit,
-                exploitDestination,
+                File(directory, "cve-2026-43499-app.so"),
                 context.getString(R.string.artifact_exploit),
                 onProgress,
             )
@@ -65,13 +326,30 @@ class PayloadRepository(private val context: Context) {
         val kernelSu = downloadArtifact(
             profile.kernelSu,
             File(directory, "ksud-s25u-kdp"),
-            context.getString(R.string.artifact_kernelsu),
+            // Named after the flavour, because the two daemons are different binaries from different
+            // projects and the log is the only place a run says which one it installed.
+            context.getString(R.string.artifact_daemon, profile.flavor.label),
             onProgress,
         )
         Os.chmod(exploit.absolutePath, 0b100100100)
         Os.chmod(kernelSu.absolutePath, 0b100100100)
-        onProgress("[TRACE] payload_source=${BuildConfig.FORENSIC_PAYLOAD_SOURCE}")
         return VerifiedPayloads(profile, exploit, kernelSu)
+    }
+
+    /**
+     * Stages the imported payload in place of the downloaded exploit. KernelSU still comes from the
+     * source matched to this device, because nothing about importing an exploit changes which
+     * ksud this kernel needs.
+     */
+    private fun importedExploit(directory: File, onProgress: (String) -> Unit): File? {
+        if (LocalPayload.file(context) == null) return null
+        onProgress(
+            context.getString(
+                R.string.repo_using_local_payload,
+                LocalPayload.displayName(context).orEmpty(),
+            ),
+        )
+        return LocalPayload.stage(context, File(directory, "cve-2026-43499-app.so"))
     }
 
     private fun copyEmbeddedForensicPayload(destination: File, onProgress: (String) -> Unit): File {
@@ -99,6 +377,11 @@ class PayloadRepository(private val context: Context) {
         label: String,
         onProgress: (String) -> Unit,
     ): File {
+        // A source can mark an artifact as unverifiable, which is the only way to accept it when
+        // its declared size is wrong; the default stays strict for every other download. A declared
+        // hash proves more than a size does, so it takes over and the size is then only a limit on
+        // how much may be read rather than a value that has to match.
+        val checked = artifact.checksSize
         onProgress(context.getString(R.string.repo_downloading, label))
         val temporary = File(destination.parentFile, "${destination.name}.part")
         if (BuildConfig.OFFLINE_PAYLOADS) {
@@ -106,6 +389,7 @@ class PayloadRepository(private val context: Context) {
                 context.getString(R.string.repo_url_invalid)
             }
             val source = context.assets.open(artifact.url.removePrefix(ASSET_PREFIX))
+            val digest = MessageDigest.getInstance("SHA-256")
             var total = 0L
             source.use { input ->
                 FileOutputStream(temporary).use { output ->
@@ -114,38 +398,60 @@ class PayloadRepository(private val context: Context) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        require(total <= artifact.size) {
+                        require(!artifact.checksSize || total <= artifact.size) {
                             context.getString(R.string.repo_size_exceeded, label)
                         }
+                        digest.update(buffer, 0, count)
                         output.write(buffer, 0, count)
                     }
                     output.fd.sync()
                 }
             }
-            require(total == artifact.size) { context.getString(R.string.repo_incomplete, label) }
-        } else {
-            val connection = open(artifact.url)
-            require(connection.contentLengthLong == -1L || connection.contentLengthLong == artifact.size) {
-                context.getString(R.string.repo_size_mismatch, label)
+            require(!artifact.checksSize || total == artifact.size) {
+                context.getString(R.string.repo_incomplete, label)
             }
-            var total = 0L
-            connection.inputStream.use { input ->
-                FileOutputStream(temporary).use { output ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        total += count
-                        require(total <= artifact.size) {
-                            context.getString(R.string.repo_size_exceeded, label)
-                        }
-                        output.write(buffer, 0, count)
-                    }
-                    output.fd.sync()
+            artifact.sha256?.let { declared ->
+                require(digest.digest().toHex() == declared) {
+                    context.getString(R.string.repo_hash_mismatch, label)
                 }
             }
-            connection.disconnect()
-            require(total == artifact.size) { context.getString(R.string.repo_incomplete, label) }
+            if (destination.exists()) destination.delete()
+            require(temporary.renameTo(destination)) {
+                context.getString(R.string.repo_finalize_failed, label)
+            }
+            onProgress(context.getString(R.string.repo_verified, label))
+            return destination
+        }
+        val connection = open(artifact.url)
+        require(!checked || connection.contentLengthLong == -1L || connection.contentLengthLong == artifact.size) {
+            context.getString(R.string.repo_size_mismatch, label)
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        var total = 0L
+        connection.inputStream.use { input ->
+            FileOutputStream(temporary).use { output ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    require(!checked || total <= artifact.size) {
+                        context.getString(R.string.repo_size_exceeded, label)
+                    }
+                    digest.update(buffer, 0, count)
+                    output.write(buffer, 0, count)
+                }
+                output.fd.sync()
+            }
+        }
+        connection.disconnect()
+        require(!checked || total == artifact.size) {
+            context.getString(R.string.repo_incomplete, label)
+        }
+        artifact.sha256?.let { declared ->
+            require(digest.digest().toHex() == declared) {
+                context.getString(R.string.repo_hash_mismatch, label)
+            }
         }
         if (destination.exists()) destination.delete()
         require(temporary.renameTo(destination)) {
@@ -155,28 +461,146 @@ class PayloadRepository(private val context: Context) {
         return destination
     }
 
-    // ---- Online-only upstream helpers (upstream implementation, unchanged) ----
+    /** Keeps two sources offering the same payload id from sharing a download directory. */
+    private fun cacheKey(profile: TargetProfile): String {
+        val profilePart = sanitize(profile.profileId)
+        if (profile.sourceId.isEmpty()) return profilePart
+        return "${sanitize(profile.sourceId)}--$profilePart"
+    }
 
-    private fun resolveMainCommit(): String {
-        val response = downloadBytes(COMMIT_API_URL, MAX_COMMIT_RESPONSE_BYTES)
-        val commit = JSONObject(response.toString(Charsets.UTF_8))
-            .getJSONObject("object")
-            .getString("sha")
-        require(commit.matches(Regex("[0-9a-f]{40}"))) { context.getString(R.string.repo_commit_invalid) }
+    private fun sanitize(value: String): String =
+        value.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
+    /** Resolves a source's ref to the commit it currently points at, for pinning it from the UI. */
+    fun resolveRevision(source: PayloadSource): String = resolveCommit(source)
+
+    /**
+     * Resolves a ref the user named - a branch, a tag, or a commit - to the commit to pin.
+     *
+     * A source that is already pinned resolves its own ref instead, because the pin is the revision
+     * being read; naming a different ref from the picker replaces the pin rather than the ref.
+     */
+    fun resolveNamedRevision(repository: String, ref: String): String {
+        val trimmed = ref.trim()
+        if (PayloadSource.isCommitValid(trimmed)) return trimmed
+        // A ref that cannot be resolved fails the read, with the answer the repository gave for it.
+        return resolveRefToCommit(repository, trimmed)
+    }
+
+    /**
+     * The revisions a source can be pinned to: its tags, then its most recent commits, newest first.
+     *
+     * The first commit of a ref *is* that ref's head, so the picker needs no separate call to say
+     * where the branch currently stands, and the list is what gives a pin something to choose from
+     * rather than only "wherever it is now". A repository with no tags is the normal case and is
+     * not an error.
+     */
+    fun revisions(source: PayloadSource, limit: Int = DEFAULT_REVISION_COUNT): List<SourceRevision> {
+        val tags = runCatching { tags(source, limit) }.getOrDefault(emptyList())
+        val commits = runCatching { atomRevisions(source.repository, source.branch, limit) }
+            .getOrElse { commits(source, limit) }
+        return tags + commits
+    }
+
+    /**
+     * A ref resolved without the REST API where possible.
+     *
+     * `github.com/{owner}/{repo}/commits/{ref}.atom` answers with the ref's commits - the first of
+     * which is the ref's head - and is not subject to the 60-requests-an-hour limit an unauthenticated
+     * API client shares with every other app on the same address. That limit is not hypothetical:
+     * reaching it is what made adding a source and pinning one fail with `HTTP 403`, and it is spent
+     * by nothing the user can see. The API stays as the fallback, for a network where github.com is
+     * unreachable but api.github.com is not.
+     */
+    private fun resolveRefToCommit(repository: String, ref: String): String {
+        val fromAtom = runCatching { atomRevisions(repository, ref, 1) }.getOrNull()
+            ?.firstOrNull()
+            ?.commit
+        if (fromAtom != null && PayloadSource.isCommitValid(fromAtom)) return fromAtom
+
+        val response = downloadBytes(
+            repositoryCommitApiUrl(repository, ref),
+            MAX_COMMIT_RESPONSE_BYTES,
+            GITHUB_SHA_MEDIA_TYPE,
+        )
+        val commit = parseCommitResponse(response.toString(Charsets.UTF_8))
+        require(commit != null) { context.getString(R.string.repo_commit_invalid) }
         return commit
     }
 
-    private fun rawUrl(commit: String, path: String) = "$RAW_REPOSITORY/$commit/$path"
+    private fun atomRevisions(repository: String, ref: String, limit: Int): List<SourceRevision> =
+        parseCommitAtom(
+            downloadBytes(atomCommitsUrl(repository, ref), MAX_LIST_RESPONSE_BYTES)
+                .toString(Charsets.UTF_8),
+            limit,
+        )
 
-    private fun pinArtifactUrl(url: String, commit: String): String {
-        val marker = "/Root-My-Galaxy-Payloads/main/"
-        val path = url.substringAfter(marker, missingDelimiterValue = "")
-        require(path.isNotEmpty()) { context.getString(R.string.repo_url_invalid) }
-        return "$RAW_REPOSITORY/$commit/$path"
+    private fun tags(source: PayloadSource, limit: Int): List<SourceRevision> = parseTags(
+        downloadBytes(tagsApiUrl(source, limit), MAX_LIST_RESPONSE_BYTES).toString(Charsets.UTF_8),
+        limit,
+    )
+
+    private fun commits(source: PayloadSource, limit: Int): List<SourceRevision> = parseCommits(
+        downloadBytes(
+            commitsApiUrl(source, limit),
+            MAX_LIST_RESPONSE_BYTES,
+        ).toString(Charsets.UTF_8),
+        limit,
+    )
+
+    private fun resolveCommit(source: PayloadSource): String {
+        // A pinned source is taken as written: no network at all, so its catalog cannot move and it
+        // keeps loading in every way except the raw download.
+        if (source.isPinned) return source.pinnedCommit
+        return resolveRefToCommit(source.repository, source.branch)
     }
 
-    private fun downloadBytes(url: String, maximum: Int): ByteArray {
-        val connection = open(url)
+    /**
+     * `/commits/{ref}` and not `/git/refs/heads/{branch}`: a source's ref may be a branch, a tag, or
+     * a commit, and this resolves all three to the commit it points at. The same is true of the atom
+     * feed, which is preferred.
+     */
+    private fun repositoryCommitApiUrl(repository: String, ref: String) =
+        "https://api.github.com/repos/$repository/commits/$ref"
+
+    private fun commitsApiUrl(source: PayloadSource, limit: Int) =
+        "https://api.github.com/repos/${source.repository}/commits" +
+            "?sha=${source.branch}&per_page=$limit"
+
+    private fun tagsApiUrl(source: PayloadSource, limit: Int) =
+        "https://api.github.com/repos/${source.repository}/tags?per_page=$limit"
+
+    private fun atomCommitsUrl(repository: String, ref: String) =
+        "https://github.com/$repository/commits/$ref.atom"
+
+    private fun rawRepository(source: PayloadSource) =
+        "https://raw.githubusercontent.com/${source.repository}"
+
+    private fun rawUrl(source: PayloadSource, commit: String, path: String) =
+        "${rawRepository(source)}/$commit/$path"
+
+    private fun mutableRawPrefix(source: PayloadSource) =
+        "${rawRepository(source)}/${source.branch}/"
+
+    // Manifests written for the built-in feed reference its mutable branch URLs, so accept
+    // that prefix too and re-pin it to the source the manifest was actually read from.
+    private fun builtInMutableRawPrefix() =
+        "https://raw.githubusercontent.com/${PayloadSource.DEFAULT.repository}/" +
+            "${PayloadSource.DEFAULT.branch}/"
+
+    private fun pinArtifactUrl(source: PayloadSource, url: String, commit: String): String {
+        val prefix = mutableRawPrefix(source)
+        val builtInPrefix = builtInMutableRawPrefix()
+        val relative = when {
+            url.startsWith(prefix) -> url.removePrefix(prefix)
+            url.startsWith(builtInPrefix) -> url.removePrefix(builtInPrefix)
+            else -> error(context.getString(R.string.repo_url_invalid))
+        }
+        return "${rawRepository(source)}/$commit/$relative"
+    }
+
+    private fun downloadBytes(url: String, maximum: Int, accept: String? = null): ByteArray {
+        val connection = open(url, accept)
         val bytes = connection.inputStream.use { input ->
             val output = ByteArrayOutputStream()
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -194,24 +618,41 @@ class PayloadRepository(private val context: Context) {
         return bytes
     }
 
-    private fun open(url: String): HttpURLConnection =
+    private fun open(url: String, accept: String? = null): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 15_000
             readTimeout = 60_000
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "S25URoot/${BuildConfig.VERSION_NAME}")
+            accept?.let { setRequestProperty("Accept", it) }
             connect()
-            require(responseCode == HttpURLConnection.HTTP_OK) { "HTTP $responseCode" }
+            require(responseCode == HttpURLConnection.HTTP_OK) {
+                // A limited API answers 403 (and 429 when it is explicit about it). Reporting the
+                // status number alone sends the reader looking for a fault in their repository.
+                if (responseCode == HttpURLConnection.HTTP_FORBIDDEN || responseCode == 429) {
+                    context.getString(R.string.repo_api_limited)
+                } else {
+                    "HTTP $responseCode"
+                }
+            }
         }
 
     companion object {
         private const val MANIFEST_ASSET = "payloads/targets-v3.json"
         private const val ASSET_PREFIX = "asset://"
-        private const val COMMIT_API_URL =
-            "https://api.github.com/repos/ain0203root/Root-My-Galaxy-Payloads/git/ref/heads/main"
-        private const val RAW_REPOSITORY =
-            "https://raw.githubusercontent.com/ain0203root/Root-My-Galaxy-Payloads"
-        private const val MAX_COMMIT_RESPONSE_BYTES = 16 * 1024
+        /** Asks for the bare commit instead of the commit object, so the answer cannot grow with it. */
+        private const val GITHUB_SHA_MEDIA_TYPE = "application/vnd.github.sha"
+
+        // A ceiling, not a target: the SHA answer is 40 bytes. It is generous enough that a server
+        // ignoring the media type and sending the commit object still resolves rather than failing
+        // on a limit that only ever existed to bound memory.
+        private const val MAX_COMMIT_RESPONSE_BYTES = 512 * 1024
+        /** How many revisions a picker offers, per section, when a source is pinned. */
+        const val DEFAULT_REVISION_COUNT = 15
+
+        // A revision list is ~4 KB per commit, so this bounds memory with room to spare; the tags
+        // answer is smaller still. Neither can grow with the commit the way a commit object did.
+        private const val MAX_LIST_RESPONSE_BYTES = 1024 * 1024
         private const val MAX_MANIFEST_BYTES = 256 * 1024
     }
 }

@@ -22,6 +22,7 @@ import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
 import dev.busung.s25uroot.AccentColor
 import dev.busung.s25uroot.AppThemeMode
+import dev.busung.s25uroot.VerdictTint
 
 private val AppTypography = Typography(
     displaySmall = TextStyle(fontSize = 38.sp, lineHeight = 44.sp, fontWeight = FontWeight.Light),
@@ -82,6 +83,9 @@ fun RootMyGalaxyTheme(
             isAppearanceLightStatusBars = !darkTheme
             isAppearanceLightNavigationBars = !darkTheme
         }
+        // The notification is drawn by the system and cannot read any of this, so the verdict colours are
+        // handed over here - the one place in the app that has them as plain values.
+        VerdictTint.update(colors)
     }
 
     MaterialExpressiveTheme(
