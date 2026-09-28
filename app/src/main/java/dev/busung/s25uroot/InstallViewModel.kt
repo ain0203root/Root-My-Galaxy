@@ -1383,6 +1383,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         val captured = StringBuilder()
         val readLog: () -> String = if (shizuku) {
             { drainProcessOutput(process, captured) }
+        } else if (qemuMmTrace) {
+            {
+                // The QEMU shell bridge reports setup failures on its own stderr before the helper
+                // opens the persistent log file. Keep that transport output visible as well as the
+                // normal payload log, otherwise "tracefs unavailable" would collapse into a bare
+                // non-zero exit.
+                drainProcessOutput(process, captured)
+                listOf(logFile.readTextIfPresent(), captured.toString())
+                    .filter(String::isNotBlank)
+                    .joinToString("
+")
+            }
         } else {
             // Keep draining stdout while polling: if the helper fills the OS
             // pipe buffer it blocks on write and stops making log progress,
