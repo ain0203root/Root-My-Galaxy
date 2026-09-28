@@ -1299,10 +1299,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
     ) {
         val payload = payloads.exploit
         if (activeRunTransport == RunTransport.LocalAdb) {
-            executeExploitOverLocalAdb(payload, payloads.kernelSu, requiresFreshP0Session, routePolicy)
+            executeExploitOverLocalAdb(
+                payload,
+                payloads.kernelSu,
+                requiresFreshP0Session,
+                routePolicy,
+                qemuMmTrace,
+            )
             return
         }
         val shizuku = shizukuEnabled()
+        val qemuMmTrace = payloads.profile.exploit.url.contains("/qemu/")
         stageKernelSuBeforeExploit(payloads.kernelSu)
         val logFile = if (shizuku) File(SHIZUKU_LOG_PATH) else File(app.filesDir, "exploit.log")
         if (shizuku) {
@@ -1320,27 +1327,58 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         val process = if (shizuku) {
             val stagedPayload = shizukuStage(payload, SHIZUKU_PAYLOAD_PATH, "755")
             ShizukuController.exec(
-                arrayOf("/system/bin/sh", "-c", "true"),
+                arrayOf(
+                    "/system/bin/sh",
+                    "-c",
+                    if (qemuMmTrace) {
+                        qemuMmTraceRunCommand(
+                            helper.absolutePath,
+                            stagedPayload.absolutePath,
+                            SHIZUKU_LOG_PATH,
+                            includeExitMarker = false,
+                        )
+                    } else {
+                        "true"
+                    },
+                ),
                 shizukuEnvironment(
                     stagedPayload.absolutePath,
                     helper.absolutePath,
                     requiresFreshP0Session,
                     cachedP0Offset,
                     routePolicy,
+                    qemuMmTrace,
                 ),
             )
         } else {
-            val processBuilder = ProcessBuilder(
-                helper.absolutePath,
-                "--run-payload",
-                payload.absolutePath,
-                helper.absolutePath,
-                logFile.absolutePath,
-            ).redirectErrorStream(true)
-            processBuilder.environment().putAll(
-                exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
-            )
-            processBuilder.start()
+            if (qemuMmTrace) {
+                ProcessBuilder(
+                    "/system/bin/sh",
+                    "-c",
+                    qemuMmTraceRunCommand(
+                        helper.absolutePath,
+                        payload.absolutePath,
+                        logFile.absolutePath,
+                        includeExitMarker = false,
+                    ),
+                ).redirectErrorStream(true).apply {
+                    environment().putAll(
+                        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
+                    )
+                }.start()
+            } else {
+                ProcessBuilder(
+                    helper.absolutePath,
+                    "--run-payload",
+                    payload.absolutePath,
+                    helper.absolutePath,
+                    logFile.absolutePath,
+                ).redirectErrorStream(true).apply {
+                    environment().putAll(
+                        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
+                    )
+                }.start()
+            }
         }
         val captured = StringBuilder()
         val readLog: () -> String = if (shizuku) {
@@ -1437,6 +1475,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         kernelSu: File,
         requiresFreshP0Session: Boolean,
         routePolicy: ExploitRoutePolicy,
+        qemuMmTrace: Boolean,
     ) {
         val bootToken = currentBootToken()
         val cachedP0Offset = if (requiresFreshP0Session) null else cachedP0Offset(bootToken)
@@ -1468,6 +1507,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         requiresFreshP0Session,
                         cachedP0Offset,
                         routePolicy,
+                        qemuMmTrace = qemuMmTrace,
                     ),
                     overallTimeoutMs = totalMillis,
                     // A fresh session is deliberately allowed to sit silent for as long as its ceiling:
@@ -1637,17 +1677,27 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         requiresFreshP0Session: Boolean,
         cachedP0Offset: String?,
         routePolicy: ExploitRoutePolicy,
+        qemuMmTrace: Boolean,
     ): String = buildString {
         // The environment comes first, quoted as values, because this is a shell command rather than
         // a process spawn with an environment attached.
         exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy).forEach { (name, value) ->
             append(name).append('=').append(shellQuote(value)).append(' ')
         }
-        append(shellQuote(ADB_HELPER_PATH))
-        append(" --run-payload")
-        append(' ').append(shellQuote(ADB_PAYLOAD_PATH))
-        append(' ').append(shellQuote(ADB_HELPER_PATH))
-        append(' ').append(shellQuote(ADB_LOG_PATH))
+        if (qemuMmTrace) {
+            append(qemuMmTraceRunCommand(
+                ADB_HELPER_PATH,
+                ADB_PAYLOAD_PATH,
+                ADB_LOG_PATH,
+                includeExitMarker = false,
+            ))
+        } else {
+            append(shellQuote(ADB_HELPER_PATH))
+            append(" --run-payload")
+            append(' ').append(shellQuote(ADB_PAYLOAD_PATH))
+            append(' ').append(shellQuote(ADB_HELPER_PATH))
+            append(' ').append(shellQuote(ADB_LOG_PATH))
+        }
         // The raw `shell:` service does not carry an exit code, so the command reports its own on the
         // end of the stream. Reading it back is what separates "the payload failed" from "the payload
         // finished and the run got nothing", which need different answers.
@@ -1686,13 +1736,53 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         requiresFreshP0Session: Boolean,
         cachedP0Offset: String?,
         routePolicy: ExploitRoutePolicy,
+        qemuMmTrace: Boolean,
     ): Array<String> = buildList {
         exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy).forEach { (name, value) ->
             add("$name=$value")
         }
         add("CVE43499_ROOT_HELPER=$helperPath")
-        add("LD_PRELOAD=$payloadPath")
+        // The QEMU trace bridge must open FD 3 before the payload is loaded. Therefore the QEMU path
+        // loads the .so through the helper's dlopen after the shell has inherited the trace FD, rather
+        // than putting it in LD_PRELOAD where the shell's dynamic linker would run it too early.
+        if (!qemuMmTrace) {
+            add("LD_PRELOAD=$payloadPath")
+        }
     }.toTypedArray()
+
+    private fun qemuMmTraceRunCommand(
+        helperPath: String,
+        payloadPath: String,
+        logPath: String,
+        includeExitMarker: Boolean,
+    ): String = buildString {
+        val tracefs = "/sys/kernel/tracing"
+        val tracePipe = "$tracefs/trace_pipe"
+        val tracingOn = "$tracefs/tracing_on"
+        val eventEnable = "$tracefs/events/kmem/kmem_cache_alloc/enable"
+
+        append("if [ ! -r ").append(shellQuote(tracePipe))
+            .append(" ] || [ ! -w ").append(shellQuote(tracingOn))
+            .append(" ] || [ ! -w ").append(shellQuote(eventEnable)).append(" ]; then ")
+        append("echo 'qemu-mm-oracle: tracefs controls unavailable' >&2; exit 125; fi; ")
+        append("echo 1 > ").append(shellQuote(eventEnable))
+            .append(" || { echo 'qemu-mm-oracle: cannot enable kmem_cache_alloc' >&2; exit 125; }; ")
+        append("echo 1 > ").append(shellQuote(tracingOn))
+            .append(" || { echo 'qemu-mm-oracle: cannot enable tracing' >&2; exit 125; }; ")
+        append("exec 3< ").append(shellQuote(tracePipe))
+            .append(" || { echo 'qemu-mm-oracle: cannot open trace_pipe' >&2; exit 125; }; ")
+        append("export QEMU_MM_TRACE_FD=3; ")
+        append("echo '[qemu-mm-oracle] tracefs bridge fd=3' >&2; ")
+        append(shellQuote(helperPath))
+            .append(" --run-payload ")
+            .append(shellQuote(payloadPath)).append(' ')
+            .append(shellQuote(helperPath)).append(' ')
+            .append(shellQuote(logPath))
+        if (includeExitMarker) {
+            append("; rc=$?; printf '\n").append(ADB_EXIT_MARKER)
+                .append("%s\\n' \\$rc; exit \\$rc")
+        }
+    }
 
     /**
      * Runs a privileged maintenance script through the best transport available.
