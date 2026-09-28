@@ -1392,7 +1392,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 drainProcessOutput(process, captured)
                 listOf(logFile.readTextIfPresent(), captured.toString())
                     .filter(String::isNotBlank)
-                    .joinToString("\\n")
+                    .joinToString("\n")
             }
         } else {
             // Keep draining stdout while polling: if the helper fills the OS
