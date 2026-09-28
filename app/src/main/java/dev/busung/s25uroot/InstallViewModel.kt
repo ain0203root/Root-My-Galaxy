@@ -1298,6 +1298,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         routePolicy: ExploitRoutePolicy,
     ) {
         val payload = payloads.exploit
+        val qemuMmTrace = payloads.profile.exploit.url.contains("/qemu/")
         if (activeRunTransport == RunTransport.LocalAdb) {
             executeExploitOverLocalAdb(
                 payload,
@@ -1309,7 +1310,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             return
         }
         val shizuku = shizukuEnabled()
-        val qemuMmTrace = payloads.profile.exploit.url.contains("/qemu/")
         stageKernelSuBeforeExploit(payloads.kernelSu)
         val logFile = if (shizuku) File(SHIZUKU_LOG_PATH) else File(app.filesDir, "exploit.log")
         if (shizuku) {
@@ -1689,7 +1689,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 ADB_HELPER_PATH,
                 ADB_PAYLOAD_PATH,
                 ADB_LOG_PATH,
-                includeExitMarker = false,
+                includeExitMarker = true,
             ))
         } else {
             append(shellQuote(ADB_HELPER_PATH))
