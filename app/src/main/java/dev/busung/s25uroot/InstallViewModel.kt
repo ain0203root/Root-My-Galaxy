@@ -1701,7 +1701,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 ADB_HELPER_PATH,
                 ADB_PAYLOAD_PATH,
                 ADB_LOG_PATH,
-                includeExitMarker = true,
+                includeExitMarker = false,
             ))
         } else {
             append(shellQuote(ADB_HELPER_PATH))
