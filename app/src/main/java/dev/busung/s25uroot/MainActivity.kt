@@ -234,6 +234,7 @@ class MainActivity : ComponentActivity() {
     private var accentColor by mutableStateOf(AccentColor.Dynamic)
     private var themeMode by mutableStateOf(AppThemeMode.System)
     private var advancedMode by mutableStateOf(false)
+    private var exploitTestStage by mutableStateOf(ExploitTestStage.Normal)
 	private var disableKsuModules by mutableStateOf(false)
     private var loadKernelSu by mutableStateOf(true)
     private var kernelsuFlavor by mutableStateOf(KernelSuFlavor.Default)
@@ -375,6 +376,7 @@ class MainActivity : ComponentActivity() {
         accentColor = AppPreferences.accentColor(this)
         themeMode = AppPreferences.themeMode(this)
         advancedMode = AppPreferences.advancedMode(this)
+        exploitTestStage = AppPreferences.exploitTestStage(this)
 		disableKsuModules = AppPreferences.disableKsuModules(this)
         loadKernelSu = AppPreferences.loadKernelSu(this)
         kernelsuFlavor = AppPreferences.kernelsuFlavor(this)
@@ -3713,6 +3715,19 @@ private fun SettingsPage(
         )
     }
 
+    if (showExploitTestDialog) {
+        SideChoiceMenu(
+            choices = ExploitTestStage.entries.map { stringResource(it.label) },
+            selectedIndex = ExploitTestStage.entries.indexOf(exploitTestStage).coerceAtLeast(0),
+            topOffset = exploitTestMenuTop,
+            onSelected = { index ->
+                showExploitTestDialog = false
+                onExploitTestStageChanged(ExploitTestStage.entries[index])
+            },
+            onDismiss = { showExploitTestDialog = false },
+        )
+    }
+
     if (showPayloadModeDialog) {
         SideChoiceMenu(
             // Online first, because it is the default and the one that follows the configured sources.
@@ -4268,6 +4283,26 @@ private fun SettingsPage(
                         onAdvancedModeChanged(it)
                     },
                 )
+                if (advancedMode) {
+                    SettingsCard(
+                        modifier = Modifier.onGloballyPositioned { coordinates ->
+                            exploitTestMenuTop = with(density) { coordinates.positionInWindow().y.toDp() }
+                        },
+                        icon = Icons.Rounded.BugReport,
+                        title = stringResource(R.string.settings_exploit_test),
+                        description = stringResource(exploitTestStage.summary),
+                        value = stringResource(exploitTestStage.label),
+                        position = SettingsCardPosition.Middle,
+                        notice = exploitTestStage
+                            .takeIf { it != ExploitTestStage.Normal }
+                            ?.let { stringResource(R.string.settings_exploit_test_warning) },
+                        onClick = {
+                            clickHaptic(view)
+                            showExploitTestDialog = true
+                        },
+                    )
+                }
+
                 SettingsSwitchCard(
                     icon = Icons.Rounded.Security,
                     title = stringResource(R.string.disable_ksu_modules),
