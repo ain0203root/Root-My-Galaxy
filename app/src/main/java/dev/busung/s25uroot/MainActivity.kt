@@ -94,6 +94,7 @@ import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Cloud
 import androidx.compose.material.icons.rounded.AccountTree
+import androidx.compose.material.icons.rounded.BugReport
 import androidx.compose.material.icons.rounded.DownloadForOffline
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.Tune
@@ -657,6 +658,7 @@ private fun RootApp(
     accentColor: AccentColor,
     themeMode: AppThemeMode,
     advancedMode: Boolean,
+     exploitTestStage: ExploitTestStage,
 	disableKsuModules: Boolean,
     loadKernelSu: Boolean,
     kernelsuFlavor: KernelSuFlavor,
@@ -680,6 +682,7 @@ private fun RootApp(
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
+     onExploitTestStageChanged: (ExploitTestStage) -> Unit,
 	onDisableKsuModulesChanged: (Boolean) -> Unit,
     onLoadKernelSuChanged: (Boolean) -> Unit,
     onKernelsuFlavorChanged: (KernelSuFlavor) -> Unit,
