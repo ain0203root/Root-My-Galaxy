@@ -3128,6 +3128,7 @@ private fun historyResultLabel(result: InstallRunResult): String = stringResourc
         InstallRunResult.Running -> R.string.history_running
         InstallRunResult.Succeeded -> R.string.history_succeeded
         InstallRunResult.RootOnly -> R.string.history_root_only
+        InstallRunResult.Tested -> R.string.history_tested
         InstallRunResult.Failed -> R.string.history_failed
         InstallRunResult.Stopped -> R.string.history_stopped
     },
