@@ -105,6 +105,8 @@ internal fun verdictColors(verdict: RunVerdict): VerdictColors {
             VerdictColors(scheme.primaryContainer, scheme.onPrimaryContainer, scheme.primary)
         RunVerdict.RootOnly ->
             VerdictColors(scheme.secondaryContainer, scheme.onSecondaryContainer, scheme.secondary)
+        RunVerdict.Tested ->
+            VerdictColors(scheme.tertiaryContainer, scheme.onTertiaryContainer, scheme.tertiary)
         RunVerdict.Failed -> VerdictColors(scheme.errorContainer, scheme.onErrorContainer, scheme.error)
         RunVerdict.Stopped ->
             VerdictColors(scheme.surfaceContainerHighest, scheme.onSurfaceVariant, scheme.onSurfaceVariant)
