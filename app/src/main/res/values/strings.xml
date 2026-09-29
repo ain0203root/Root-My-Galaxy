@@ -498,8 +498,8 @@
     <string name="settings_exploit_test_warning">Diagnostic mode is active. Root and KernelSU loading will be skipped.</string>
     <string name="exploit_test_normal">Normal run</string>
     <string name="exploit_test_normal_summary">Run the complete exploit and installation flow.</string>
-    <string name="exploit_test_kaslr">KASLR slide search</string>
-    <string name="exploit_test_kaslr_summary">Run only the kernel KASLR slide discovery and stop.</string>
+    <string name="exploit_test_kaslr">Kernel slide discovery</string>
+    <string name="exploit_test_kaslr_summary">Run the current kernel slide discovery route and stop before MM/page/root stages.</string>
     <string name="exploit_test_mm_struct">mm_struct search</string>
     <string name="exploit_test_mm_struct_summary">Run the mm_struct discovery logic and report the leaked object/page.</string>
     <string name="exploit_test_mm_page">Found MM page prepare/write</string>
