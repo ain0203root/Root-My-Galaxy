@@ -439,6 +439,14 @@ class MainActivity : ComponentActivity() {
                     onAdvancedModeChanged = { enabled ->
                         AppPreferences.setAdvancedMode(this, enabled)
                         advancedMode = enabled
+                        if (!enabled) {
+                            AppPreferences.setExploitTestStage(this, ExploitTestStage.Normal)
+                            exploitTestStage = ExploitTestStage.Normal
+                        }
+                    },
+                    onExploitTestStageChanged = { stage ->
+                        AppPreferences.setExploitTestStage(this, stage)
+                        exploitTestStage = stage
                     },
 					onDisableKsuModulesChanged = { enabled ->
 						AppPreferences.setDisableKsuModules(this, enabled)
@@ -1223,6 +1231,7 @@ private fun RootApp(
                         accentColor = accentColor,
                         themeMode = themeMode,
                         advancedMode = advancedMode,
+                        exploitTestStage = exploitTestStage,
                         disableKsuModules = disableKsuModules,
                         loadKernelSu = loadKernelSu,
                         kernelsuFlavor = kernelsuFlavor,
@@ -1242,6 +1251,7 @@ private fun RootApp(
                         onAccentColorChanged = onAccentColorChanged,
                         onThemeModeChanged = onThemeModeChanged,
                         onAdvancedModeChanged = onAdvancedModeChanged,
+                        onExploitTestStageChanged = onExploitTestStageChanged,
                         onDisableKsuModulesChanged = onDisableKsuModulesChanged,
                         onLoadKernelSuChanged = onLoadKernelSuChanged,
                         onKernelsuFlavorChanged = onKernelsuFlavorChanged,
@@ -3488,6 +3498,7 @@ private fun SettingsPage(
     accentColor: AccentColor,
     themeMode: AppThemeMode,
     advancedMode: Boolean,
+    exploitTestStage: ExploitTestStage,
 	disableKsuModules: Boolean,
     loadKernelSu: Boolean,
     kernelsuFlavor: KernelSuFlavor,
@@ -3507,6 +3518,7 @@ private fun SettingsPage(
     onAccentColorChanged: (AccentColor) -> Unit,
     onThemeModeChanged: (AppThemeMode) -> Unit,
     onAdvancedModeChanged: (Boolean) -> Unit,
+    onExploitTestStageChanged: (ExploitTestStage) -> Unit,
 	onDisableKsuModulesChanged: (Boolean) -> Unit,
     onLoadKernelSuChanged: (Boolean) -> Unit,
     onKernelsuFlavorChanged: (KernelSuFlavor) -> Unit,
