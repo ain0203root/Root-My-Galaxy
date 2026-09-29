@@ -814,6 +814,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // settings screen while this run is in flight must not be able to produce a half-load
                 // - staged on one reading and skipped on another.
                 val loadKernelSu = AppPreferences.loadKernelSu(app)
+                // Frozen with the run as well: changing Settings while a diagnostic is in flight must not
+                // turn its isolated test back into a normal root installation.
+                val exploitTestStage = AppPreferences.exploitTestStage(app)
                 // The run's own answer to the question above, honoured for the whole run: this is what
                 // makes "Run without Shizuku" mean it rather than asking again a moment later.
                 val shizukuRequested = AppPreferences.shizukuMode(app) && !withoutShizuku
@@ -893,8 +896,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // output in an earlier run, so this can only refuse a boot the device already answered
                 // for. The exploit is the step marked, because that is the step that cannot happen.
                 activeStage = RunStage.Exploit
-                require(!PipeBudget.spentInBoot(app, currentBootToken())) {
-                    app.getString(R.string.error_pipe_budget_spent)
+                if (exploitTestStage == ExploitTestStage.Normal) {
+                    require(!PipeBudget.spentInBoot(app, currentBootToken())) {
+                        app.getString(R.string.error_pipe_budget_spent)
+                    }
+                } else {
+                    appendLog(
+                        app.getString(
+                            R.string.log_exploit_test,
+                            getString(exploitTestStage.label),
+                        ),
+                    )
                 }
 
                 // Before the download, so the wait is the first thing the screen reports rather than
@@ -948,11 +960,29 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // which side chose the three numbers a user can move.
                 appendLog(routePolicy.policy.describe())
                 appendLog(app.getString(R.string.log_payload_origin, payloads.origin.name.lowercase()))
-                executeExploit(
+                val exploitTestCompleted = executeExploit(
                     payloads,
                     profile.requiresFreshP0Session,
                     routePolicy.policy,
+                    exploitTestStage,
                 )
+                if (exploitTestCompleted) {
+                    appendLog(
+                        app.getString(
+                            R.string.log_exploit_test_completed,
+                            getString(exploitTestStage.label),
+                        ),
+                    )
+                    setPhase(
+                        InstallPhase.Ready,
+                        app.getString(
+                            R.string.status_exploit_test_completed,
+                            getString(exploitTestStage.label),
+                        ),
+                    )
+                    finishHistory(InstallRunResult.Tested)
+                    return@launch
+                }
 
                 // Optional, and before the KernelSU load rather than after: what it protects against
                 // is a write made while bootstrap root is the only root on the device.
@@ -1309,7 +1339,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             )
         }
         val shizuku = shizukuEnabled()
-        stageKernelSuBeforeExploit(payloads.kernelSu)
+        if (testStage == ExploitTestStage.Normal) {
+            stageKernelSuBeforeExploit(payloads.kernelSu)
+        }
         val logFile = if (shizuku) File(SHIZUKU_LOG_PATH) else File(app.filesDir, "exploit.log")
         if (shizuku) {
             ShizukuController.exec(arrayOf("rm", "-f", SHIZUKU_LOG_PATH)).waitFor()
@@ -1477,8 +1509,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 session.push(payload, ADB_PAYLOAD_PATH)
                 // Ahead of the payload for the same reason as the Shizuku route: the load happens
                 // from the exploit process, so the daemon has to be there when it does.
-                session.push(kernelSu, ADB_KSUD_PATH, executable = true)
-                appendLog(app.getString(R.string.log_ksu_staged_early))
+                if (testStage == ExploitTestStage.Normal) {
+                    session.push(kernelSu, ADB_KSUD_PATH, executable = true)
+                    appendLog(app.getString(R.string.log_ksu_staged_early))
+                }
                 session.runStreaming(
                     command = localAdbExploitCommand(
                         requiresFreshP0Session,
