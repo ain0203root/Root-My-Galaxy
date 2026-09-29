@@ -38,6 +38,9 @@ internal enum class RunVerdict(@StringRes val label: Int) {
     /** Root is in, and the load was switched off or not reached. */
     RootOnly(R.string.history_root_only),
 
+    /** A diagnostic stage completed without performing the remaining install stages. */
+    Tested(R.string.history_tested),
+
     /** Something went wrong, and the run says which stage. */
     Failed(R.string.history_failed),
 
@@ -60,6 +63,7 @@ internal fun runVerdict(result: InstallRunResult): RunVerdict = when (result) {
     InstallRunResult.Running -> RunVerdict.Running
     InstallRunResult.Succeeded -> RunVerdict.Succeeded
     InstallRunResult.RootOnly -> RunVerdict.RootOnly
+    InstallRunResult.Tested -> RunVerdict.Tested
     InstallRunResult.Failed -> RunVerdict.Failed
     InstallRunResult.Stopped -> RunVerdict.Stopped
 }
@@ -112,6 +116,7 @@ internal fun verdictIcon(verdict: RunVerdict): ImageVector = when (verdict) {
     RunVerdict.Running -> Icons.Rounded.Schedule
     RunVerdict.Succeeded -> Icons.Rounded.CheckCircle
     RunVerdict.RootOnly -> Icons.Rounded.LockOpen
+    RunVerdict.Tested -> Icons.Rounded.BugReport
     RunVerdict.Failed -> Icons.Rounded.Error
     RunVerdict.Stopped -> Icons.Rounded.Block
 }
