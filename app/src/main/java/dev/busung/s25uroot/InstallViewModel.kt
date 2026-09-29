@@ -2163,6 +2163,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             requiresFreshP0Session: Boolean,
             cachedP0Offset: String?,
             routePolicy: ExploitRoutePolicy = ExploitRoutePolicy.LEGACY,
+            testStage: ExploitTestStage = ExploitTestStage.Normal,
         ): Map<String, String> = buildMap {
             // A fresh-session profile hands its pacing to the payload, so the policy's attempt and
             // timeout budget does not apply to it. The route still does: which way the payload finds
@@ -2179,6 +2180,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 }
             }
             routePolicy.slideRoute.env?.let { put(ExploitRoutePolicy.SLIDE_SOURCE_ENV, it) }
+            testStage.envValue?.let { put("RMG_TEST_STAGE", it) }
         }
 
         private fun stripAnsi(value: String): String = ANSI_ESCAPE.replace(value, "").replace("\r", "")
