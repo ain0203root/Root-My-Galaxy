@@ -1296,11 +1296,17 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         payloads: VerifiedPayloads,
         requiresFreshP0Session: Boolean,
         routePolicy: ExploitRoutePolicy,
-    ) {
+        testStage: ExploitTestStage,
+    ): Boolean {
         val payload = payloads.exploit
         if (activeRunTransport == RunTransport.LocalAdb) {
-            executeExploitOverLocalAdb(payload, payloads.kernelSu, requiresFreshP0Session, routePolicy)
-            return
+            return executeExploitOverLocalAdb(
+                payload,
+                payloads.kernelSu,
+                requiresFreshP0Session,
+                routePolicy,
+                testStage,
+            )
         }
         val shizuku = shizukuEnabled()
         stageKernelSuBeforeExploit(payloads.kernelSu)
@@ -1327,6 +1333,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     requiresFreshP0Session,
                     cachedP0Offset,
                     routePolicy,
+                    testStage,
                 ),
             )
         } else {
@@ -1338,7 +1345,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 logFile.absolutePath,
             ).redirectErrorStream(true)
             processBuilder.environment().putAll(
-                exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy),
+                exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy, testStage),
             )
             processBuilder.start()
         }
@@ -1413,7 +1420,15 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 appendLog(app.getString(R.string.log_payload_may_still_run))
             }
         }
+        if (testStage != ExploitTestStage.Normal) {
+            val marker = "rmg-test completed stage=" + testStage.envValue + " result=pass"
+            require(lastRawLog.contains(marker) || captured.toString().contains(marker)) {
+                app.getString(R.string.error_exploit_test_marker, marker)
+            }
+            return true
+        }
         appendLog(app.getString(R.string.log_bootstrap_root))
+        return false
     }
 
     /**
@@ -1437,7 +1452,8 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         kernelSu: File,
         requiresFreshP0Session: Boolean,
         routePolicy: ExploitRoutePolicy,
-    ) {
+        testStage: ExploitTestStage,
+    ): Boolean {
         val bootToken = currentBootToken()
         val cachedP0Offset = if (requiresFreshP0Session) null else cachedP0Offset(bootToken)
         val logPrefix = mutableState.value.log
@@ -1468,6 +1484,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                         requiresFreshP0Session,
                         cachedP0Offset,
                         routePolicy,
+                        testStage,
                     ),
                     overallTimeoutMs = totalMillis,
                     // A fresh session is deliberately allowed to sit silent for as long as its ceiling:
@@ -1487,10 +1504,18 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         require(exitCode == 0) {
             app.getString(R.string.error_payload_exit, exitCode, payloadExitDetail(exitCode))
         }
+        if (testStage != ExploitTestStage.Normal) {
+            val marker = "rmg-test completed stage=" + testStage.envValue + " result=pass"
+            require(output.contains(marker)) {
+                app.getString(R.string.error_exploit_test_marker, marker)
+            }
+            return true
+        }
         require(output.contains("exploit completed") && output.contains("done=1 root=1")) {
             app.getString(R.string.error_success_marker)
         }
         appendLog(app.getString(R.string.log_bootstrap_root))
+        return false
     }
 
     private fun drainProcessOutput(process: Process, buffer: StringBuilder): String {
@@ -1637,10 +1662,11 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         requiresFreshP0Session: Boolean,
         cachedP0Offset: String?,
         routePolicy: ExploitRoutePolicy,
+        testStage: ExploitTestStage,
     ): String = buildString {
         // The environment comes first, quoted as values, because this is a shell command rather than
         // a process spawn with an environment attached.
-        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy).forEach { (name, value) ->
+        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy, testStage).forEach { (name, value) ->
             append(name).append('=').append(shellQuote(value)).append(' ')
         }
         append(shellQuote(ADB_HELPER_PATH))
@@ -1686,8 +1712,9 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         requiresFreshP0Session: Boolean,
         cachedP0Offset: String?,
         routePolicy: ExploitRoutePolicy,
+        testStage: ExploitTestStage,
     ): Array<String> = buildList {
-        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy).forEach { (name, value) ->
+        exploitEnvironment(requiresFreshP0Session, cachedP0Offset, routePolicy, testStage).forEach { (name, value) ->
             add("$name=$value")
         }
         add("CVE43499_ROOT_HELPER=$helperPath")
