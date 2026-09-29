@@ -295,6 +295,7 @@
     <string name="history_running">Running</string>
     <string name="history_succeeded">Succeeded</string>
     <string name="history_root_only">Root only</string>
+    <string name="history_tested">Test completed</string>
     <string name="history_failed">Failed</string>
     <string name="history_stopped">Stopped</string>
         <string name="history_log">Execution logs</string>
@@ -345,6 +346,7 @@
 
     <string name="status_ksu_active">KernelSU active</string>
     <string name="status_root_only">Root acquired. KernelSU was not loaded because it is disabled in Settings.</string>
+    <string name="status_exploit_test_completed">Exploit test completed: %1$s</string>
     <string name="status_not_installed">Not installed</string>
     <!-- The install card's title before anything has been read. It is the state's own message rather than the
          card's, so a phase with nothing to say cannot leave the button blank. -->
@@ -381,6 +383,8 @@
     <string name="grant_action">Grant secure settings permission</string>
     <string name="wireless_adb_permission_note">This app does not have WRITE_SECURE_SETTINGS, so it cannot enable wireless debugging by itself. It can grant the permission through root, Shizuku, or a wireless debugging pairing.</string>
     <string name="log_bootstrap_root">[+] Bootstrap root acquired</string>
+    <string name="log_exploit_test">[*] Exploit diagnostic selected: %1$s</string>
+    <string name="log_exploit_test_completed">[+] Exploit test completed: %1$s. Root and KernelSU loading were skipped.</string>
     <string name="log_ro_blocks_successful">[+] Set %1$d partitions to read-only</string>
     <string name="log_ro_blocks_failed">[!] Could not set partitions to read-only</string>
     <string name="log_ro_blocks_script_missing">[!] Read-only partition script is missing from this build</string>
@@ -443,6 +447,7 @@
     </plurals>
     <string name="error_payload_exit">Payload execution failed with code %1$d%2$s</string>
     <string name="error_success_marker">Exploit success markers were not found</string>
+    <string name="error_exploit_test_marker">Diagnostic payload did not report completion marker: %1$s</string>
     <string name="error_local_adb_shell">The device\'s ADB shell is not available: %1$s</string>
     <string name="error_ksu_stage">KernelSU staging failed: %1$s</string>
     <string name="error_ksu_verify">KernelSU load or control-channel verification failed (rc=%1$d): %2$s</string>
@@ -488,6 +493,19 @@
     <string name="advanced">Advanced</string>
     <string name="advanced_mode">Advanced mode</string>
     <string name="advanced_mode_description">Choose a payload manually during installation.</string>
+    <string name="settings_exploit_test">Exploit test logic</string>
+    <string name="settings_exploit_test_summary">Run one selected exploit stage instead of completing the root installation.</string>
+    <string name="settings_exploit_test_warning">Diagnostic mode is active. Root and KernelSU loading will be skipped.</string>
+    <string name="exploit_test_normal">Normal run</string>
+    <string name="exploit_test_normal_summary">Run the complete exploit and installation flow.</string>
+    <string name="exploit_test_kaslr">KASLR slide search</string>
+    <string name="exploit_test_kaslr_summary">Run only the kernel KASLR slide discovery and stop.</string>
+    <string name="exploit_test_mm_struct">mm_struct search</string>
+    <string name="exploit_test_mm_struct_summary">Run the mm_struct discovery logic and report the leaked object/page.</string>
+    <string name="exploit_test_mm_page">Found MM page prepare/write</string>
+    <string name="exploit_test_mm_page_summary">Run through the found mm page preparation/reclaim write, then stop.</string>
+    <string name="exploit_test_pipe_page">pipe page search</string>
+    <string name="exploit_test_pipe_page_summary">Run only pipe buffer page discovery and stop before the remaining exploit stages.</string>
     <string name="disable_ksu_modules">Disable KSU modules</string>
     <string name="disable_ksu_modules_description">Temporarily disable modules while KernelSU loads</string>
     <string name="disable_ksu_modules_needs_load">Only applies when KernelSU is loaded</string>
