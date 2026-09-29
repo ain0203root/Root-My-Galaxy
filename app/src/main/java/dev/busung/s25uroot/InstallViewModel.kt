@@ -1391,10 +1391,10 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
             { drainProcessOutput(process, captured); logFile.readTextIfPresent() }
         }
 
+        var lastRawLog = ""
         try {
             val startedAt = SystemClock.elapsedRealtime()
             var lastProgressAt = startedAt
-            var lastRawLog = ""
             while (process.isAlive) {
                 val rawLog = readLog()
                 if (rawLog != lastRawLog) {
