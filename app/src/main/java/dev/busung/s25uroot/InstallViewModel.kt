@@ -904,7 +904,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     appendLog(
                         app.getString(
                             R.string.log_exploit_test,
-                            getString(exploitTestStage.label),
+                            app.getString(exploitTestStage.label),
                         ),
                     )
                 }
@@ -970,14 +970,14 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     appendLog(
                         app.getString(
                             R.string.log_exploit_test_completed,
-                            getString(exploitTestStage.label),
+                            app.getString(exploitTestStage.label),
                         ),
                     )
                     setPhase(
                         InstallPhase.Ready,
                         app.getString(
                             R.string.status_exploit_test_completed,
-                            getString(exploitTestStage.label),
+                            app.getString(exploitTestStage.label),
                         ),
                     )
                     finishHistory(InstallRunResult.Tested)
