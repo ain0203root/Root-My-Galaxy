@@ -407,10 +407,7 @@ object AppPreferences {
         editor.commit()
     }
 
-    /**
-     * Where a run takes its payload from. Online is the default because it is the mode that follows
-     * the sources the user configured; Offline is what makes a run possible with no network.
-     */
+    /** The exploit subroutine selected for the next run's isolated diagnostic, or Normal for a normal install. */
     fun exploitTestStage(context: Context): ExploitTestStage =
         ExploitTestStage.fromStoredValue(prefs(context).getString(EXPLOIT_TEST_STAGE, null))
 
