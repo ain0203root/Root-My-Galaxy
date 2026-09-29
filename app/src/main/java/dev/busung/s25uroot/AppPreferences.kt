@@ -63,6 +63,7 @@ object AppPreferences {
     private const val ADB_PAIRED = "adb_paired"
     private const val WIRELESS_ADB_OURS = "wireless_adb_owned"
     private const val PAYLOAD_MODE = "payload_mode"
+    private const val EXPLOIT_TEST_STAGE = "exploit_test_stage"
     private const val BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val LOCAL_PAYLOAD_NAME = "local_payload_name"
     private const val PAYLOAD_SOURCES = "payload_sources"
@@ -410,6 +411,15 @@ object AppPreferences {
      * Where a run takes its payload from. Online is the default because it is the mode that follows
      * the sources the user configured; Offline is what makes a run possible with no network.
      */
+    fun exploitTestStage(context: Context): ExploitTestStage =
+        ExploitTestStage.fromStoredValue(prefs(context).getString(EXPLOIT_TEST_STAGE, null))
+
+    fun setExploitTestStage(context: Context, stage: ExploitTestStage) {
+        prefs(context).edit()
+            .putString(EXPLOIT_TEST_STAGE, stage.storedValue)
+            .apply()
+    }
+
     fun payloadMode(context: Context): PayloadMode {
         val stored = prefs(context).getString(PAYLOAD_MODE, PayloadMode.Online.name)
         return PayloadMode.entries.firstOrNull { it.name == stored } ?: PayloadMode.Online
