@@ -18,6 +18,9 @@ enum class InstallRunResult {
      * nothing was loaded on top of it.
      */
     RootOnly,
+
+    /** A selected exploit diagnostic finished successfully without continuing into root/KernelSU loading. */
+    Tested,
     Failed,
 
     /**
