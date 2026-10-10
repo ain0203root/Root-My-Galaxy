@@ -48,8 +48,8 @@ internal fun pinPayloadArtifactUrl(
  */
 internal fun payloadRelativePathFromGitHubRawUrl(url: String): String? {
     val uri = runCatching { URI(url) }.getOrNull() ?: return null
-    if (!uri.scheme.equals("https", ignoreCase = true) ||
-        !uri.host.equals("raw.githubusercontent.com", ignoreCase = true) ||
+    if (uri.scheme?.equals("https", ignoreCase = true) != true ||
+        uri.host?.equals("raw.githubusercontent.com", ignoreCase = true) != true ||
         uri.port != -1 ||
         uri.rawUserInfo != null ||
         uri.rawQuery != null ||
