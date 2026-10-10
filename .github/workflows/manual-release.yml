@@ -2,6 +2,14 @@ name: Experimental Release Build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'app/src/main/java/dev/busung/s25uroot/PayloadRepository.kt'
+      - 'app/src/main/java/dev/busung/s25uroot/PayloadArtifactUrls.kt'
+      - 'app/src/test/java/dev/busung/s25uroot/PayloadArtifactUrlsTest.kt'
+      - 'app/build.gradle.kts'
 
 permissions:
   contents: write
