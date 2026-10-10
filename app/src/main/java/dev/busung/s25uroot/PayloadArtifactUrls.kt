@@ -73,7 +73,7 @@ internal fun payloadRelativePathFromGitHubRawUrl(url: String): String? {
 }
 
 private fun isSafePayloadRelativePath(path: String): Boolean {
-    if (path.isBlank() || path.startsWith('/') || '\\\\' in path || '%' in path) return false
+    if (path.isBlank() || path.startsWith('/') || '\\' in path || '%' in path) return false
     val segments = path.split('/')
     if (segments.size < 2 || segments.any { it.isBlank() || it == "." || it == ".." }) return false
     if (segments.first() != "artifacts" && segments.first() != "kernelsu") return false
