@@ -78,7 +78,8 @@ class PayloadArtifactUrlsTest {
     }
 
     @Test
-    fun rejectsTraversalQueryAndInvalidCommit() {
+    fun rejectsTraversalQueryMalformedUrlAndInvalidCommit() {
+        assertNull(pinPayloadArtifactUrl(source, "not a URL", commit))
         assertNull(
             pinPayloadArtifactUrl(
                 source,
