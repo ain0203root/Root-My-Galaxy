@@ -8,6 +8,7 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.security.MessageDigest
 import java.net.URL
+import java.net.URI
 import org.json.JSONObject
 
 data class VerifiedPayloads(
@@ -300,13 +301,20 @@ class PayloadRepository(private val context: Context) {
     private fun loadSource(source: PayloadSource): List<TargetProfile> {
         val fetched = fetchManifest(source)
         val commit = fetched.commit
+        // External artifact refs are resolved once per repository/ref in this catalog load. Every
+        // raw GitHub URL returned below contains a full commit SHA rather than a moving branch.
+        val artifactRevisionCache = mutableMapOf<String, String?>()
         return fetched.manifest.targets.map { profile ->
             profile.copy(
                 sourceId = source.id,
                 sourceLabel = source.label,
                 sourceCommit = commit,
-                exploit = profile.exploit.copy(url = pinArtifactUrl(source, profile.exploit.url, commit)),
-                kernelSu = profile.kernelSu.copy(url = pinArtifactUrl(source, profile.kernelSu.url, commit)),
+                exploit = profile.exploit.copy(
+                    url = pinArtifactUrl(source, profile.exploit, commit, artifactRevisionCache),
+                ),
+                kernelSu = profile.kernelSu.copy(
+                    url = pinArtifactUrl(source, profile.kernelSu, commit, artifactRevisionCache),
+                ),
             )
         }
     }
@@ -579,36 +587,111 @@ class PayloadRepository(private val context: Context) {
     private fun rawUrl(source: PayloadSource, commit: String, path: String) =
         "${rawRepository(source)}/$commit/$path"
 
-    private fun mutableRawPrefix(source: PayloadSource) =
-        "${rawRepository(source)}/${source.branch}/"
-
-    // Manifests written for the built-in feed reference its mutable branch URLs, so accept
-    // that prefix too and re-pin it to the source the manifest was actually read from.
-    private fun builtInMutableRawPrefix() =
-        "https://raw.githubusercontent.com/${PayloadSource.DEFAULT.repository}/" +
-            "${PayloadSource.DEFAULT.branch}/"
-
     /**
-     * The built-in feed historically published artifact URLs from the upstream repository. Our
-     * fork carries the same catalog and artifacts, so that upstream prefix is accepted only when the
-     * selected source is the built-in fork. The URL is still rewritten to the selected source and
-     * the resolved commit below, so a run never follows the upstream branch after verification.
+     * Pins a catalog's artifact locations to immutable GitHub revisions.
+     *
+     * A feed may live in one repository while its binaries live in another. Raw GitHub URLs are
+     * therefore resolved against the repository named by the URL, not silently rewritten to the
+     * catalog repository. The historical built-in mirror exception is retained: its upstream URLs
+     * are rebased to the fork revision, as those artifact paths are mirrored by that fork.
+     *
+     * Other HTTPS hosts are accepted only when the catalog supplies a SHA-256, which is enforced
+     * during download. That lets feeds use releases or their own artifact servers without making an
+     * unverifiable binary executable.
      */
     private fun builtInUpstreamRawPrefix(): String =
         "https://raw.githubusercontent.com/BuSung-dev/Root-My-Galaxy-Payloads/main/"
 
-    private fun pinArtifactUrl(source: PayloadSource, url: String, commit: String): String {
-        val prefix = mutableRawPrefix(source)
-        val builtInPrefix = builtInMutableRawPrefix()
+    private fun pinArtifactUrl(
+        source: PayloadSource,
+        artifact: RemoteArtifact,
+        catalogCommit: String,
+        cachedArtifactCommits: MutableMap<String, String?>,
+    ): String {
+        val url = artifact.url
+
+        // Keep the existing built-in mirror behavior, including when its catalog has been pinned.
         val upstreamPrefix = builtInUpstreamRawPrefix()
-        val relative = when {
-            url.startsWith(prefix) -> url.removePrefix(prefix)
-            url.startsWith(builtInPrefix) -> url.removePrefix(builtInPrefix)
-            source.repository == PayloadSource.DEFAULT.repository && url.startsWith(upstreamPrefix) ->
-                url.removePrefix(upstreamPrefix)
-            else -> error(context.getString(R.string.repo_url_invalid))
+        if (source.repository == PayloadSource.DEFAULT.repository && url.startsWith(upstreamPrefix)) {
+            val relative = url.removePrefix(upstreamPrefix)
+            require(relative.isNotBlank() && !relative.startsWith("/")) {
+                context.getString(R.string.repo_url_invalid)
+            }
+            return "${rawRepository(source)}/$catalogCommit/$relative"
         }
-        return "${rawRepository(source)}/$commit/$relative"
+
+        val raw = parseRawGithubArtifactLocation(url)
+        if (raw != null) {
+            val segments = raw.refAndPathSegments
+            val sourceBranchSegments = source.branch.split("/")
+            val sameRepository = raw.repository.equals(source.repository, ignoreCase = true)
+
+            // A URL on this catalog's configured branch is pinned to the exact manifest revision
+            // that was read. This also handles configured branch names containing slashes.
+            if (sameRepository &&
+                segments.size > sourceBranchSegments.size &&
+                segments.take(sourceBranchSegments.size) == sourceBranchSegments
+            ) {
+                val relative = segments.drop(sourceBranchSegments.size).joinToString("/")
+                return "${rawRepository(source)}/$catalogCommit/$relative"
+            }
+
+            // A raw URL is owner/repository/ref/path. Refs may themselves contain slashes, so try
+            // progressively longer ref prefixes (up to four components) and stop at the first
+            // revision GitHub can resolve. This supports ordinary branches, nested branch names,
+            // tags, and already-pinned commit URLs.
+            val maxRefSegments = minOf(MAX_ARTIFACT_REF_SEGMENTS, segments.size - 1)
+            for (refLength in 1..maxRefSegments) {
+                val ref = segments.take(refLength).joinToString("/")
+                val relative = segments.drop(refLength).joinToString("/")
+                val resolvedCommit = when {
+                    PayloadSource.isCommitValid(ref) -> ref
+                    sameRepository && ref == source.branch -> catalogCommit
+                    else -> {
+                        val key = "${raw.repository}@$ref"
+                        if (cachedArtifactCommits.containsKey(key)) {
+                            cachedArtifactCommits[key]
+                        } else {
+                            val resolved = runCatching { resolveRefToCommit(raw.repository, ref) }
+                                .getOrNull()
+                                ?.takeIf(PayloadSource::isCommitValid)
+                            cachedArtifactCommits[key] = resolved
+                            resolved
+                        }
+                    }
+                } ?: continue
+
+                // Pinning a catalog must pin its transitive artifact bytes too. A foreign mutable
+                // branch has no such guarantee unless the feed additionally supplies a SHA-256.
+                if (source.isPinned &&
+                    !PayloadSource.isCommitValid(ref) &&
+                    !(sameRepository && ref == source.branch) &&
+                    artifact.sha256 == null
+                ) {
+                    error("Pinned catalog references a mutable artifact; add its SHA-256 or use a commit URL")
+                }
+
+                return "https://raw.githubusercontent.com/${raw.repository}/$resolvedCommit/$relative"
+            }
+            error(context.getString(R.string.repo_url_invalid))
+        }
+
+        // Non-GitHub servers, including GitHub release-asset URLs, are allowed when a hash from the
+        // catalog is available. The normal download path verifies it before the binary is accepted.
+        val uri = runCatching { URI(url) }.getOrNull()
+        require(
+            uri != null &&
+                uri.scheme.equals("https", ignoreCase = true) &&
+                !uri.host.isNullOrBlank() &&
+                uri.rawUserInfo == null &&
+                !uri.host.equals("raw.githubusercontent.com", ignoreCase = true)
+        ) {
+            context.getString(R.string.repo_url_invalid)
+        }
+        require(artifact.sha256 != null) {
+            "External HTTPS artifact must declare a SHA-256: ${uri.host}"
+        }
+        return url
     }
 
     private fun downloadBytes(url: String, maximum: Int, accept: String? = null): ByteArray {
@@ -666,5 +749,6 @@ class PayloadRepository(private val context: Context) {
         // answer is smaller still. Neither can grow with the commit the way a commit object did.
         private const val MAX_LIST_RESPONSE_BYTES = 1024 * 1024
         private const val MAX_MANIFEST_BYTES = 256 * 1024
+        private const val MAX_ARTIFACT_REF_SEGMENTS = 4
     }
 }
