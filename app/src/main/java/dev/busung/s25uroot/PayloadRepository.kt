@@ -390,6 +390,13 @@ class PayloadRepository(private val context: Context) {
         // hash proves more than a size does, so it takes over and the size is then only a limit on
         // how much may be read rather than a value that has to match.
         val checked = artifact.checksSize
+        // A hash makes the declared size a ceiling rather than an equality check. Every source
+        // also gets an absolute cap so a hostile or misconfigured server cannot fill app storage.
+        val maximumBytes = if (artifact.sha256 != null && artifact.size > 0L) {
+            minOf(artifact.size, MAX_ARTIFACT_BYTES)
+        } else {
+            MAX_ARTIFACT_BYTES
+        }
         onProgress(context.getString(R.string.repo_downloading, label))
         val temporary = File(destination.parentFile, "${destination.name}.part")
         if (BuildConfig.OFFLINE_PAYLOADS) {
@@ -406,7 +413,7 @@ class PayloadRepository(private val context: Context) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        require(!artifact.checksSize || total <= artifact.size) {
+                        require(total <= maximumBytes && (!artifact.checksSize || total <= artifact.size)) {
                             context.getString(R.string.repo_size_exceeded, label)
                         }
                         digest.update(buffer, 0, count)
@@ -431,6 +438,9 @@ class PayloadRepository(private val context: Context) {
             return destination
         }
         val connection = open(artifact.url)
+        require(connection.contentLengthLong == -1L || connection.contentLengthLong <= maximumBytes) {
+            context.getString(R.string.repo_size_exceeded, label)
+        }
         require(!checked || connection.contentLengthLong == -1L || connection.contentLengthLong == artifact.size) {
             context.getString(R.string.repo_size_mismatch, label)
         }
@@ -443,7 +453,7 @@ class PayloadRepository(private val context: Context) {
                     val count = input.read(buffer)
                     if (count < 0) break
                     total += count
-                    require(!checked || total <= artifact.size) {
+                    require(total <= maximumBytes && (!checked || total <= artifact.size)) {
                         context.getString(R.string.repo_size_exceeded, label)
                     }
                     digest.update(buffer, 0, count)
@@ -749,6 +759,7 @@ class PayloadRepository(private val context: Context) {
         // answer is smaller still. Neither can grow with the commit the way a commit object did.
         private const val MAX_LIST_RESPONSE_BYTES = 1024 * 1024
         private const val MAX_MANIFEST_BYTES = 256 * 1024
+        private const val MAX_ARTIFACT_BYTES = 256L * 1024 * 1024
         private const val MAX_ARTIFACT_REF_SEGMENTS = 4
     }
 }
