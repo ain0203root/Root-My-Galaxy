@@ -90,4 +90,46 @@ class ArtifactIntegrityTest {
         assertNull(profile.kernelSu.sha256)
         assertTrue(profile.kernelSu.checksSize)
     }
+
+    @Test
+    fun parsesCanonicalRawUrlsFromAnyGithubRepository() {
+        val parsed = parseRawGithubArtifactLocation(
+            "https://raw.githubusercontent.com/example-org/payloads/feature/release/artifacts/exploit.so",
+        )
+
+        assertEquals("example-org/payloads", parsed?.repository)
+        assertEquals(
+            listOf("feature", "release", "artifacts", "exploit.so"),
+            parsed?.refAndPathSegments,
+        )
+    }
+
+    @Test
+    fun refusesLookalikeHostsAndUnsafeRawUrls() {
+        assertNull(
+            parseRawGithubArtifactLocation(
+                "https://raw.githubusercontent.com.evil.example/owner/repo/main/payload.so",
+            ),
+        )
+        assertNull(
+            parseRawGithubArtifactLocation(
+                "http://raw.githubusercontent.com/owner/repo/main/payload.so",
+            ),
+        )
+        assertNull(
+            parseRawGithubArtifactLocation(
+                "https://user@raw.githubusercontent.com/owner/repo/main/payload.so",
+            ),
+        )
+        assertNull(
+            parseRawGithubArtifactLocation(
+                "https://raw.githubusercontent.com/owner/repo/main/payload.so?redirect=elsewhere",
+            ),
+        )
+        assertNull(
+            parseRawGithubArtifactLocation(
+                "https://raw.githubusercontent.com/owner/repo/main/%2e%2e/payload.so",
+            ),
+        )
+    }
 }
