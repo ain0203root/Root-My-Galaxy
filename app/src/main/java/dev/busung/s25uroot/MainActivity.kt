@@ -1433,6 +1433,49 @@ private fun RootApp(
                         onSelected = { onRunLimitChanged(RunLimit.Helper, it) },
                     )
                     Text(stringResource(R.string.pre_run_limits_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                    HorizontalDivider()
+                    Text(
+                        stringResource(R.string.pre_run_automation_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        stringResource(R.string.pre_run_automation_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.settings_boot_root),
+                        summary = stringResource(
+                            if (loadKernelSu) R.string.settings_boot_root_summary
+                            else R.string.settings_boot_root_needs_load,
+                        ),
+                        checked = bootRootMode,
+                        enabled = loadKernelSu,
+                        onCheckedChange = { enabled ->
+                            if (enabled) requestNotificationPermission()
+                            onBootRootModeChanged(enabled)
+                        },
+                    )
+                    if (loadKernelSu) {
+                        PreRunLimitChoices(
+                            title = stringResource(R.string.settings_autoroot_settle),
+                            values = BootSettle.allowedSeconds,
+                            selected = BootSettle.normalize(autoRootSettleSeconds),
+                            label = { BootSettle.label(it) },
+                            onSelected = onAutoRootSettleChanged,
+                        )
+                    }
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.settings_shizuku_boot),
+                        summary = stringResource(R.string.settings_shizuku_boot_summary),
+                        checked = shizukuBootMode,
+                        onCheckedChange = { enabled ->
+                            if (enabled) requestNotificationPermission()
+                            onShizukuBootModeChanged(enabled)
+                            if (enabled) startShizuku()
+                        },
+                    )
                 }
             },
             confirmButton = {
