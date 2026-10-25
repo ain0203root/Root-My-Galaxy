@@ -848,7 +848,7 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="run_setup_shell_required">A shell context is required by this profile</string>
     <string name="run_setup_shell_optional">Shell context is optional for this profile</string>
     <string name="run_setup_fresh_p0">Fresh P0 session required. The payload keeps its one-attempt pacing; cached P0 offsets are not reused.</string>
-    <string name="run_setup_cached_session">Cached-session policy: the profile's route and attempt policy apply, including any enabled app override.</string>
+    <string name="run_setup_cached_session">Cached-session policy: the profile\'s route and attempt policy apply, including any enabled app override.</string>
     <string name="run_setup_model_match">model matches</string>
     <string name="run_setup_model_mismatch">model does not match</string>
     <string name="run_setup_kernel_match">kernel matches</string>
