@@ -861,4 +861,14 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="pre_run_shell_optional">A shell context is optional for this profile</string>
     <string name="pre_run_restart_after_root">Restart userspace after loading KernelSU</string>
     <string name="pre_run_restart_after_root_summary">A userspace restart closes open apps. Disabled by default.</string>
+
+    <string name="pre_run_transport_choice">Transport for manual runs</string>
+    <string name="pre_run_transport_automatic">Automatic</string>
+    <string name="pre_run_transport_app">App process</string>
+    <string name="pre_run_transport_shizuku">Shizuku</string>
+    <string name="pre_run_transport_local_adb">Local ADB</string>
+    <string name="pre_run_transport_note">Automatic follows profile requirements and the existing Shizuku preference. Forced choices apply only to manual runs; boot automation keeps its own settings.</string>
+    <string name="pre_run_transport_shell_required">This profile requires a shell. App process cannot be selected for it.</string>
+    <string name="pre_run_transport_pairing_required">Local ADB requires a saved pairing in Wireless ADB settings.</string>
+    <string name="pre_run_transport_shizuku_note">If Shizuku is unavailable, the app will ask you to start it or explicitly continue without it.</string>
 </resources>
