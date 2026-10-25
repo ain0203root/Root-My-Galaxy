@@ -732,7 +732,6 @@ private fun RootApp(
     // device's words instead of the same rows that were already tried. Cleared with the sheet.
     var rebootNotice by remember { mutableStateOf<RecoveryOutcome?>(null) }
     var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
-    var choosingTargetFromSetup by remember { mutableStateOf(false) }
     var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     val device = remember { DeviceSnapshot.current() }
     val context = LocalContext.current
@@ -1021,18 +1020,11 @@ private fun RootApp(
         TargetSelectionSheet(
             device = device,
             catalog = targetCatalog,
-            onDismiss = {
-                showTargetPicker = false
-                if (choosingTargetFromSetup) {
-                    choosingTargetFromSetup = false
-                    showInstallConfirmation = true
-                }
-            },
+            onDismiss = { showTargetPicker = false },
             onRetry = installViewModel::loadTargetCatalog,
             onNext = { profile ->
                 selectedProfile = profile
                 showTargetPicker = false
-                choosingTargetFromSetup = false
                 compatibilityWarning = when {
                     !profile.matchesDevice(device) -> CompatibilityWarning.Device
                     !profile.matchesKernelVersion(device) -> CompatibilityWarning.KernelVersion
@@ -1111,55 +1103,32 @@ private fun RootApp(
     }
 
     if (showInstallConfirmation) {
-        val preflightProfile = selectedProfile ?: if (payloadMode == PayloadMode.Offline) {
-            cachedPayload?.profile()
-        } else {
-            targetCatalog.profiles.resolveFor(device)
-        }
-        RunConfigurationDialog(
-            device = device,
-            profile = preflightProfile,
-            profileLoading = payloadMode != PayloadMode.Offline && selectedProfile == null && targetCatalog.loading,
-            profileError = targetCatalog.error,
-            offlineMode = payloadMode == PayloadMode.Offline,
-            shizukuMode = shizukuMode,
-            loadKernelSu = loadKernelSu,
-            disableKsuModules = disableKsuModules,
-            restartAfterRoot = restartAfterRoot,
-            partitionReadOnly = partitionReadOnly,
-            bootSettleSeconds = bootSettleSeconds,
-            runLimits = runLimits,
-            exploitOverride = exploitOverride,
-            onChooseProfile = {
-                if (payloadMode != PayloadMode.Offline) {
-                    choosingTargetFromSetup = true
+        AlertDialog(
+            onDismissRequest = { showInstallConfirmation = false },
+            icon = { Icon(Icons.Rounded.Security, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.34f)
+                Text(stringResource(R.string.install_confirm_title))
+            },
+            text = { Text(stringResource(R.string.install_confirm_body)) },
+            confirmButton = {
+                FilledTonalButton(onClick = {
+                    clickHaptic(view)
                     showInstallConfirmation = false
-                    showTargetPicker = true
-                    installViewModel.loadTargetCatalog()
-                }
-            },
-            onPayloadModeChanged = { mode ->
-                onPayloadModeChanged(mode)
-                if (mode == PayloadMode.Offline) {
+                    openInstaller(selectedProfile?.selectionId)
                     selectedProfile = null
-                } else {
-                    installViewModel.loadTargetCatalog()
+                }) {
+                    Text(stringResource(R.string.action_confirm))
                 }
             },
-            onShizukuModeChanged = onShizukuModeChanged,
-            onLoadKernelSuChanged = onLoadKernelSuChanged,
-            onDisableKsuModulesChanged = onDisableKsuModulesChanged,
-            onRestartAfterRootChanged = onRestartAfterRootChanged,
-            onPartitionReadOnlyChanged = onPartitionReadOnlyChanged,
-            onBootSettleChanged = onBootSettleChanged,
-            onRunLimitChanged = onRunLimitChanged,
-            onExploitOverrideChanged = onExploitOverrideChanged,
-            onStart = {
-                showInstallConfirmation = false
-                openInstaller(selectedProfile?.selectionId)
-                selectedProfile = null
+            dismissButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    showInstallConfirmation = false
+                }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
             },
-            onDismiss = { showInstallConfirmation = false },
         )
     }
 
@@ -1228,7 +1197,6 @@ private fun RootApp(
                                 installViewModel.loadTargetCatalog()
                             } else {
                                 showInstallConfirmation = true
-                                if (payloadMode != PayloadMode.Offline) installViewModel.loadTargetCatalog()
                             }
                         },
                     )
@@ -1292,11 +1260,6 @@ private fun RootApp(
                         startShizuku = startShizuku,
                         requestShizukuPermission = requestShizukuPermission,
                         runPlan = runPlan,
-                        onOpenRunConfiguration = {
-                            selectedProfile = null
-                            showInstallConfirmation = true
-                            if (payloadMode != PayloadMode.Offline) installViewModel.loadTargetCatalog()
-                        },
                         openTarget = settingsTarget,
                         onOpenTargetHandled = onSettingsTargetHandled,
                     )
@@ -3564,7 +3527,6 @@ private fun SettingsPage(
     /** Asks for this app's Shizuku grant, and answers whether it landed. */
     requestShizukuPermission: suspend () -> Boolean,
     runPlan: () -> RunPlanDisplay,
-    onOpenRunConfiguration: () -> Unit,
     /** A card to open on, handed over by a screen that was told to open it, or null. */
     openTarget: String? = null,
     /** Called once the jump has been started, so nothing replays it. */
@@ -4388,17 +4350,6 @@ private fun SettingsPage(
                     onClick = {
                         clickHaptic(view)
                         showRunLimitsDialog = true
-                    },
-                )
-                SettingsCard(
-                    icon = Icons.Rounded.Bolt,
-                    title = stringResource(R.string.run_setup_title),
-                    description = stringResource(R.string.run_setup_settings_summary),
-                    value = "",
-                    position = SettingsCardPosition.Middle,
-                    onClick = {
-                        clickHaptic(view)
-                        onOpenRunConfiguration()
                     },
                 )
                 SettingsCard(
@@ -5815,391 +5766,6 @@ private fun CachedPayloadDialog(
  * here first. Every value comes from the same constants the run uses.
  */
 @Composable
-/**
- * One pre-launch control surface for the manual run.
- *
- * Values changed here go through the same preference callbacks as Settings, so the preview and the actual
- * runner share one source of truth. Device/profile invariants (fresh P0 sessions and a profile's declared
- * KernelSU flavour) remain authoritative; the user can choose another profile explicitly instead of
- * silently rewriting those invariants.
- */
-@Composable
-private fun RunConfigurationDialog(
-    device: DeviceSnapshot,
-    profile: TargetProfile?,
-    profileLoading: Boolean,
-    profileError: String?,
-    offlineMode: Boolean,
-    shizukuMode: Boolean,
-    loadKernelSu: Boolean,
-    disableKsuModules: Boolean,
-    restartAfterRoot: Boolean,
-    partitionReadOnly: Boolean,
-    bootSettleSeconds: Int,
-    runLimits: RunLimitsSettings,
-    exploitOverride: ExploitOverrideSettings,
-    onChooseProfile: () -> Unit,
-    onPayloadModeChanged: (PayloadMode) -> Unit,
-    onShizukuModeChanged: (Boolean) -> Unit,
-    onLoadKernelSuChanged: (Boolean) -> Unit,
-    onDisableKsuModulesChanged: (Boolean) -> Unit,
-    onRestartAfterRootChanged: (Boolean) -> Unit,
-    onPartitionReadOnlyChanged: (Boolean) -> Unit,
-    onBootSettleChanged: (Int) -> Unit,
-    onRunLimitChanged: (RunLimit, Int) -> Unit,
-    onExploitOverrideChanged: (ExploitOverrideSettings) -> Unit,
-    onStart: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val view = LocalView.current
-    val canStart = profile != null
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = { Icon(Icons.Rounded.Bolt, contentDescription = null) },
-        title = {
-            DialogDimAmount(0.34f)
-            Text(stringResource(R.string.run_setup_title))
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 620.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    stringResource(R.string.run_setup_saved_note),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                RunPlanRow(
-                    stringResource(R.string.run_plan_device),
-                    "${device.model} · ${device.kernelRelease}",
-                    first = true,
-                )
-
-                RunSetupSection(
-                    title = stringResource(R.string.run_setup_target_section),
-                    note = stringResource(
-                        if (offlineMode) R.string.run_setup_offline_target_note
-                        else R.string.run_setup_target_note,
-                    ),
-                )
-                if (profile != null) {
-                    RunPlanRow(
-                        stringResource(R.string.run_plan_target),
-                        "${profile.displayName} (${profile.profileId})",
-                    )
-                    RunPlanRow(
-                        stringResource(R.string.run_setup_profile_flavor),
-                        profile.flavor.label,
-                    )
-                    RunPlanRow(
-                        stringResource(R.string.run_plan_source),
-                        profile.sourceLabel.takeIf(String::isNotBlank)
-                            ?.let { label ->
-                                profile.sourceCommit.takeIf(String::isNotBlank)
-                                    ?.let { "$label @ ${it.take(7)}" } ?: label
-                            }
-                            ?: stringResource(R.string.run_plan_source_none),
-                    )
-                    RunPlanRow(
-                        stringResource(R.string.run_setup_profile_models),
-                        profile.supportedModels,
-                    )
-                    RunPlanRow(
-                        stringResource(R.string.run_setup_profile_kernel),
-                        profile.supportedKernelVersions,
-                    )
-                    RunPlanRow(
-                        stringResource(R.string.run_setup_profile_shell),
-                        stringResource(
-                            if (profile.routePolicy.prefersShellTransport) {
-                                R.string.run_setup_shell_required
-                            } else {
-                                R.string.run_setup_shell_optional
-                            },
-                        ),
-                    )
-                    Text(
-                        stringResource(
-                            if (profile.requiresFreshP0Session) {
-                                R.string.run_setup_fresh_p0
-                            } else {
-                                R.string.run_setup_cached_session
-                            },
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (!profile.matchesDevice(device) || !profile.matchesKernelVersion(device)) {
-                        Text(
-                            stringResource(
-                                R.string.run_setup_profile_mismatch,
-                                if (profile.matchesDevice(device)) stringResource(R.string.run_setup_model_match)
-                                else stringResource(R.string.run_setup_model_mismatch),
-                                if (profile.matchesKernelVersion(device)) stringResource(R.string.run_setup_kernel_match)
-                                else stringResource(R.string.run_setup_kernel_mismatch),
-                            ),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                } else {
-                    Text(
-                        stringResource(
-                            when {
-                                profileLoading -> R.string.run_setup_loading_profile
-                                offlineMode -> R.string.run_setup_no_cached_profile
-                                profileError != null -> R.string.run_setup_profile_error
-                                else -> R.string.run_setup_no_matching_profile
-                            },
-                        ),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (profileError != null || offlineMode) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
-                    if (profileError != null && !offlineMode) {
-                        Text(
-                            profileError,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-                OutlinedButton(
-                    onClick = {
-                        clickHaptic(view)
-                        onChooseProfile()
-                    },
-                    enabled = !offlineMode,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.run_setup_choose_profile))
-                }
-
-                RunSetupSection(
-                    title = stringResource(R.string.run_setup_payload_section),
-                    note = stringResource(R.string.run_setup_payload_note),
-                )
-                RunSetupOptionChips(
-                    title = stringResource(R.string.run_setup_payload_mode),
-                    options = listOf(PayloadMode.Online, PayloadMode.Offline),
-                    selected = if (offlineMode) PayloadMode.Offline else PayloadMode.Online,
-                    label = {
-                        stringResource(
-                            if (it == PayloadMode.Online) R.string.settings_payload_mode_online
-                            else R.string.settings_payload_mode_offline,
-                        )
-                    },
-                    onSelected = onPayloadModeChanged,
-                )
-                RunSetupSwitch(
-                    title = stringResource(R.string.run_setup_shizuku),
-                    note = stringResource(R.string.run_setup_shizuku_note),
-                    checked = shizukuMode,
-                    onCheckedChange = onShizukuModeChanged,
-                )
-
-                RunSetupSection(
-                    title = stringResource(R.string.run_setup_root_section),
-                    note = stringResource(R.string.run_setup_root_note),
-                )
-                RunSetupSwitch(
-                    title = stringResource(R.string.run_setup_load_kernelsu),
-                    note = stringResource(R.string.run_setup_load_kernelsu_note),
-                    checked = loadKernelSu,
-                    onCheckedChange = onLoadKernelSuChanged,
-                )
-                RunSetupSwitch(
-                    title = stringResource(R.string.run_setup_disable_modules),
-                    note = stringResource(R.string.run_setup_disable_modules_note),
-                    checked = disableKsuModules,
-                    enabled = loadKernelSu,
-                    onCheckedChange = onDisableKsuModulesChanged,
-                )
-                RunSetupSwitch(
-                    title = stringResource(R.string.run_setup_restart_after_root),
-                    note = stringResource(R.string.run_setup_restart_after_root_note),
-                    checked = restartAfterRoot,
-                    enabled = loadKernelSu,
-                    onCheckedChange = onRestartAfterRootChanged,
-                )
-                RunSetupSwitch(
-                    title = stringResource(R.string.run_setup_partition_read_only),
-                    note = stringResource(R.string.run_setup_partition_read_only_note),
-                    checked = partitionReadOnly,
-                    onCheckedChange = onPartitionReadOnlyChanged,
-                )
-
-                RunSetupSection(
-                    title = stringResource(R.string.run_setup_timing_section),
-                    note = stringResource(R.string.run_setup_timing_note),
-                )
-                RunSetupOptionChips(
-                    title = stringResource(R.string.settings_boot_settle),
-                    options = BootSettle.allowedSeconds,
-                    selected = BootSettle.normalize(bootSettleSeconds),
-                    label = { BootSettle.label(it) },
-                    onSelected = onBootSettleChanged,
-                )
-                RunLimitGroup(
-                    title = stringResource(R.string.run_plan_total),
-                    note = stringResource(R.string.settings_run_limits_summary),
-                    limit = RunLimit.Total,
-                    selected = runLimits.totalSeconds,
-                    onChanged = onRunLimitChanged,
-                )
-                RunLimitGroup(
-                    title = stringResource(R.string.run_plan_stall),
-                    note = stringResource(R.string.run_plan_stall),
-                    limit = RunLimit.Stall,
-                    selected = runLimits.stallSeconds,
-                    onChanged = onRunLimitChanged,
-                )
-                RunLimitGroup(
-                    title = stringResource(R.string.run_plan_helper),
-                    note = stringResource(R.string.run_plan_helper),
-                    limit = RunLimit.Helper,
-                    selected = runLimits.helperSeconds,
-                    onChanged = onRunLimitChanged,
-                )
-
-                RunSetupSection(
-                    title = stringResource(R.string.run_setup_profile_override_section),
-                    note = stringResource(R.string.run_setup_profile_override_note),
-                )
-                ExploitOverrideGroup(
-                    override = exploitOverride,
-                    onChanged = onExploitOverrideChanged,
-                )
-
-                RunSetupSection(
-                    title = stringResource(R.string.run_setup_automation_section),
-                    note = stringResource(R.string.run_setup_automation_note),
-                )
-                Text(
-                    stringResource(R.string.install_confirm_body),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            FilledTonalButton(
-                onClick = {
-                    clickHaptic(view)
-                    onStart()
-                },
-                enabled = canStart,
-            ) {
-                Text(stringResource(R.string.run_setup_start))
-            }
-        },
-        dismissButton = {
-            TextButton(
-                onClick = {
-                    clickHaptic(view)
-                    onDismiss()
-                },
-            ) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        },
-    )
-}
-
-@Composable
-private fun RunSetupSection(
-    title: String,
-    note: String? = null,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        HorizontalDivider(
-            modifier = Modifier.padding(top = 6.dp, bottom = 4.dp),
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
-        )
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        if (!note.isNullOrBlank()) {
-            Text(
-                note,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-@Composable
-private fun RunSetupSwitch(
-    title: String,
-    note: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    val view = LocalView.current
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(
-            modifier = Modifier.weight(1f).padding(end = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            Text(title, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                note,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(
-            checked = checked,
-            enabled = enabled,
-            onCheckedChange = {
-                clickHaptic(view)
-                onCheckedChange(it)
-            },
-        )
-    }
-}
-
-@Composable
-private fun <T> RunSetupOptionChips(
-    title: String,
-    options: List<T>,
-    selected: T,
-    label: @Composable (T) -> String,
-    onSelected: (T) -> Unit,
-) {
-    val view = LocalView.current
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = MaterialTheme.typography.bodyMedium)
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            options.forEach { option ->
-                FilterChip(
-                    selected = option == selected,
-                    onClick = {
-                        clickHaptic(view)
-                        onSelected(option)
-                    },
-                    label = { Text(label(option)) },
-                )
-            }
-        }
-    }
-}
-
 private fun RunPlanDialog(
     display: RunPlanDisplay,
     onDismiss: () -> Unit,
