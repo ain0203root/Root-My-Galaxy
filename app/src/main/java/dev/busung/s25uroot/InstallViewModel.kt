@@ -669,13 +669,28 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
         // vanished, and the screen sat on a run that had not started and could not be asked about.
         discoveryJob?.cancel()
         publishClaim.claim()
+        // Freeze the requested transport before asking about Shizuku. A manual preference never
+        // changes the unattended boot path; "Run without Shizuku" is a one-run answer that returns
+        // to automatic selection rather than silently rewriting the saved preference.
+        val configuredTransportChoice = AppPreferences.manualTransportChoice(app)
+        val runTransportChoice = effectiveManualTransportChoice(
+            configuredTransportChoice,
+            unattended = unattended,
+            withoutShizuku = withoutShizuku,
+        )
+        val shizukuRequested = runRequestsShizuku(
+            choice = configuredTransportChoice,
+            shizukuSetting = AppPreferences.shizukuMode(app),
+            unattended = unattended,
+            withoutShizuku = withoutShizuku,
+        )
         // Asked before anything else is taken or written, so a run that is going to be a question leaves
         // no trace of one that ran: no history entry, no log, and a screen that can still say what the
         // question is.
         if (shouldHoldForShizuku(
                 unattended = unattended,
-                requested = AppPreferences.shizukuMode(app),
-                running = ShizukuController.isRunning(),
+                requested = shizukuRequested,
+                running = ShizukuController.isRunning() && ShizukuController.isGranted(),
                 ignoringShizuku = withoutShizuku,
             )
         ) {
@@ -816,7 +831,6 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 val loadKernelSu = AppPreferences.loadKernelSu(app)
                 // The run's own answer to the question above, honoured for the whole run: this is what
                 // makes "Run without Shizuku" mean it rather than asking again a moment later.
-                val shizukuRequested = AppPreferences.shizukuMode(app) && !withoutShizuku
                 val shizukuUsable = ShizukuController.isRunning() && ShizukuController.isGranted()
                 // The gate has already waited for Shizuku, so a binder that is missing here is not the
                 // thing to fall back from: this run was started on the promise that it would go through
@@ -830,6 +844,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                     shizukuRequested = shizukuRequested,
                     shizukuUsable = shizukuUsable,
                     localAdbPaired = localAdbPaired,
+                    preference = runTransportChoice,
                 ) ?: error(app.getString(shellTransportRefusalStringId(shizukuRequested)))
                 activeRunTransport = transport
                 activeRunShizuku = transport == RunTransport.Shizuku
@@ -837,7 +852,7 @@ class InstallViewModel(application: Application) : AndroidViewModel(application)
                 // anywhere was a run that was set to go through Shizuku and went another way.
                 AppLog.info(
                     RUN_LOG_TAG,
-                    "Transport ${transport.name} (shell required=" +
+                    "Transport ${transport.name} (preference=$runTransportChoice, shell required=" +
                         "${routePolicy.policy.prefersShellTransport}, Shizuku requested=$shizukuRequested, " +
                         "usable=$shizukuUsable, pairing saved=$localAdbPaired)",
                 )
