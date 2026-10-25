@@ -918,10 +918,16 @@ private fun RootApp(
         val resolved = if (payloadMode == PayloadMode.Offline) {
             cachedPayload?.profile()
         } else {
-            selectedProfile ?: targetCatalog.profiles.resolveFor(device)
+            selectedProfile ?: targetCatalog.profiles.resolveFor(device, kernelsuFlavor)
         }
         val freshSession = resolved?.requiresFreshP0Session == true
         val cachedOffset = installViewModel.cachedOffsetForThisBoot()
+        val configuredTransportChoice = AppPreferences.manualTransportChoice(context)
+        val planUsesShizuku = when (configuredTransportChoice) {
+            ManualTransportChoice.Automatic -> shizukuMode
+            ManualTransportChoice.App, ManualTransportChoice.LocalAdb -> false
+            ManualTransportChoice.Shizuku -> true
+        }
         RunPlanDisplay(
             deviceLabel = "${device.model} \u00b7 ${device.kernelRelease}",
             targetLabel = resolved?.let { "${it.displayName} (${it.profileId})" },
@@ -943,7 +949,8 @@ private fun RootApp(
                 else -> context.getString(R.string.run_plan_no_target)
             },
             freshSession = freshSession,
-            shizuku = shizukuMode,
+            shizuku = planUsesShizuku,
+            transportChoice = configuredTransportChoice,
             payloadMode = payloadMode,
             partitionReadOnly = partitionReadOnly,
             cachedOffset = cachedOffset,
@@ -953,7 +960,7 @@ private fun RootApp(
             plan = InstallViewModel.exploitPlan(
                 freshSession,
                 cachedOffset,
-                shizukuMode,
+                planUsesShizuku,
                 ExploitOverride.resolve(
                     policy = resolved?.routePolicy ?: ExploitRoutePolicy.LEGACY,
                     override = AppPreferences.exploitOverride(context),
@@ -1121,7 +1128,7 @@ private fun RootApp(
         val profileForPreview = if (payloadMode == PayloadMode.Offline) {
             cachedPayload?.profile()
         } else {
-            selectedProfile ?: targetCatalog.profiles.resolveFor(device)
+            selectedProfile ?: targetCatalog.profiles.resolveFor(device, kernelsuFlavor)
         }
         val freshSessionPreview = profileForPreview?.requiresFreshP0Session == true
         val shellRequiredForPreview = profileForPreview?.routePolicy?.prefersShellTransport == true
@@ -1257,7 +1264,7 @@ private fun RootApp(
                             color = MaterialTheme.colorScheme.error,
                         )
                     }
-                    if (!localAdbPairedForPreview) {
+                    if (!localAdbPairedForPreview && manualTransportChoice == ManualTransportChoice.LocalAdb) {
                         Text(
                             stringResource(R.string.pre_run_transport_pairing_required),
                             style = MaterialTheme.typography.bodySmall,
@@ -6028,6 +6035,7 @@ private data class RunPlanDisplay(
     val unresolvedNote: String?,
     val freshSession: Boolean,
     val shizuku: Boolean,
+    val transportChoice: ManualTransportChoice,
     val payloadMode: PayloadMode,
     val partitionReadOnly: Boolean,
     val cachedOffset: String?,
@@ -6196,6 +6204,22 @@ private fun RunPlanDialog(
                         if (display.shizuku) R.string.run_plan_transport_shizuku
                         else R.string.run_plan_transport_direct,
                     ),
+                )
+                RunPlanRow(
+                    stringResource(R.string.pre_run_transport_choice),
+                    stringResource(
+                        when (display.transportChoice) {
+                            ManualTransportChoice.Automatic -> R.string.pre_run_transport_automatic
+                            ManualTransportChoice.App -> R.string.pre_run_transport_app
+                            ManualTransportChoice.Shizuku -> R.string.pre_run_transport_shizuku
+                            ManualTransportChoice.LocalAdb -> R.string.pre_run_transport_local_adb
+                        },
+                    ),
+                    note = if (display.transportChoice == ManualTransportChoice.Automatic) {
+                        stringResource(R.string.pre_run_transport_note)
+                    } else {
+                        null
+                    },
                 )
                 RunPlanRow(
                     stringResource(R.string.run_plan_boot_settle),
