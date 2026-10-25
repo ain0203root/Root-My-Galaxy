@@ -733,6 +733,7 @@ private fun RootApp(
     // device's words instead of the same rows that were already tried. Cleared with the sheet.
     var rebootNotice by remember { mutableStateOf<RecoveryOutcome?>(null) }
     var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
+    var choosingTargetFromPreRun by remember { mutableStateOf(false) }
     var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     val device = remember { DeviceSnapshot.current() }
     val context = LocalContext.current
@@ -1021,7 +1022,13 @@ private fun RootApp(
         TargetSelectionSheet(
             device = device,
             catalog = targetCatalog,
-            onDismiss = { showTargetPicker = false },
+            onDismiss = {
+                showTargetPicker = false
+                if (choosingTargetFromPreRun) {
+                    choosingTargetFromPreRun = false
+                    showPreRunDialog = true
+                }
+            },
             onRetry = installViewModel::loadTargetCatalog,
             onNext = { profile ->
                 selectedProfile = profile
@@ -1031,7 +1038,10 @@ private fun RootApp(
                     !profile.matchesKernelVersion(device) -> CompatibilityWarning.KernelVersion
                     else -> null
                 }
-                if (compatibilityWarning == null) showPreRunDialog = true
+                if (compatibilityWarning == null) {
+                    choosingTargetFromPreRun = false
+                    showPreRunDialog = true
+                }
             },
         )
     }
@@ -1082,6 +1092,7 @@ private fun RootApp(
                             CompatibilityWarning.KernelVersion -> null
                         }
                         if (compatibilityWarning == null) {
+                            choosingTargetFromPreRun = false
                             showPreRunDialog = true
                         }
                     },
@@ -1133,6 +1144,51 @@ private fun RootApp(
                         profileForPreview?.let { "${it.displayName} (${it.profileId})" }
                             ?: stringResource(R.string.run_plan_no_target),
                     )
+                    profileForPreview?.let { target ->
+                        RunPlanRow(
+                            stringResource(R.string.run_plan_source),
+                            target.sourceLabel.takeIf(String::isNotBlank)
+                                ?.let { label ->
+                                    target.sourceCommit.takeIf(String::isNotBlank)
+                                        ?.let { "$label @ ${it.take(7)}" } ?: label
+                                }
+                                ?: stringResource(R.string.run_plan_source_none),
+                        )
+                        RunPlanRow(
+                            stringResource(R.string.pre_run_profile_flavor),
+                            target.flavor.label,
+                        )
+                        RunPlanRow(
+                            stringResource(R.string.pre_run_profile_shell),
+                            stringResource(
+                                if (target.routePolicy.prefersShellTransport) {
+                                    R.string.pre_run_shell_required
+                                } else {
+                                    R.string.pre_run_shell_optional
+                                },
+                            ),
+                        )
+                    }
+                    OutlinedButton(
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = payloadMode != PayloadMode.Offline,
+                        onClick = {
+                            clickHaptic(view)
+                            choosingTargetFromPreRun = true
+                            showPreRunDialog = false
+                            showTargetPicker = true
+                            installViewModel.loadTargetCatalog()
+                        },
+                    ) {
+                        Text(stringResource(R.string.pre_run_choose_profile))
+                    }
+                    if (payloadMode == PayloadMode.Offline) {
+                        Text(
+                            stringResource(R.string.pre_run_offline_profile_note),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(
                         stringResource(R.string.pre_run_identity_note),
                         style = MaterialTheme.typography.bodySmall,
@@ -1149,12 +1205,18 @@ private fun RootApp(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
                             selected = payloadMode == PayloadMode.Online,
-                            onClick = { onPayloadModeChanged(PayloadMode.Online) },
+                            onClick = {
+                                onPayloadModeChanged(PayloadMode.Online)
+                                installViewModel.loadTargetCatalog()
+                            },
                             label = { Text(stringResource(R.string.settings_payload_mode_online)) },
                         )
                         FilterChip(
                             selected = payloadMode == PayloadMode.Offline,
-                            onClick = { onPayloadModeChanged(PayloadMode.Offline) },
+                            onClick = {
+                                selectedProfile = null
+                                onPayloadModeChanged(PayloadMode.Offline)
+                            },
                             label = { Text(stringResource(R.string.settings_payload_mode_offline)) },
                         )
                     }
@@ -1174,6 +1236,13 @@ private fun RootApp(
                         summary = stringResource(R.string.pre_run_load_kernelsu_summary),
                         checked = loadKernelSu,
                         onCheckedChange = onLoadKernelSuChanged,
+                    )
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.pre_run_restart_after_root),
+                        summary = stringResource(R.string.pre_run_restart_after_root_summary),
+                        checked = restartAfterRoot,
+                        enabled = loadKernelSu,
+                        onCheckedChange = onRestartAfterRootChanged,
                     )
                     PreRunSwitchRow(
                         title = stringResource(R.string.pre_run_disable_modules),
@@ -1442,6 +1511,11 @@ private fun RootApp(
                         startShizuku = startShizuku,
                         requestShizukuPermission = requestShizukuPermission,
                         runPlan = runPlan,
+                        onOpenPreRunConfiguration = {
+                            selectedProfile = null
+                            showPreRunDialog = true
+                            if (payloadMode != PayloadMode.Offline) installViewModel.loadTargetCatalog()
+                        },
                         openTarget = settingsTarget,
                         onOpenTargetHandled = onSettingsTargetHandled,
                     )
@@ -3709,6 +3783,7 @@ private fun SettingsPage(
     /** Asks for this app's Shizuku grant, and answers whether it landed. */
     requestShizukuPermission: suspend () -> Boolean,
     runPlan: () -> RunPlanDisplay,
+    onOpenPreRunConfiguration: () -> Unit,
     /** A card to open on, handed over by a screen that was told to open it, or null. */
     openTarget: String? = null,
     /** Called once the jump has been started, so nothing replays it. */
@@ -4532,6 +4607,17 @@ private fun SettingsPage(
                     onClick = {
                         clickHaptic(view)
                         showRunLimitsDialog = true
+                    },
+                )
+                SettingsCard(
+                    icon = Icons.Rounded.Tune,
+                    title = stringResource(R.string.pre_run_title),
+                    description = stringResource(R.string.pre_run_settings_summary),
+                    value = "",
+                    position = SettingsCardPosition.Middle,
+                    onClick = {
+                        clickHaptic(view)
+                        onOpenPreRunConfiguration()
                     },
                 )
                 SettingsCard(
