@@ -204,4 +204,14 @@
     <string name="pre_run_limits">Лимиты выполнения приложения</string>
     <string name="pre_run_limits_note">Это ограничения времени выполнения, а не настройки эксплойта. Для fresh-session сохраняется минимальный общий лимит в один час, а watchdog тишины не используется.</string>
     <string name="pre_run_continue">Проверить и продолжить</string>
+
+    <string name="pre_run_settings_summary">Проверь профиль цели, транспорт, тайминги и параметры выполнения перед запуском.</string>
+    <string name="pre_run_choose_profile">Выбрать профиль цели</string>
+    <string name="pre_run_offline_profile_note">В офлайн-режиме используется только успешный кэшированный payload; сменить цель нельзя.</string>
+    <string name="pre_run_profile_flavor">Вариант KernelSU в профиле</string>
+    <string name="pre_run_profile_shell">Контекст выполнения</string>
+    <string name="pre_run_shell_required">Для этого профиля обязателен shell-контекст</string>
+    <string name="pre_run_shell_optional">Shell-контекст для этого профиля необязателен</string>
+    <string name="pre_run_restart_after_root">Перезапустить userspace после загрузки KernelSU</string>
+    <string name="pre_run_restart_after_root_summary">Перезапуск userspace закрывает открытые приложения. По умолчанию выключено.</string>
 </resources>
