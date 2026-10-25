@@ -723,6 +723,7 @@ private fun RootApp(
         if (openedRunEntry != null) selectedPage = AppPage.History
     }
     var showInstallConfirmation by remember { mutableStateOf(false) }
+    var showPreRunDialog by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
     var showRebootSheet by remember { mutableStateOf(false) }
     // The app's one undo surface. Held here rather than per page, so a deletion on History and a deletion in
@@ -913,7 +914,7 @@ private fun RootApp(
         val resolved = if (payloadMode == PayloadMode.Offline) {
             cachedPayload?.profile()
         } else {
-            targetCatalog.profiles.resolveFor(device)
+            selectedProfile ?: targetCatalog.profiles.resolveFor(device)
         }
         val freshSession = resolved?.requiresFreshP0Session == true
         val cachedOffset = installViewModel.cachedOffsetForThisBoot()
@@ -1030,7 +1031,7 @@ private fun RootApp(
                     !profile.matchesKernelVersion(device) -> CompatibilityWarning.KernelVersion
                     else -> null
                 }
-                if (compatibilityWarning == null) showInstallConfirmation = true
+                if (compatibilityWarning == null) showPreRunDialog = true
             },
         )
     }
@@ -1081,7 +1082,7 @@ private fun RootApp(
                             CompatibilityWarning.KernelVersion -> null
                         }
                         if (compatibilityWarning == null) {
-                            showInstallConfirmation = true
+                            showPreRunDialog = true
                         }
                     },
                 ) {
@@ -1098,6 +1099,187 @@ private fun RootApp(
                 ) {
                     Text(stringResource(R.string.action_back))
                 }
+            },
+        )
+    }
+
+    if (showPreRunDialog) {
+        val profileForPreview = if (payloadMode == PayloadMode.Offline) {
+            cachedPayload?.profile()
+        } else {
+            selectedProfile ?: targetCatalog.profiles.resolveFor(device)
+        }
+        val freshSessionPreview = profileForPreview?.requiresFreshP0Session == true
+        AlertDialog(
+            onDismissRequest = { showPreRunDialog = false },
+            icon = { Icon(Icons.Rounded.Tune, contentDescription = null) },
+            title = {
+                DialogDimAmount(0.34f)
+                Text(stringResource(R.string.pre_run_title))
+            },
+            text = {
+                Column(
+                    modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(stringResource(R.string.pre_run_intro), style = MaterialTheme.typography.bodyMedium)
+                    RunPlanRow(
+                        stringResource(R.string.pre_run_device),
+                        "${device.model} · ${device.kernelRelease}",
+                        first = true,
+                    )
+                    RunPlanRow(
+                        stringResource(R.string.pre_run_profile),
+                        profileForPreview?.let { "${it.displayName} (${it.profileId})" }
+                            ?: stringResource(R.string.run_plan_no_target),
+                    )
+                    Text(
+                        stringResource(R.string.pre_run_identity_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    HorizontalDivider()
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.pre_run_shizuku),
+                        summary = stringResource(if (shizukuMode) R.string.run_plan_transport_shizuku else R.string.run_plan_transport_direct),
+                        checked = shizukuMode,
+                        onCheckedChange = onShizukuModeChanged,
+                    )
+                    Text(stringResource(R.string.pre_run_payload_mode), style = MaterialTheme.typography.titleSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = payloadMode == PayloadMode.Online,
+                            onClick = { onPayloadModeChanged(PayloadMode.Online) },
+                            label = { Text(stringResource(R.string.settings_payload_mode_online)) },
+                        )
+                        FilterChip(
+                            selected = payloadMode == PayloadMode.Offline,
+                            onClick = { onPayloadModeChanged(PayloadMode.Offline) },
+                            label = { Text(stringResource(R.string.settings_payload_mode_offline)) },
+                        )
+                    }
+                    Text(stringResource(R.string.pre_run_flavor), style = MaterialTheme.typography.titleSmall)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        KernelSuFlavor.entries.forEach { flavor ->
+                            FilterChip(
+                                selected = kernelsuFlavor == flavor,
+                                enabled = profileForPreview == null || profileForPreview.flavor == flavor,
+                                onClick = { onKernelsuFlavorChanged(flavor) },
+                                label = { Text(flavor.label) },
+                            )
+                        }
+                    }
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.pre_run_load_kernelsu),
+                        summary = stringResource(R.string.pre_run_load_kernelsu_summary),
+                        checked = loadKernelSu,
+                        onCheckedChange = onLoadKernelSuChanged,
+                    )
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.pre_run_disable_modules),
+                        summary = stringResource(R.string.pre_run_disable_modules_summary),
+                        checked = disableKsuModules,
+                        enabled = loadKernelSu,
+                        onCheckedChange = onDisableKsuModulesChanged,
+                    )
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.pre_run_read_only),
+                        summary = stringResource(R.string.partition_read_only_description),
+                        checked = partitionReadOnly,
+                        onCheckedChange = onPartitionReadOnlyChanged,
+                    )
+                    Text(stringResource(R.string.pre_run_boot_settle), style = MaterialTheme.typography.titleSmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        BootSettle.allowedSeconds.forEach { seconds ->
+                            FilterChip(
+                                selected = bootSettleSeconds == seconds,
+                                onClick = { onBootSettleChanged(seconds) },
+                                label = { Text(BootSettle.label(seconds)) },
+                            )
+                        }
+                    }
+                    HorizontalDivider()
+                    Text(stringResource(R.string.pre_run_exploit_overrides), style = MaterialTheme.typography.titleMedium)
+                    PreRunSwitchRow(
+                        title = stringResource(R.string.pre_run_override_enabled),
+                        summary = stringResource(R.string.pre_run_override_summary),
+                        checked = exploitOverride.enabled,
+                        onCheckedChange = { onExploitOverrideChanged(exploitOverride.copy(enabled = it)) },
+                    )
+                    Text(stringResource(R.string.run_plan_attempts), style = MaterialTheme.typography.titleSmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ExploitOverride.allowedAttempts.forEach { attempts ->
+                            FilterChip(
+                                selected = exploitOverride.attempts == attempts,
+                                enabled = exploitOverride.enabled && !freshSessionPreview,
+                                onClick = { onExploitOverrideChanged(exploitOverride.copy(attempts = attempts)) },
+                                label = { Text(attempts.toString()) },
+                            )
+                        }
+                    }
+                    Text(stringResource(R.string.run_plan_attempt_timeout), style = MaterialTheme.typography.titleSmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ExploitOverride.allowedTimeouts.forEach { seconds ->
+                            FilterChip(
+                                selected = exploitOverride.attemptTimeoutSec == seconds,
+                                enabled = exploitOverride.enabled && !freshSessionPreview,
+                                onClick = { onExploitOverrideChanged(exploitOverride.copy(attemptTimeoutSec = seconds)) },
+                                label = { Text("${seconds}s") },
+                            )
+                        }
+                    }
+                    Text(stringResource(R.string.run_plan_slide_route), style = MaterialTheme.typography.titleSmall)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ExploitOverride.allowedRoutes.forEach { route ->
+                            FilterChip(
+                                selected = exploitOverride.slideRoute == route,
+                                enabled = exploitOverride.enabled,
+                                onClick = { onExploitOverrideChanged(exploitOverride.copy(slideRoute = route)) },
+                                label = { Text(stringResource(routeLabelRes(route))) },
+                            )
+                        }
+                    }
+                    if (freshSessionPreview) {
+                        Text(stringResource(R.string.pre_run_fresh_session_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    HorizontalDivider()
+                    Text(stringResource(R.string.pre_run_limits), style = MaterialTheme.typography.titleMedium)
+                    PreRunLimitChoices(
+                        title = stringResource(R.string.run_plan_total),
+                        values = RunLimits.allowedTotalSeconds,
+                        selected = runLimits.totalSeconds,
+                        label = ::formatDurationSeconds,
+                        onSelected = { onRunLimitChanged(RunLimit.Total, it) },
+                    )
+                    PreRunLimitChoices(
+                        title = stringResource(R.string.run_plan_stall),
+                        values = RunLimits.allowedStallSeconds,
+                        selected = runLimits.stallSeconds,
+                        label = ::formatDurationSeconds,
+                        onSelected = { onRunLimitChanged(RunLimit.Stall, it) },
+                    )
+                    PreRunLimitChoices(
+                        title = stringResource(R.string.run_plan_helper),
+                        values = RunLimits.allowedHelperSeconds,
+                        selected = runLimits.helperSeconds,
+                        label = ::formatDurationSeconds,
+                        onSelected = { onRunLimitChanged(RunLimit.Helper, it) },
+                    )
+                    Text(stringResource(R.string.pre_run_limits_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            },
+            confirmButton = {
+                FilledTonalButton(onClick = {
+                    clickHaptic(view)
+                    showPreRunDialog = false
+                    showInstallConfirmation = true
+                }) { Text(stringResource(R.string.pre_run_continue)) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    clickHaptic(view)
+                    showPreRunDialog = false
+                }) { Text(stringResource(R.string.action_cancel)) }
             },
         )
     }
@@ -1196,7 +1378,7 @@ private fun RootApp(
                                 showTargetPicker = true
                                 installViewModel.loadTargetCatalog()
                             } else {
-                                showInstallConfirmation = true
+                                showPreRunDialog = true
                             }
                         },
                     )
@@ -5759,6 +5941,47 @@ private fun CachedPayloadDialog(
             }
         },
     )
+}
+
+@Composable
+private fun PreRunSwitchRow(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun PreRunLimitChoices(
+    title: String,
+    values: List<Int>,
+    selected: Int,
+    label: (Int) -> String,
+    onSelected: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            values.forEach { value ->
+                FilterChip(selected = selected == value, onClick = { onSelected(value) }, label = { Text(label(value)) })
+            }
+        }
+    }
+}
+
+private fun formatDurationSeconds(seconds: Int): String = when {
+    seconds < 60 -> "${seconds}s"
+    seconds % 60 == 0 -> "${seconds / 60}m"
+    else -> "${seconds / 60}m ${seconds % 60}s"
 }
 
 /**

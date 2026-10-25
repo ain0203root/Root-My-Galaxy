@@ -829,4 +829,26 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
         <item quantity="one">This run and its log will be permanently removed.</item>
         <item quantity="other">These runs and their logs will be permanently removed.</item>
     </plurals>
+
+    <string name="pre_run_title">Configure this run</string>
+    <string name="pre_run_intro">Review and adjust the settings that will be used for this run. Changes are saved and also apply to later runs.</string>
+    <string name="pre_run_device">Detected device</string>
+    <string name="pre_run_profile">Target profile</string>
+    <string name="pre_run_identity_note">The detected model and kernel stay read-only. Do not spoof them: a payload for a different device or kernel can crash the phone or leave it unbootable.</string>
+    <string name="pre_run_shizuku">Run through Shizuku</string>
+    <string name="pre_run_payload_mode">Payload source mode</string>
+    <string name="pre_run_flavor">KernelSU flavor</string>
+    <string name="pre_run_load_kernelsu">Load KernelSU</string>
+    <string name="pre_run_load_kernelsu_summary">Run the payload stage that loads KernelSU into the kernel.</string>
+    <string name="pre_run_disable_modules">Temporarily move KernelSU modules aside</string>
+    <string name="pre_run_disable_modules_summary">Modules are restored by the run cleanup. Only available when loading KernelSU.</string>
+    <string name="pre_run_read_only">Protect boot, super and vbmeta partitions</string>
+    <string name="pre_run_boot_settle">Wait after boot before starting</string>
+    <string name="pre_run_exploit_overrides">Exploit parameters</string>
+    <string name="pre_run_override_enabled">Override payload defaults</string>
+    <string name="pre_run_override_summary">Advanced: use app-selected attempt count, timeout and slide route instead of the target profile where supported.</string>
+    <string name="pre_run_fresh_session_note">This profile requires a fresh P0 session. Its attempt count and per-attempt timeout are controlled by the payload and cannot be overridden here; the slide route can still be selected.</string>
+    <string name="pre_run_limits">App run limits</string>
+    <string name="pre_run_limits_note">These are stop limits, not exploit tuning. Fresh-session profiles keep the app's minimum one-hour whole-run ceiling and do not use the silence watchdog.</string>
+    <string name="pre_run_continue">Review and continue</string>
 </resources>
