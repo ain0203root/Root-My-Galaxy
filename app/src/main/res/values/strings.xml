@@ -871,4 +871,5 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="pre_run_transport_shell_required">This profile requires a shell. App process cannot be selected for it.</string>
     <string name="pre_run_transport_pairing_required">Local ADB requires a saved pairing in Wireless ADB settings.</string>
     <string name="pre_run_transport_shizuku_note">If Shizuku is unavailable, the app will ask you to start it or explicitly continue without it.</string>
+    <string name="pre_run_transport_no_shell">This target requires a shell, but Automatic has no usable Shizuku preference or saved Local ADB pairing. Enable Shizuku or pair Local ADB.</string>
 </resources>
