@@ -1322,7 +1322,7 @@ private fun RootApp(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         KernelSuFlavor.entries.forEach { flavor ->
                             FilterChip(
-                                selected = kernelsuFlavor == flavor,
+                                selected = (profileForPreview?.flavor ?: kernelsuFlavor) == flavor,
                                 enabled = profileForPreview == null || profileForPreview.flavor == flavor,
                                 onClick = { onKernelsuFlavorChanged(flavor) },
                                 label = { Text(flavor.label) },
