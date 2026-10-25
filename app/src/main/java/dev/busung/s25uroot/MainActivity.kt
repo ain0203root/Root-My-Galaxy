@@ -723,7 +723,6 @@ private fun RootApp(
         if (openedRunEntry != null) selectedPage = AppPage.History
     }
     var showInstallConfirmation by remember { mutableStateOf(false) }
-    var showPreRunDialog by remember { mutableStateOf(false) }
     var showTargetPicker by remember { mutableStateOf(false) }
     var showRebootSheet by remember { mutableStateOf(false) }
     // The app's one undo surface. Held here rather than per page, so a deletion on History and a deletion in
@@ -733,13 +732,9 @@ private fun RootApp(
     // device's words instead of the same rows that were already tried. Cleared with the sheet.
     var rebootNotice by remember { mutableStateOf<RecoveryOutcome?>(null) }
     var selectedProfile by remember { mutableStateOf<TargetProfile?>(null) }
-    var choosingTargetFromPreRun by remember { mutableStateOf(false) }
     var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     val device = remember { DeviceSnapshot.current() }
     val context = LocalContext.current
-    var manualTransportChoice by remember {
-        mutableStateOf(AppPreferences.manualTransportChoice(context))
-    }
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     // One Shizuku start for the whole app, because two screens offer the button: Home's checklist when
@@ -918,16 +913,10 @@ private fun RootApp(
         val resolved = if (payloadMode == PayloadMode.Offline) {
             cachedPayload?.profile()
         } else {
-            selectedProfile ?: targetCatalog.profiles.resolveFor(device, kernelsuFlavor)
+            targetCatalog.profiles.resolveFor(device)
         }
         val freshSession = resolved?.requiresFreshP0Session == true
         val cachedOffset = installViewModel.cachedOffsetForThisBoot()
-        val configuredTransportChoice = AppPreferences.manualTransportChoice(context)
-        val planUsesShizuku = when (configuredTransportChoice) {
-            ManualTransportChoice.Automatic -> shizukuMode
-            ManualTransportChoice.App, ManualTransportChoice.LocalAdb -> false
-            ManualTransportChoice.Shizuku -> true
-        }
         RunPlanDisplay(
             deviceLabel = "${device.model} \u00b7 ${device.kernelRelease}",
             targetLabel = resolved?.let { "${it.displayName} (${it.profileId})" },
@@ -949,8 +938,7 @@ private fun RootApp(
                 else -> context.getString(R.string.run_plan_no_target)
             },
             freshSession = freshSession,
-            shizuku = planUsesShizuku,
-            transportChoice = configuredTransportChoice,
+            shizuku = shizukuMode,
             payloadMode = payloadMode,
             partitionReadOnly = partitionReadOnly,
             cachedOffset = cachedOffset,
@@ -960,7 +948,7 @@ private fun RootApp(
             plan = InstallViewModel.exploitPlan(
                 freshSession,
                 cachedOffset,
-                planUsesShizuku,
+                shizukuMode,
                 ExploitOverride.resolve(
                     policy = resolved?.routePolicy ?: ExploitRoutePolicy.LEGACY,
                     override = AppPreferences.exploitOverride(context),
@@ -1032,13 +1020,7 @@ private fun RootApp(
         TargetSelectionSheet(
             device = device,
             catalog = targetCatalog,
-            onDismiss = {
-                showTargetPicker = false
-                if (choosingTargetFromPreRun) {
-                    choosingTargetFromPreRun = false
-                    showPreRunDialog = true
-                }
-            },
+            onDismiss = { showTargetPicker = false },
             onRetry = installViewModel::loadTargetCatalog,
             onNext = { profile ->
                 selectedProfile = profile
@@ -1048,10 +1030,7 @@ private fun RootApp(
                     !profile.matchesKernelVersion(device) -> CompatibilityWarning.KernelVersion
                     else -> null
                 }
-                if (compatibilityWarning == null) {
-                    choosingTargetFromPreRun = false
-                    showPreRunDialog = true
-                }
+                if (compatibilityWarning == null) showInstallConfirmation = true
             },
         )
     }
@@ -1102,8 +1081,7 @@ private fun RootApp(
                             CompatibilityWarning.KernelVersion -> null
                         }
                         if (compatibilityWarning == null) {
-                            choosingTargetFromPreRun = false
-                            showPreRunDialog = true
+                            showInstallConfirmation = true
                         }
                     },
                 ) {
@@ -1120,379 +1098,6 @@ private fun RootApp(
                 ) {
                     Text(stringResource(R.string.action_back))
                 }
-            },
-        )
-    }
-
-    if (showPreRunDialog) {
-        val profileForPreview = if (payloadMode == PayloadMode.Offline) {
-            cachedPayload?.profile()
-        } else {
-            selectedProfile ?: targetCatalog.profiles.resolveFor(device, kernelsuFlavor)
-        }
-        val freshSessionPreview = profileForPreview?.requiresFreshP0Session == true
-        val shellRequiredForPreview = profileForPreview?.routePolicy?.prefersShellTransport == true
-        val localAdbPairedForPreview =
-            AppPreferences.adbPaired(context) && AdbCredentialStore.hasStoredKey(context)
-        val transportChoiceValid = when (manualTransportChoice) {
-            ManualTransportChoice.Automatic ->
-                !shellRequiredForPreview || shizukuMode || localAdbPairedForPreview
-            ManualTransportChoice.App -> !shellRequiredForPreview
-            ManualTransportChoice.Shizuku -> true
-            ManualTransportChoice.LocalAdb -> localAdbPairedForPreview
-        }
-        AlertDialog(
-            onDismissRequest = { showPreRunDialog = false },
-            icon = { Icon(Icons.Rounded.Tune, contentDescription = null) },
-            title = {
-                DialogDimAmount(0.34f)
-                Text(stringResource(R.string.pre_run_title))
-            },
-            text = {
-                Column(
-                    modifier = Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(stringResource(R.string.pre_run_intro), style = MaterialTheme.typography.bodyMedium)
-                    RunPlanRow(
-                        stringResource(R.string.pre_run_device),
-                        "${device.model} · ${device.kernelRelease}",
-                        first = true,
-                    )
-                    RunPlanRow(
-                        stringResource(R.string.pre_run_profile),
-                        profileForPreview?.let { "${it.displayName} (${it.profileId})" }
-                            ?: stringResource(R.string.run_plan_no_target),
-                    )
-                    profileForPreview?.let { target ->
-                        RunPlanRow(
-                            stringResource(R.string.run_plan_source),
-                            target.sourceLabel.takeIf(String::isNotBlank)
-                                ?.let { label ->
-                                    target.sourceCommit.takeIf(String::isNotBlank)
-                                        ?.let { "$label @ ${it.take(7)}" } ?: label
-                                }
-                                ?: stringResource(R.string.run_plan_source_none),
-                        )
-                        RunPlanRow(
-                            stringResource(R.string.pre_run_profile_flavor),
-                            target.flavor.label,
-                        )
-                        RunPlanRow(
-                            stringResource(R.string.pre_run_profile_shell),
-                            stringResource(
-                                if (target.routePolicy.prefersShellTransport) {
-                                    R.string.pre_run_shell_required
-                                } else {
-                                    R.string.pre_run_shell_optional
-                                },
-                            ),
-                        )
-                    }
-                    OutlinedButton(
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = payloadMode != PayloadMode.Offline,
-                        onClick = {
-                            clickHaptic(view)
-                            choosingTargetFromPreRun = true
-                            showPreRunDialog = false
-                            showTargetPicker = true
-                            installViewModel.loadTargetCatalog()
-                        },
-                    ) {
-                        Text(stringResource(R.string.pre_run_choose_profile))
-                    }
-                    if (payloadMode == PayloadMode.Offline) {
-                        Text(
-                            stringResource(R.string.pre_run_offline_profile_note),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(
-                        stringResource(R.string.pre_run_identity_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    HorizontalDivider()
-                    Text(
-                        stringResource(R.string.pre_run_transport_choice),
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        ManualTransportChoice.entries.forEach { choice ->
-                            val choiceEnabled = when (choice) {
-                                ManualTransportChoice.Automatic -> true
-                                ManualTransportChoice.App -> !shellRequiredForPreview
-                                ManualTransportChoice.Shizuku -> true
-                                ManualTransportChoice.LocalAdb -> localAdbPairedForPreview
-                            }
-                            FilterChip(
-                                selected = manualTransportChoice == choice,
-                                enabled = choiceEnabled,
-                                onClick = {
-                                    clickHaptic(view)
-                                    AppPreferences.setManualTransportChoice(context, choice)
-                                    manualTransportChoice = choice
-                                },
-                                label = {
-                                    Text(
-                                        stringResource(
-                                            when (choice) {
-                                                ManualTransportChoice.Automatic -> R.string.pre_run_transport_automatic
-                                                ManualTransportChoice.App -> R.string.pre_run_transport_app
-                                                ManualTransportChoice.Shizuku -> R.string.pre_run_transport_shizuku
-                                                ManualTransportChoice.LocalAdb -> R.string.pre_run_transport_local_adb
-                                            },
-                                        ),
-                                    )
-                                },
-                            )
-                        }
-                    }
-                    Text(
-                        stringResource(R.string.pre_run_transport_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    if (shellRequiredForPreview && manualTransportChoice == ManualTransportChoice.App) {
-                        Text(
-                            stringResource(R.string.pre_run_transport_shell_required),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    if (shellRequiredForPreview &&
-                        manualTransportChoice == ManualTransportChoice.Automatic &&
-                        !transportChoiceValid
-                    ) {
-                        Text(
-                            stringResource(R.string.pre_run_transport_no_shell),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                    if (!localAdbPairedForPreview && manualTransportChoice == ManualTransportChoice.LocalAdb) {
-                        Text(
-                            stringResource(R.string.pre_run_transport_pairing_required),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    if (manualTransportChoice == ManualTransportChoice.Automatic) {
-                        PreRunSwitchRow(
-                            title = stringResource(R.string.pre_run_shizuku),
-                            summary = stringResource(
-                                if (shizukuMode) R.string.run_plan_transport_shizuku
-                                else R.string.run_plan_transport_direct,
-                            ),
-                            checked = shizukuMode,
-                            onCheckedChange = onShizukuModeChanged,
-                        )
-                    } else if (manualTransportChoice == ManualTransportChoice.Shizuku) {
-                        Text(
-                            stringResource(R.string.pre_run_transport_shizuku_note),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Text(stringResource(R.string.pre_run_payload_mode), style = MaterialTheme.typography.titleSmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(
-                            selected = payloadMode == PayloadMode.Online,
-                            onClick = {
-                                onPayloadModeChanged(PayloadMode.Online)
-                                installViewModel.loadTargetCatalog()
-                            },
-                            label = { Text(stringResource(R.string.settings_payload_mode_online)) },
-                        )
-                        FilterChip(
-                            selected = payloadMode == PayloadMode.Offline,
-                            onClick = {
-                                selectedProfile = null
-                                onPayloadModeChanged(PayloadMode.Offline)
-                            },
-                            label = { Text(stringResource(R.string.settings_payload_mode_offline)) },
-                        )
-                    }
-                    Text(stringResource(R.string.pre_run_flavor), style = MaterialTheme.typography.titleSmall)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        KernelSuFlavor.entries.forEach { flavor ->
-                            FilterChip(
-                                selected = (profileForPreview?.flavor ?: kernelsuFlavor) == flavor,
-                                enabled = profileForPreview == null || profileForPreview.flavor == flavor,
-                                onClick = { onKernelsuFlavorChanged(flavor) },
-                                label = { Text(flavor.label) },
-                            )
-                        }
-                    }
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.pre_run_load_kernelsu),
-                        summary = stringResource(R.string.pre_run_load_kernelsu_summary),
-                        checked = loadKernelSu,
-                        onCheckedChange = onLoadKernelSuChanged,
-                    )
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.pre_run_restart_after_root),
-                        summary = stringResource(R.string.pre_run_restart_after_root_summary),
-                        checked = restartAfterRoot,
-                        enabled = loadKernelSu,
-                        onCheckedChange = onRestartAfterRootChanged,
-                    )
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.pre_run_disable_modules),
-                        summary = stringResource(R.string.pre_run_disable_modules_summary),
-                        checked = disableKsuModules,
-                        enabled = loadKernelSu,
-                        onCheckedChange = onDisableKsuModulesChanged,
-                    )
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.pre_run_read_only),
-                        summary = stringResource(R.string.partition_read_only_description),
-                        checked = partitionReadOnly,
-                        onCheckedChange = onPartitionReadOnlyChanged,
-                    )
-                    Text(stringResource(R.string.pre_run_boot_settle), style = MaterialTheme.typography.titleSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        BootSettle.allowedSeconds.forEach { seconds ->
-                            FilterChip(
-                                selected = bootSettleSeconds == seconds,
-                                onClick = { onBootSettleChanged(seconds) },
-                                label = { Text(BootSettle.label(seconds)) },
-                            )
-                        }
-                    }
-                    HorizontalDivider()
-                    Text(stringResource(R.string.pre_run_exploit_overrides), style = MaterialTheme.typography.titleMedium)
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.pre_run_override_enabled),
-                        summary = stringResource(R.string.pre_run_override_summary),
-                        checked = exploitOverride.enabled,
-                        onCheckedChange = { onExploitOverrideChanged(exploitOverride.copy(enabled = it)) },
-                    )
-                    Text(stringResource(R.string.run_plan_attempts), style = MaterialTheme.typography.titleSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ExploitOverride.allowedAttempts.forEach { attempts ->
-                            FilterChip(
-                                selected = exploitOverride.attempts == attempts,
-                                enabled = exploitOverride.enabled && !freshSessionPreview,
-                                onClick = { onExploitOverrideChanged(exploitOverride.copy(attempts = attempts)) },
-                                label = { Text(attempts.toString()) },
-                            )
-                        }
-                    }
-                    Text(stringResource(R.string.run_plan_attempt_timeout), style = MaterialTheme.typography.titleSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ExploitOverride.allowedTimeouts.forEach { seconds ->
-                            FilterChip(
-                                selected = exploitOverride.attemptTimeoutSec == seconds,
-                                enabled = exploitOverride.enabled && !freshSessionPreview,
-                                onClick = { onExploitOverrideChanged(exploitOverride.copy(attemptTimeoutSec = seconds)) },
-                                label = { Text("${seconds}s") },
-                            )
-                        }
-                    }
-                    Text(stringResource(R.string.run_plan_slide_route), style = MaterialTheme.typography.titleSmall)
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        ExploitOverride.allowedRoutes.forEach { route ->
-                            FilterChip(
-                                selected = exploitOverride.slideRoute == route,
-                                enabled = exploitOverride.enabled,
-                                onClick = { onExploitOverrideChanged(exploitOverride.copy(slideRoute = route)) },
-                                label = { Text(stringResource(routeLabelRes(route))) },
-                            )
-                        }
-                    }
-                    if (freshSessionPreview) {
-                        Text(stringResource(R.string.pre_run_fresh_session_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    HorizontalDivider()
-                    Text(stringResource(R.string.pre_run_limits), style = MaterialTheme.typography.titleMedium)
-                    PreRunLimitChoices(
-                        title = stringResource(R.string.run_plan_total),
-                        values = RunLimits.allowedTotalSeconds,
-                        selected = runLimits.totalSeconds,
-                        label = ::formatDurationSeconds,
-                        onSelected = { onRunLimitChanged(RunLimit.Total, it) },
-                    )
-                    PreRunLimitChoices(
-                        title = stringResource(R.string.run_plan_stall),
-                        values = RunLimits.allowedStallSeconds,
-                        selected = runLimits.stallSeconds,
-                        label = ::formatDurationSeconds,
-                        onSelected = { onRunLimitChanged(RunLimit.Stall, it) },
-                    )
-                    PreRunLimitChoices(
-                        title = stringResource(R.string.run_plan_helper),
-                        values = RunLimits.allowedHelperSeconds,
-                        selected = runLimits.helperSeconds,
-                        label = ::formatDurationSeconds,
-                        onSelected = { onRunLimitChanged(RunLimit.Helper, it) },
-                    )
-                    Text(stringResource(R.string.pre_run_limits_note), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                    HorizontalDivider()
-                    Text(
-                        stringResource(R.string.pre_run_automation_title),
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(
-                        stringResource(R.string.pre_run_automation_note),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.settings_boot_root),
-                        summary = stringResource(
-                            if (loadKernelSu) R.string.settings_boot_root_summary
-                            else R.string.settings_boot_root_needs_load,
-                        ),
-                        checked = bootRootMode,
-                        enabled = loadKernelSu,
-                        onCheckedChange = { enabled ->
-                            if (enabled) requestNotificationPermission()
-                            onBootRootModeChanged(enabled)
-                        },
-                    )
-                    if (loadKernelSu) {
-                        PreRunLimitChoices(
-                            title = stringResource(R.string.settings_autoroot_settle),
-                            values = BootSettle.allowedSeconds,
-                            selected = BootSettle.normalize(autoRootSettleSeconds),
-                            label = { BootSettle.label(it) },
-                            onSelected = onAutoRootSettleChanged,
-                        )
-                    }
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.settings_shizuku_boot),
-                        summary = stringResource(R.string.settings_shizuku_boot_summary),
-                        checked = shizukuBootMode,
-                        onCheckedChange = { enabled ->
-                            if (enabled) requestNotificationPermission()
-                            onShizukuBootModeChanged(enabled)
-                            if (enabled) startShizuku()
-                        },
-                    )
-                }
-            },
-            confirmButton = {
-                FilledTonalButton(
-                    onClick = {
-                        clickHaptic(view)
-                        showPreRunDialog = false
-                        showInstallConfirmation = true
-                    },
-                    enabled = profileForPreview != null && transportChoiceValid,
-                ) { Text(stringResource(R.string.pre_run_continue)) }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    clickHaptic(view)
-                    showPreRunDialog = false
-                }) { Text(stringResource(R.string.action_cancel)) }
             },
         )
     }
@@ -1591,7 +1196,7 @@ private fun RootApp(
                                 showTargetPicker = true
                                 installViewModel.loadTargetCatalog()
                             } else {
-                                showPreRunDialog = true
+                                showInstallConfirmation = true
                             }
                         },
                     )
@@ -1655,11 +1260,6 @@ private fun RootApp(
                         startShizuku = startShizuku,
                         requestShizukuPermission = requestShizukuPermission,
                         runPlan = runPlan,
-                        onOpenPreRunConfiguration = {
-                            selectedProfile = null
-                            showPreRunDialog = true
-                            if (payloadMode != PayloadMode.Offline) installViewModel.loadTargetCatalog()
-                        },
                         openTarget = settingsTarget,
                         onOpenTargetHandled = onSettingsTargetHandled,
                     )
@@ -3927,7 +3527,6 @@ private fun SettingsPage(
     /** Asks for this app's Shizuku grant, and answers whether it landed. */
     requestShizukuPermission: suspend () -> Boolean,
     runPlan: () -> RunPlanDisplay,
-    onOpenPreRunConfiguration: () -> Unit,
     /** A card to open on, handed over by a screen that was told to open it, or null. */
     openTarget: String? = null,
     /** Called once the jump has been started, so nothing replays it. */
@@ -4751,17 +4350,6 @@ private fun SettingsPage(
                     onClick = {
                         clickHaptic(view)
                         showRunLimitsDialog = true
-                    },
-                )
-                SettingsCard(
-                    icon = Icons.Rounded.Tune,
-                    title = stringResource(R.string.pre_run_title),
-                    description = stringResource(R.string.pre_run_settings_summary),
-                    value = "",
-                    position = SettingsCardPosition.Middle,
-                    onClick = {
-                        clickHaptic(view)
-                        onOpenPreRunConfiguration()
                     },
                 )
                 SettingsCard(
@@ -6089,7 +5677,6 @@ private data class RunPlanDisplay(
     val unresolvedNote: String?,
     val freshSession: Boolean,
     val shizuku: Boolean,
-    val transportChoice: ManualTransportChoice,
     val payloadMode: PayloadMode,
     val partitionReadOnly: Boolean,
     val cachedOffset: String?,
@@ -6174,47 +5761,6 @@ private fun CachedPayloadDialog(
     )
 }
 
-@Composable
-private fun PreRunSwitchRow(
-    title: String,
-    summary: String,
-    checked: Boolean,
-    enabled: Boolean = true,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(summary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-private fun PreRunLimitChoices(
-    title: String,
-    values: List<Int>,
-    selected: Int,
-    label: (Int) -> String,
-    onSelected: (Int) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            values.forEach { value ->
-                FilterChip(selected = selected == value, onClick = { onSelected(value) }, label = { Text(label(value)) })
-            }
-        }
-    }
-}
-
-private fun formatDurationSeconds(seconds: Int): String = when {
-    seconds < 60 -> "${seconds}s"
-    seconds % 60 == 0 -> "${seconds / 60}m"
-    else -> "${seconds / 60}m ${seconds % 60}s"
-}
-
 /**
  * Shows what a run will be handed before it is started, so a run that ends at a ceiling says so
  * here first. Every value comes from the same constants the run uses.
@@ -6255,18 +5801,9 @@ private fun RunPlanDialog(
                 RunPlanRow(
                     stringResource(R.string.run_plan_transport),
                     stringResource(
-                        when (display.transportChoice) {
-                            ManualTransportChoice.Automatic -> R.string.pre_run_transport_automatic
-                            ManualTransportChoice.App -> R.string.pre_run_transport_app
-                            ManualTransportChoice.Shizuku -> R.string.pre_run_transport_shizuku
-                            ManualTransportChoice.LocalAdb -> R.string.pre_run_transport_local_adb
-                        },
+                        if (display.shizuku) R.string.run_plan_transport_shizuku
+                        else R.string.run_plan_transport_direct,
                     ),
-                    note = if (display.transportChoice == ManualTransportChoice.Automatic) {
-                        stringResource(R.string.pre_run_transport_note)
-                    } else {
-                        null
-                    },
                 )
                 RunPlanRow(
                     stringResource(R.string.run_plan_boot_settle),
