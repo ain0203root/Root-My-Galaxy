@@ -6043,7 +6043,7 @@ private fun RunConfigurationDialog(
                     title = stringResource(R.string.settings_boot_settle),
                     options = BootSettle.allowedSeconds,
                     selected = BootSettle.normalize(bootSettleSeconds),
-                    label = BootSettle::label,
+                    label = { BootSettle.label(it) },
                     onSelected = onBootSettleChanged,
                 )
                 RunLimitGroup(
