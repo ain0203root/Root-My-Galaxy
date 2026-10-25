@@ -849,7 +849,7 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="pre_run_override_summary">Advanced: use app-selected attempt count, timeout and slide route instead of the target profile where supported.</string>
     <string name="pre_run_fresh_session_note">This profile requires a fresh P0 session. Its attempt count and per-attempt timeout are controlled by the payload and cannot be overridden here; the slide route can still be selected.</string>
     <string name="pre_run_limits">App run limits</string>
-    <string name="pre_run_limits_note">These are stop limits, not exploit tuning. Fresh-session profiles keep the app's minimum one-hour whole-run ceiling and do not use the silence watchdog.</string>
+    <string name="pre_run_limits_note">These are stop limits, not exploit tuning. Fresh-session profiles keep the app\'s minimum one-hour whole-run ceiling and do not use the silence watchdog.</string>
     <string name="pre_run_continue">Review and continue</string>
 
     <string name="pre_run_settings_summary">Review target profile, transport, timing and execution options before starting.</string>
