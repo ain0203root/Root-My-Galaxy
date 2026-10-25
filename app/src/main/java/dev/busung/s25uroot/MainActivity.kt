@@ -6201,13 +6201,6 @@ private fun RunPlanDialog(
                 RunPlanRow(
                     stringResource(R.string.run_plan_transport),
                     stringResource(
-                        if (display.shizuku) R.string.run_plan_transport_shizuku
-                        else R.string.run_plan_transport_direct,
-                    ),
-                )
-                RunPlanRow(
-                    stringResource(R.string.pre_run_transport_choice),
-                    stringResource(
                         when (display.transportChoice) {
                             ManualTransportChoice.Automatic -> R.string.pre_run_transport_automatic
                             ManualTransportChoice.App -> R.string.pre_run_transport_app
