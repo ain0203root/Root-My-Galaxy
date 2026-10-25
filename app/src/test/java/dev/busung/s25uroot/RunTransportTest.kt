@@ -130,4 +130,148 @@ class RunTransportTest {
     fun `the payload cannot decide its own exit code by printing the marker`() {
         assertEquals(1, localAdbExploitExitCode("$ADB_EXIT_MARKER" + "0\nreal output\n$ADB_EXIT_MARKER" + "1\n"))
     }
+
+    @Test
+    fun `explicit App transport is refused when the profile needs a shell`() {
+        assertEquals(
+            RunTransport.App,
+            chooseRunTransport(
+                shellRequired = false,
+                shizukuRequested = false,
+                shizukuUsable = false,
+                localAdbPaired = true,
+                preference = ManualTransportChoice.App,
+            ),
+        )
+        assertNull(
+            chooseRunTransport(
+                shellRequired = true,
+                shizukuRequested = false,
+                shizukuUsable = false,
+                localAdbPaired = true,
+                preference = ManualTransportChoice.App,
+            ),
+        )
+    }
+
+    @Test
+    fun `explicit Shizuku choice does not silently select another transport`() {
+        assertEquals(
+            RunTransport.Shizuku,
+            chooseRunTransport(
+                shellRequired = false,
+                shizukuRequested = true,
+                shizukuUsable = true,
+                localAdbPaired = true,
+                preference = ManualTransportChoice.Shizuku,
+            ),
+        )
+        assertNull(
+            chooseRunTransport(
+                shellRequired = true,
+                shizukuRequested = true,
+                shizukuUsable = false,
+                localAdbPaired = true,
+                preference = ManualTransportChoice.Shizuku,
+            ),
+        )
+    }
+
+    @Test
+    fun `explicit Local ADB choice requires a saved pairing`() {
+        assertEquals(
+            RunTransport.LocalAdb,
+            chooseRunTransport(
+                shellRequired = false,
+                shizukuRequested = false,
+                shizukuUsable = false,
+                localAdbPaired = true,
+                preference = ManualTransportChoice.LocalAdb,
+            ),
+        )
+        assertNull(
+            chooseRunTransport(
+                shellRequired = false,
+                shizukuRequested = true,
+                shizukuUsable = true,
+                localAdbPaired = false,
+                preference = ManualTransportChoice.LocalAdb,
+            ),
+        )
+    }
+
+    @Test
+    fun `automatic transport preserves existing selection logic`() {
+        assertEquals(
+            RunTransport.Shizuku,
+            chooseRunTransport(
+                shellRequired = false,
+                shizukuRequested = true,
+                shizukuUsable = true,
+                localAdbPaired = true,
+                preference = ManualTransportChoice.Automatic,
+            ),
+        )
+        assertEquals(
+            RunTransport.LocalAdb,
+            chooseRunTransport(
+                shellRequired = true,
+                shizukuRequested = false,
+                shizukuUsable = false,
+                localAdbPaired = true,
+                preference = ManualTransportChoice.Automatic,
+            ),
+        )
+    }
+
+    @Test
+    fun `boot and run without Shizuku ignore the manual override`() {
+        assertEquals(
+            ManualTransportChoice.Automatic,
+            effectiveManualTransportChoice(
+                ManualTransportChoice.App,
+                unattended = true,
+                withoutShizuku = false,
+            ),
+        )
+        assertEquals(
+            ManualTransportChoice.Automatic,
+            effectiveManualTransportChoice(
+                ManualTransportChoice.LocalAdb,
+                unattended = false,
+                withoutShizuku = true,
+            ),
+        )
+        assertTrue(
+            runRequestsShizuku(
+                choice = ManualTransportChoice.Automatic,
+                shizukuSetting = true,
+                unattended = true,
+                withoutShizuku = false,
+            ),
+        )
+        assertFalse(
+            runRequestsShizuku(
+                choice = ManualTransportChoice.LocalAdb,
+                shizukuSetting = true,
+                unattended = false,
+                withoutShizuku = false,
+            ),
+        )
+        assertFalse(
+            runRequestsShizuku(
+                choice = ManualTransportChoice.Shizuku,
+                shizukuSetting = true,
+                unattended = false,
+                withoutShizuku = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `unknown stored transport choice safely defaults to automatic`() {
+        assertEquals(ManualTransportChoice.Automatic, ManualTransportChoice.fromStoredValue("nonsense"))
+        assertEquals(ManualTransportChoice.LocalAdb, ManualTransportChoice.fromStoredValue("local-adb"))
+    }
+
 }
