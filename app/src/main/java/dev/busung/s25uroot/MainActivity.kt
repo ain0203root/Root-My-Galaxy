@@ -737,6 +737,9 @@ private fun RootApp(
     var compatibilityWarning by remember { mutableStateOf<CompatibilityWarning?>(null) }
     val device = remember { DeviceSnapshot.current() }
     val context = LocalContext.current
+    var manualTransportChoice by remember {
+        mutableStateOf(AppPreferences.manualTransportChoice(context))
+    }
     val view = LocalView.current
     val scope = rememberCoroutineScope()
     // One Shizuku start for the whole app, because two screens offer the button: Home's checklist when
@@ -1121,6 +1124,15 @@ private fun RootApp(
             selectedProfile ?: targetCatalog.profiles.resolveFor(device)
         }
         val freshSessionPreview = profileForPreview?.requiresFreshP0Session == true
+        val shellRequiredForPreview = profileForPreview?.routePolicy?.prefersShellTransport == true
+        val localAdbPairedForPreview =
+            AppPreferences.adbPaired(context) && AdbCredentialStore.hasStoredKey(context)
+        val transportChoiceValid = when (manualTransportChoice) {
+            ManualTransportChoice.Automatic -> true
+            ManualTransportChoice.App -> !shellRequiredForPreview
+            ManualTransportChoice.Shizuku -> true
+            ManualTransportChoice.LocalAdb -> localAdbPairedForPreview
+        }
         AlertDialog(
             onDismissRequest = { showPreRunDialog = false },
             icon = { Icon(Icons.Rounded.Tune, contentDescription = null) },
@@ -1195,12 +1207,80 @@ private fun RootApp(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     HorizontalDivider()
-                    PreRunSwitchRow(
-                        title = stringResource(R.string.pre_run_shizuku),
-                        summary = stringResource(if (shizukuMode) R.string.run_plan_transport_shizuku else R.string.run_plan_transport_direct),
-                        checked = shizukuMode,
-                        onCheckedChange = onShizukuModeChanged,
+                    Text(
+                        stringResource(R.string.pre_run_transport_choice),
+                        style = MaterialTheme.typography.titleSmall,
                     )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        ManualTransportChoice.entries.forEach { choice ->
+                            val choiceEnabled = when (choice) {
+                                ManualTransportChoice.Automatic -> true
+                                ManualTransportChoice.App -> !shellRequiredForPreview
+                                ManualTransportChoice.Shizuku -> true
+                                ManualTransportChoice.LocalAdb -> localAdbPairedForPreview
+                            }
+                            FilterChip(
+                                selected = manualTransportChoice == choice,
+                                enabled = choiceEnabled,
+                                onClick = {
+                                    clickHaptic(view)
+                                    AppPreferences.setManualTransportChoice(context, choice)
+                                    manualTransportChoice = choice
+                                },
+                                label = {
+                                    Text(
+                                        stringResource(
+                                            when (choice) {
+                                                ManualTransportChoice.Automatic -> R.string.pre_run_transport_automatic
+                                                ManualTransportChoice.App -> R.string.pre_run_transport_app
+                                                ManualTransportChoice.Shizuku -> R.string.pre_run_transport_shizuku
+                                                ManualTransportChoice.LocalAdb -> R.string.pre_run_transport_local_adb
+                                            },
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                    }
+                    Text(
+                        stringResource(R.string.pre_run_transport_note),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (shellRequiredForPreview && manualTransportChoice == ManualTransportChoice.App) {
+                        Text(
+                            stringResource(R.string.pre_run_transport_shell_required),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (!localAdbPairedForPreview) {
+                        Text(
+                            stringResource(R.string.pre_run_transport_pairing_required),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (manualTransportChoice == ManualTransportChoice.Automatic) {
+                        PreRunSwitchRow(
+                            title = stringResource(R.string.pre_run_shizuku),
+                            summary = stringResource(
+                                if (shizukuMode) R.string.run_plan_transport_shizuku
+                                else R.string.run_plan_transport_direct,
+                            ),
+                            checked = shizukuMode,
+                            onCheckedChange = onShizukuModeChanged,
+                        )
+                    } else if (manualTransportChoice == ManualTransportChoice.Shizuku) {
+                        Text(
+                            stringResource(R.string.pre_run_transport_shizuku_note),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     Text(stringResource(R.string.pre_run_payload_mode), style = MaterialTheme.typography.titleSmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(
@@ -1338,11 +1418,14 @@ private fun RootApp(
                 }
             },
             confirmButton = {
-                FilledTonalButton(onClick = {
-                    clickHaptic(view)
-                    showPreRunDialog = false
-                    showInstallConfirmation = true
-                }) { Text(stringResource(R.string.pre_run_continue)) }
+                FilledTonalButton(
+                    onClick = {
+                        clickHaptic(view)
+                        showPreRunDialog = false
+                        showInstallConfirmation = true
+                    },
+                    enabled = profileForPreview != null && transportChoiceValid,
+                ) { Text(stringResource(R.string.pre_run_continue)) }
             },
             dismissButton = {
                 TextButton(onClick = {
