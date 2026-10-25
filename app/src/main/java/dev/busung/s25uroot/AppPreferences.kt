@@ -43,7 +43,6 @@ object AppPreferences {
     private const val LOADED_FLAVOR = "loaded_flavor"
     private const val LOADED_FLAVOR_BOOT = "loaded_flavor_boot"
     private const val SHIZUKU_MODE = "shizuku_mode"
-    private const val MANUAL_TRANSPORT_CHOICE = "manual_transport_choice"
     private const val BOOT_ROOT_MODE = "boot_root_mode"
     private const val RESTART_AFTER_ROOT = "restart_after_root"
     private const val RETRY_AFTER_REBOOT = "retry_after_reboot_boot"
@@ -317,22 +316,6 @@ object AppPreferences {
     fun setShizukuMode(context: Context, enabled: Boolean) {
         prefs(context).edit()
             .putBoolean(SHIZUKU_MODE, enabled)
-            .apply()
-    }
-
-    /**
-     * Manual runs may explicitly choose a transport. Automatic preserves the established
-     * profile-aware selection and the existing "Use Shizuku" preference; unattended boot runs
-     * intentionally ignore this value and use their separate boot policy.
-     */
-    internal fun manualTransportChoice(context: Context): ManualTransportChoice =
-        ManualTransportChoice.fromStoredValue(
-            prefs(context).getString(MANUAL_TRANSPORT_CHOICE, null),
-        )
-
-    internal fun setManualTransportChoice(context: Context, choice: ManualTransportChoice) {
-        prefs(context).edit()
-            .putString(MANUAL_TRANSPORT_CHOICE, choice.storedValue)
             .apply()
     }
 
