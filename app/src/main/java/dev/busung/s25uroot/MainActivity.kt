@@ -1135,7 +1135,8 @@ private fun RootApp(
         val localAdbPairedForPreview =
             AppPreferences.adbPaired(context) && AdbCredentialStore.hasStoredKey(context)
         val transportChoiceValid = when (manualTransportChoice) {
-            ManualTransportChoice.Automatic -> true
+            ManualTransportChoice.Automatic ->
+                !shellRequiredForPreview || shizukuMode || localAdbPairedForPreview
             ManualTransportChoice.App -> !shellRequiredForPreview
             ManualTransportChoice.Shizuku -> true
             ManualTransportChoice.LocalAdb -> localAdbPairedForPreview
@@ -1260,6 +1261,16 @@ private fun RootApp(
                     if (shellRequiredForPreview && manualTransportChoice == ManualTransportChoice.App) {
                         Text(
                             stringResource(R.string.pre_run_transport_shell_required),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    if (shellRequiredForPreview &&
+                        manualTransportChoice == ManualTransportChoice.Automatic &&
+                        !transportChoiceValid
+                    ) {
+                        Text(
+                            stringResource(R.string.pre_run_transport_no_shell),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
                         )
