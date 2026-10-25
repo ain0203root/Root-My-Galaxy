@@ -851,4 +851,14 @@ Hold Power and Volume Down together for 7 seconds to restart it from there.</str
     <string name="pre_run_limits">App run limits</string>
     <string name="pre_run_limits_note">These are stop limits, not exploit tuning. Fresh-session profiles keep the app's minimum one-hour whole-run ceiling and do not use the silence watchdog.</string>
     <string name="pre_run_continue">Review and continue</string>
+
+    <string name="pre_run_settings_summary">Review target profile, transport, timing and execution options before starting.</string>
+    <string name="pre_run_choose_profile">Choose target profile</string>
+    <string name="pre_run_offline_profile_note">Offline mode is bound to the cached successful payload and cannot switch targets.</string>
+    <string name="pre_run_profile_flavor">KernelSU flavour in this profile</string>
+    <string name="pre_run_profile_shell">Execution context</string>
+    <string name="pre_run_shell_required">This profile requires a shell context</string>
+    <string name="pre_run_shell_optional">A shell context is optional for this profile</string>
+    <string name="pre_run_restart_after_root">Restart userspace after loading KernelSU</string>
+    <string name="pre_run_restart_after_root_summary">A userspace restart closes open apps. Disabled by default.</string>
 </resources>
