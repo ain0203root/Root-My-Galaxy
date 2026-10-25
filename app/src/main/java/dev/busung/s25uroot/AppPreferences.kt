@@ -325,12 +325,12 @@ object AppPreferences {
      * profile-aware selection and the existing "Use Shizuku" preference; unattended boot runs
      * intentionally ignore this value and use their separate boot policy.
      */
-    fun manualTransportChoice(context: Context): ManualTransportChoice =
+    internal fun manualTransportChoice(context: Context): ManualTransportChoice =
         ManualTransportChoice.fromStoredValue(
             prefs(context).getString(MANUAL_TRANSPORT_CHOICE, null),
         )
 
-    fun setManualTransportChoice(context: Context, choice: ManualTransportChoice) {
+    internal fun setManualTransportChoice(context: Context, choice: ManualTransportChoice) {
         prefs(context).edit()
             .putString(MANUAL_TRANSPORT_CHOICE, choice.storedValue)
             .apply()
