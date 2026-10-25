@@ -12,44 +12,6 @@ internal enum class RunTransport {
     LocalAdb,
 }
 
-/**
- * The manual run's transport preference. Automatic preserves the existing profile-aware rules;
- * the other values deliberately request one transport and refuse rather than silently changing it.
- * Unattended boot runs ignore this preference and continue to follow the boot settings.
- */
-internal enum class ManualTransportChoice(val storedValue: String) {
-    Automatic("automatic"),
-    App("app"),
-    Shizuku("shizuku"),
-    LocalAdb("local-adb");
-
-    companion object {
-        fun fromStoredValue(value: String?): ManualTransportChoice =
-            entries.firstOrNull { it.storedValue == value } ?: Automatic
-    }
-}
-
-/** Selects whether this particular run should honour the saved manual preference. */
-internal fun effectiveManualTransportChoice(
-    choice: ManualTransportChoice,
-    unattended: Boolean,
-    withoutShizuku: Boolean,
-): ManualTransportChoice = if (unattended || withoutShizuku) ManualTransportChoice.Automatic else choice
-
-/** Whether this run should request Shizuku, while keeping unattended boot behaviour unchanged. */
-internal fun runRequestsShizuku(
-    choice: ManualTransportChoice,
-    shizukuSetting: Boolean,
-    unattended: Boolean,
-    withoutShizuku: Boolean,
-): Boolean = when {
-    withoutShizuku -> false
-    unattended -> shizukuSetting
-    choice == ManualTransportChoice.Shizuku -> true
-    choice == ManualTransportChoice.Automatic -> shizukuSetting
-    else -> false
-}
-
 /** What a run has available, from the feed's policy and from the device. */
 internal data class TransportAvailability(
     val shellRequired: Boolean,
@@ -81,20 +43,14 @@ internal fun chooseRunTransport(
     shizukuRequested: Boolean,
     shizukuUsable: Boolean,
     localAdbPaired: Boolean,
-    preference: ManualTransportChoice = ManualTransportChoice.Automatic,
-): RunTransport? = when (preference) {
-    ManualTransportChoice.Automatic -> when {
-        shellRequired -> when {
-            shizukuRequested && shizukuUsable -> RunTransport.Shizuku
-            localAdbPaired -> RunTransport.LocalAdb
-            else -> null
-        }
+): RunTransport? = when {
+    shellRequired -> when {
         shizukuRequested && shizukuUsable -> RunTransport.Shizuku
-        else -> RunTransport.App
+        localAdbPaired -> RunTransport.LocalAdb
+        else -> null
     }
-    ManualTransportChoice.App -> if (shellRequired) null else RunTransport.App
-    ManualTransportChoice.Shizuku -> if (shizukuRequested && shizukuUsable) RunTransport.Shizuku else null
-    ManualTransportChoice.LocalAdb -> if (localAdbPaired) RunTransport.LocalAdb else null
+    shizukuRequested && shizukuUsable -> RunTransport.Shizuku
+    else -> RunTransport.App
 }
 
 /**
