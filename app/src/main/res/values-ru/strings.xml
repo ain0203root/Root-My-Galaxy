@@ -224,4 +224,5 @@
     <string name="pre_run_transport_shell_required">Этому профилю нужен shell. Запуск в процессе приложения для него недоступен.</string>
     <string name="pre_run_transport_pairing_required">Для локального ADB нужна сохранённая пара в настройках «Беспроводной ADB».</string>
     <string name="pre_run_transport_shizuku_note">Если Shizuku недоступен, приложение предложит запустить его или явно продолжить без него.</string>
+    <string name="pre_run_transport_no_shell">Этой цели нужен shell, но в режиме «Автоматически» нет доступного Shizuku или сохранённой пары Local ADB. Включи Shizuku или настрой пару Local ADB.</string>
 </resources>
